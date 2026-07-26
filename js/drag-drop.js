@@ -31,18 +31,18 @@ function dropScene(event,targetSceneId){
   const after=event.clientY>rect.top+rect.height/2;
   row.classList.remove("drop-before","drop-after");
   if(!draggedSceneId||draggedSceneId===targetSceneId)return;
-  const movedIndex=sceneIndexById(draggedSceneId);
-  const targetIndexBefore=sceneIndexById(targetSceneId);
-  if(movedIndex<0||targetIndexBefore<0)return;
-  const targetScene=sceneById(targetSceneId);
-  const [moved]=data.scenes.splice(movedIndex,1);
-  moved.chapterId=targetScene.chapterId;
-  let targetIndex=sceneIndexById(targetSceneId);
-  if(after)targetIndex++;
-  if(moved.date)moved.dateReview=true;
-  data.scenes.splice(targetIndex,0,moved);
-  draggedSceneId=null;
-  saveData();render();
+  const movedId=draggedSceneId;
+  const result=commitDataChange(next=>{
+    const movedIndex=next.scenes.findIndex(s=>s.id===movedId);
+    const targetScene=next.scenes.find(s=>s.id===targetSceneId);
+    if(movedIndex<0||!targetScene)throw new Error("scene missing");
+    const [moved]=next.scenes.splice(movedIndex,1);
+    moved.chapterId=targetScene.chapterId;
+    let targetIndex=next.scenes.findIndex(s=>s.id===targetSceneId);if(after)targetIndex++;
+    if(moved.date)moved.dateReview=true;
+    next.scenes.splice(targetIndex,0,moved);
+  },{renderAfter:false});
+  if(result.ok){draggedSceneId=null;render()}
 }
 
 function dragEnd(){
@@ -100,17 +100,16 @@ function sortDrop(event){
   const rect=row.getBoundingClientRect();
   const after=event.clientY>rect.top+rect.height/2;
   if(targetId!==sortDraggedSceneId){
-    const movedIndex=sceneIndexById(sortDraggedSceneId);
-    const targetScene=sceneById(targetId);
-    if(movedIndex>=0&&targetScene){
-      const [moved]=data.scenes.splice(movedIndex,1);
-      moved.chapterId=targetScene.chapterId;
-      let targetIndex=sceneIndexById(targetId);
-      if(after)targetIndex++;
-      if(moved.date)moved.dateReview=true;
-      data.scenes.splice(targetIndex,0,moved);
-      saveData();
-    }
+    const movedId=sortDraggedSceneId;
+    const result=commitDataChange(next=>{
+      const movedIndex=next.scenes.findIndex(s=>s.id===movedId);
+      const targetScene=next.scenes.find(s=>s.id===targetId);
+      if(movedIndex<0||!targetScene)throw new Error("scene missing");
+      const [moved]=next.scenes.splice(movedIndex,1);moved.chapterId=targetScene.chapterId;
+      let targetIndex=next.scenes.findIndex(s=>s.id===targetId);if(after)targetIndex++;
+      if(moved.date)moved.dateReview=true;next.scenes.splice(targetIndex,0,moved);
+    },{renderAfter:false});
+    if(!result.ok)return;
   }
   sortDraggedSceneId=null;
   renderSortScenes();

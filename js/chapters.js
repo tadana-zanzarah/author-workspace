@@ -24,20 +24,27 @@ function saveChapterNames(){
 }
 
 function moveChapter(chapterId,dir){
-  saveChapterNames();
   const index=data.chapters.findIndex(chapter=>chapter.id===chapterId);
   const target=index+dir;
   if(index<0||target<0||target>=data.chapters.length)return;
-  [data.chapters[index],data.chapters[target]]=[data.chapters[target],data.chapters[index]];
-  normalizeSceneOrder();saveData();renderChaptersManager();render();
+  const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
+  const result=commitDataChange(next=>{
+    next.chapters.forEach(c=>{if(names.get(c.id))c.title=names.get(c.id)});
+    [next.chapters[index],next.chapters[target]]=[next.chapters[target],next.chapters[index]];
+    const order=new Map(next.chapters.map((c,i)=>[c.id,i]));
+    next.scenes.sort((a,b)=>(order.get(a.chapterId)??9999)-(order.get(b.chapterId)??9999));
+  },{renderAfter:false});
+  if(result.ok){renderChaptersManager();render()}
 }
 
 function deleteChapter(id){
   const c=chapterById(id);if(!c||id==="chapter-unassigned")return;
   if(!confirm(`Удалить главу «${c.title}»? Её сцены перейдут в «Без главы».`))return;
-  data.scenes.forEach(s=>{if(s.chapterId===id)s.chapterId="chapter-unassigned"});
-  data.chapters=data.chapters.filter(x=>x.id!==id);
-  normalizeSceneOrder();saveData();renderChaptersManager();render();
+  const result=commitDataChange(next=>{
+    next.scenes.forEach(s=>{if(s.chapterId===id)s.chapterId="chapter-unassigned"});
+    next.chapters=next.chapters.filter(x=>x.id!==id);
+  },{renderAfter:false});
+  if(result.ok){renderChaptersManager();render()}
 }
 
 function openLocationsManager(){renderLocationsManager();showModal("locationsModal")}
@@ -63,9 +70,11 @@ function saveLocations(){
 function deleteLocation(id){
   const l=locationById(id);if(!l)return;
   if(!confirm(`Удалить локацию «${l.name}»? В сценах она станет не указанной.`))return;
-  data.scenes.forEach(s=>{if(s.locationId===id)s.locationId=""});
-  data.locations=data.locations.filter(x=>x.id!==id);
-  saveData();renderLocationsManager();render();
+  const result=commitDataChange(next=>{
+    next.scenes.forEach(s=>{if(s.locationId===id)s.locationId=""});
+    next.locations=next.locations.filter(x=>x.id!==id);
+  },{renderAfter:false});
+  if(result.ok){renderLocationsManager();render()}
 }
 
 function openTagsManager(){renderTagsManager();showModal("tagsModal")}
@@ -90,16 +99,16 @@ function saveTags(){
 function deleteTag(id){
   const t=tagById(id);if(!t)return;
   if(!confirm(`Удалить тег #${t.name} из всех сцен?`))return;
-  data.scenes.forEach(s=>s.tags=s.tags.filter(x=>x!==id));
-  data.tags=data.tags.filter(x=>x.id!==id);
-  saveData();renderTagsManager();render();
+  const result=commitDataChange(next=>{
+    next.scenes.forEach(s=>s.tags=s.tags.filter(x=>x!==id));
+    next.tags=next.tags.filter(x=>x.id!==id);
+  },{renderAfter:false});
+  if(result.ok){renderTagsManager();render()}
 }
 
 function toggleChapter(id){
-  const chapter=chapterById(id);
-  if(!chapter)return;
-  chapter.collapsed=!chapter.collapsed;
-  saveData();render();
+  if(!chapterById(id))return;
+  commitDataChange(next=>{const chapter=next.chapters.find(c=>c.id===id);chapter.collapsed=!chapter.collapsed});
 }
 
 Object.assign(globalThis,{chapterById,locationById,tagById,writingStatusById,openChaptersManager,renderChaptersManager,saveChapterNames,moveChapter,deleteChapter,openLocationsManager,renderLocationsManager,saveLocations,deleteLocation,openTagsManager,renderTagsManager,saveTags,deleteTag,toggleChapter});

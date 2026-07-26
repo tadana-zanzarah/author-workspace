@@ -112,8 +112,8 @@ function moveProfile(characterId,dir){
   const index=data.characters.findIndex(c=>c.id===characterId);
   const target=index+dir;
   if(index<0||target<0||target>=data.characters.length)return;
-  [data.characters[index],data.characters[target]]=[data.characters[target],data.characters[index]];
-  saveData();renderProfiles();render();
+  const result=commitDataChange(next=>{[next.characters[index],next.characters[target]]=[next.characters[target],next.characters[index]]},{renderAfter:false});
+  if(result.ok){renderProfiles();render()}
 }
 
 function deleteProfile(characterId){
@@ -121,18 +121,21 @@ function deleteProfile(characterId){
   if(!character)return;
   if(data.characters.length<=1)return alert("Нужен хотя бы один персонаж.");
   if(!confirm(`Удалить персонажа «${character.name}» из анкет и колонок? Данные этого персонажа в сценах также будут удалены.`))return;
-  data.characters=data.characters.filter(c=>c.id!==characterId);
-  delete data.profiles[characterId];
-  data.scenes.forEach(scene=>{
-    delete scene.people?.[characterId];
-    for(const p of Object.values(scene.people||{})){
-      delete p.relationChanges?.[characterId];
-      p.visibleRelations=(p.visibleRelations||[]).filter(id=>id!==characterId);
-    }
-  });
-  for(const p of Object.values(data.profiles||{}))delete p.initialRelations?.[characterId];
+  const result=commitDataChange(next=>{
+    next.characters=next.characters.filter(c=>c.id!==characterId);
+    delete next.profiles[characterId];
+    next.scenes.forEach(scene=>{
+      delete scene.people?.[characterId];
+      for(const p of Object.values(scene.people||{})){
+        delete p.relationChanges?.[characterId];
+        p.visibleRelations=(p.visibleRelations||[]).filter(id=>id!==characterId);
+      }
+    });
+    for(const p of Object.values(next.profiles||{}))delete p.initialRelations?.[characterId];
+  },{renderAfter:false});
+  if(!result.ok)return;
   if(filters.character===characterId)filters.character="";
-  saveData();renderProfiles();render();
+  renderProfiles();render();
 }
 
 function setupBirthdaySelectors(){

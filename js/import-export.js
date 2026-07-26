@@ -32,11 +32,8 @@ function openAllScenes(){
 }
 
 function saveAllScenes(){
-  document.querySelectorAll(".all-scene-text").forEach(area=>{
-    const scene=sceneById(area.dataset.sceneId);
-    if(scene)scene.sceneText=area.value;
-  });
-  saveData();
+  const values=new Map([...document.querySelectorAll(".all-scene-text")].map(area=>[area.dataset.sceneId,area.value]));
+  return commitDataChange(next=>next.scenes.forEach(scene=>{if(values.has(scene.id))scene.sceneText=values.get(scene.id)}),{renderAfter:false});
 }
 
 function exportWholeText(){

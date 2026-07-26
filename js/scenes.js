@@ -14,7 +14,7 @@ function quickEditTitle(sceneId,element){
   const scene=sceneById(sceneId);if(!scene)return;
   const input=document.createElement("input");input.value=scene.title||"";
   input.style.width="100%";element.replaceWith(input);input.focus();input.select();
-  const finish=()=>{scene.title=input.value.trim();saveData();scheduleRender()};
+  const finish=()=>{commitDataChange(next=>{const target=next.scenes.find(s=>s.id===sceneId);if(target)target.title=input.value.trim()},{renderAfter:false});scheduleRender()};
   input.onblur=finish;input.onkeydown=e=>{if(e.key==="Enter")input.blur();if(e.key==="Escape")scheduleRender()};
 }
 
@@ -274,24 +274,20 @@ function openSceneText(sceneId){
 }
 
 function toggleIncluded(sceneId,checked){
-  const scene=sceneById(sceneId);if(!scene)return;
-  scene.included=checked;
-  saveData();
+  if(!sceneById(sceneId))return;
+  commitDataChange(next=>{next.scenes.find(s=>s.id===sceneId).included=checked},{renderAfter:false});
   scheduleRender();
 }
 
 function confirmSceneDate(sceneId){
-  const scene=data.scenes.find(s=>s.id===sceneId);
-  if(!scene)return;
-  scene.dateReview=false;
-  saveData();
+  if(!sceneById(sceneId))return;
+  commitDataChange(next=>{next.scenes.find(s=>s.id===sceneId).dateReview=false},{renderAfter:false});
   scheduleRender();
 }
 
 function quickUpdate(sceneId,key,value){
-  const scene=sceneById(sceneId);if(!scene)return;
-  scene[key]=value;
-  saveData();
+  if(!sceneById(sceneId))return;
+  commitDataChange(next=>{next.scenes.find(s=>s.id===sceneId)[key]=value},{renderAfter:false});
   scheduleRender();
 }
 
@@ -299,10 +295,13 @@ function deleteScene(sceneId){
   const scene=sceneById(sceneId);
   if(!scene)return;
   if(confirm(`Удалить сцену «${scene.title||"Без названия"}»?`)){
-    const index=sceneIndexById(sceneId);
-    if(index>=0)data.scenes.splice(index,1);
+    const result=commitDataChange(next=>{
+      const index=next.scenes.findIndex(item=>item.id===sceneId);
+      if(index>=0)next.scenes.splice(index,1);
+    },{renderAfter:false});
+    if(!result.ok)return;
     if(sceneId===selectedSceneId){selectedSceneId=null;selectedSceneIndex=null}
-    saveData();render();
+    render();
   }
 }
 

@@ -93,6 +93,23 @@ await page.click("#exportBtn");
 const download=await downloadPromise;
 if(!download.suggestedFilename().endsWith(".json")) throw new Error("Экспорт не создал JSON");
 
+const beforeRejectedImport=await page.evaluate(()=>localStorage.getItem("novelTimelineV11"));
+await page.setInputFiles("#importInput",{name:"invalid.json",mimeType:"application/json",buffer:Buffer.from("{}")});
+await page.waitForTimeout(50);
+if(await page.evaluate(()=>localStorage.getItem("novelTimelineV11"))!==beforeRejectedImport)throw new Error("Критический импорт заменил текущий проект");
+
+const successfulImport=JSON.parse(beforeRejectedImport);
+successfulImport.extraRoundTrip={preserved:true};
+successfulImport.scenes[0].extraSceneField="keep";
+page.once("dialog",dialog=>dialog.accept());
+await page.setInputFiles("#importInput",{name:"valid.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(successfulImport))});
+await page.waitForFunction(()=>JSON.parse(localStorage.getItem("novelTimelineV11")).extraRoundTrip?.preserved===true);
+const importRoundTrip=await page.evaluate(()=>{
+  const saved=JSON.parse(localStorage.getItem("novelTimelineV11"));
+  return {root:saved.extraRoundTrip?.preserved,scene:saved.scenes[0]?.extraSceneField};
+});
+if(!importRoundTrip.root||importRoundTrip.scene!=="keep")throw new Error("Импорт не сохранил неизвестные поля");
+
 const fallbackContext=await browser.newContext();
 const fallbackPage=await fallbackContext.newPage();
 await fallbackPage.addInitScript(()=>{
@@ -104,11 +121,15 @@ await fallbackPage.addInitScript(()=>{
 });
 await fallbackPage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
 const corruptFallback=await fallbackPage.evaluate(()=>{
-  const restored=JSON.parse(localStorage.getItem("novelTimelineV11"));
-  return {version:restored.version,title:restored.scenes[0]?.title,banner:document.getElementById("storageBanner").textContent};
+  return {
+    originalPreserved:localStorage.getItem("novelTimelineV11")==="{broken",
+    writesDisabled:storageWriteEnabled===false,
+    candidateSource:startupLoadInfo.candidates[0]?.key,
+    banner:document.getElementById("storageBanner").textContent
+  };
 });
 await fallbackContext.close();
-if(corruptFallback.version!==11 || corruptFallback.title!=="Восстановленная сцена") throw new Error("Резервная V10 не восстановила повреждённую V11");
+if(!corruptFallback.originalPreserved || !corruptFallback.writesDisabled || corruptFallback.candidateSource!=="novelTimelineV10") throw new Error("Повреждённая V11 была перезаписана резервной базой");
 
 const fatalContext=await browser.newContext();
 const fatalPage=await fatalContext.newPage();
@@ -122,6 +143,42 @@ const corruptProtected=await fatalPage.evaluate(()=>({
 await fatalContext.close();
 if(!corruptProtected.originalPreserved || !corruptProtected.writesDisabled) throw new Error("Повреждённые данные были перезаписаны");
 
+const structureContext=await browser.newContext();
+const structurePage=await structureContext.newPage();
+await structurePage.addInitScript(()=>localStorage.setItem("novelTimelineV11","{}"));
+await structurePage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+const invalidStructure=await structurePage.evaluate(()=>({
+  originalPreserved:localStorage.getItem("novelTimelineV11")==="{}",
+  writesDisabled:storageWriteEnabled===false,
+  recoveryDownloadVisible:!document.getElementById("downloadProblemRaw").hidden
+}));
+await structureContext.close();
+if(!invalidStructure.originalPreserved||!invalidStructure.writesDisabled||!invalidStructure.recoveryDownloadVisible)throw new Error("{} не был безопасно заблокирован");
+
+const quotaContext=await browser.newContext();
+const quotaPage=await quotaContext.newPage();
+await quotaPage.addInitScript(project=>localStorage.setItem("novelTimelineV11",JSON.stringify(project)),{
+  version:11,characters:[{id:"character-a",name:"А"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"А",initialRelations:{}}},
+  chapters:[{id:"chapter-unassigned",title:"Без главы"}],locations:[],tags:[],future:{},scenes:[]
+});
+await quotaPage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+await quotaPage.click("#addFirst");
+await quotaPage.fill("#sceneTitle","Не должна сохраниться");
+await quotaPage.evaluate(()=>{
+  const original=Storage.prototype.setItem;
+  Storage.prototype.setItem=function(){const error=new DOMException("quota","QuotaExceededError");throw error};
+  globalThis.__restoreSetItem=()=>{Storage.prototype.setItem=original};
+});
+await quotaPage.click("#saveScene");
+const quotaRollback=await quotaPage.evaluate(()=>({
+  memoryScenes:data.scenes.length,
+  modalOpen:document.getElementById("sceneModal").style.display==="flex",
+  storedScenes:JSON.parse(localStorage.getItem("novelTimelineV11")).scenes.length
+}));
+await quotaPage.evaluate(()=>globalThis.__restoreSetItem());
+await quotaContext.close();
+if(quotaRollback.memoryScenes!==0||quotaRollback.storedScenes!==0||!quotaRollback.modalOpen)throw new Error("Ошибка квоты не откатила создание сцены");
+
 const result={
   title:await page.title(),
   migration,
@@ -129,8 +186,12 @@ const result={
   filtersOpened:await page.locator("#filterChapter option").count()>1,
   profileOpened:true,
   exportFile:download.suggestedFilename(),
+  rejectedImportPreserved:true,
+  importRoundTrip,
   corruptFallback,
   corruptProtected,
+  invalidStructure,
+  quotaRollback,
   errors
 };
 console.log(JSON.stringify(result,null,2));
