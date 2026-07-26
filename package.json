@@ -1,4 +1,9 @@
 {
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "test:unit": "node tools/data-safety.test.mjs && node tools/storage-safety.test.mjs",
+    "test:smoke": "node tools/browser-smoke.mjs",
+    "test": "npm run test:unit"
+  }
 }
