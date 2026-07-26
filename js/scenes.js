@@ -1,0 +1,310 @@
+function sceneById(id){return data.scenes.find(s=>s.id===id)}
+
+function sceneIndexById(id){return data.scenes.findIndex(s=>s.id===id)}
+
+function sceneCharacterIds(scene){
+  return data.characters.map(c=>c.id).filter(id=>personHasContent(scene.people?.[id]));
+}
+
+function sceneCharacters(scene){
+  return sceneCharacterIds(scene).map(characterName);
+}
+
+function quickEditTitle(sceneId,element){
+  const scene=sceneById(sceneId);if(!scene)return;
+  const input=document.createElement("input");input.value=scene.title||"";
+  input.style.width="100%";element.replaceWith(input);input.focus();input.select();
+  const finish=()=>{scene.title=input.value.trim();saveData();scheduleRender()};
+  input.onblur=finish;input.onkeydown=e=>{if(e.key==="Enter")input.blur();if(e.key==="Escape")scheduleRender()};
+}
+
+function openQuickField(sceneId,field,title,items,currentValue){
+  const scene=sceneById(sceneId);if(!scene)return;
+  quickFieldState={sceneId,field};
+  document.getElementById("quickFieldTitle").textContent=title;
+  const select=document.getElementById("quickFieldSelect");
+  select.innerHTML=items.map(item=>`<option value="${esc(item.value)}">${esc(item.label)}</option>`).join("");
+  select.value=currentValue||"";
+  showModal("quickFieldModal");
+  setTimeout(()=>select.focus(),0);
+}
+
+function quickEditLocation(sceneId){
+  const scene=sceneById(sceneId);if(!scene)return;
+  openQuickField(sceneId,"locationId","Изменить локацию",
+    [{value:"",label:"Не указана"},...data.locations.map(l=>({value:l.id,label:l.name}))],scene.locationId);
+}
+
+function quickEditWriting(sceneId){
+  const scene=sceneById(sceneId);if(!scene)return;
+  openQuickField(sceneId,"writingStatus","Изменить статус написания",
+    WRITING_STATUSES.map(status=>({value:status.id,label:status.label})),scene.writingStatus);
+}
+
+function quickEditChapter(sceneId){
+  const scene=sceneById(sceneId);if(!scene)return;
+  openQuickField(sceneId,"chapterId","Изменить главу",
+    data.chapters.map(chapter=>({value:chapter.id,label:chapter.title})),scene.chapterId);
+}
+
+function selectScene(sceneId){
+  selectedSceneId=sceneId;
+  selectedSceneIndex=sceneIndexById(sceneId);
+  renderSceneInfo();
+  renderStats();
+  document.querySelectorAll("[data-scene-id]").forEach(el=>el.classList.toggle("selected-scene",el.dataset.sceneId===sceneId));
+}
+
+function insertBar(beforeSceneId,chapterId,label="＋ вставить сцену здесь"){
+  return `<div class="insert-row"><div class="insert-content">
+    <button data-action="insert-scene" data-before-scene-id="${esc(beforeSceneId||"")}" data-chapter-id="${esc(chapterId)}">${label}</button>
+  </div></div>`;
+}
+
+function normalizeSceneOrder(){
+  const order=new Map(data.chapters.map((c,i)=>[c.id,i]));
+  data.scenes=data.scenes.map((scene,i)=>({scene,i})).sort((a,b)=>{
+    const ca=order.get(a.scene.chapterId)??9999,cb=order.get(b.scene.chapterId)??9999;
+    return ca-cb||a.i-b.i;
+  }).map(x=>x.scene);
+}
+
+function firstSceneIdAfterChapter(chapterId){
+  const wanted=data.chapters.findIndex(c=>c.id===chapterId);
+  const next=data.scenes.find(scene=>{
+    const current=data.chapters.findIndex(c=>c.id===scene.chapterId);
+    return current>wanted;
+  });
+  return next?.id||null;
+}
+
+function openNewSceneInChapter(chapterId){
+  const chapterScenes=data.scenes.filter(scene=>scene.chapterId===chapterId);
+  const beforeSceneId=chapterScenes.length?firstSceneIdAfterChapter(chapterId):firstSceneIdAfterChapter(chapterId);
+  openNewSceneAt(beforeSceneId,chapterId);
+}
+
+function openNewSceneAt(beforeSceneId=null,chapterId=""){
+  editingSceneId=null;
+  insertBeforeSceneId=beforeSceneId||null;
+  const before=beforeSceneId?sceneById(beforeSceneId):null;
+  insertChapterId=chapterId||before?.chapterId||filters.chapter||data.chapters[0]?.id||"chapter-unassigned";
+  document.getElementById("sceneModalTitle").textContent="Новая сцена";
+  document.getElementById("sceneDate").value="";
+  document.getElementById("sceneTime").value="";
+  document.getElementById("sceneTitle").value="";
+  document.getElementById("sceneText").value="";
+  document.getElementById("sceneStatus").value="floating";
+  document.getElementById("sceneIncluded").checked=true;
+  populateSceneSelectors();
+  document.getElementById("sceneChapter").value=insertChapterId;
+  document.getElementById("sceneLocation").value="";
+  document.getElementById("sceneWritingStatus").value="idea";
+  sceneTagDraft=[];
+  renderSceneTagDraft();
+  const insertionIndex=insertBeforeSceneId?sceneIndexById(insertBeforeSceneId):data.scenes.length;
+  buildPeopleForm({},insertionIndex<0?data.scenes.length:insertionIndex);
+  showModal("sceneModal");
+}
+
+function editScene(sceneId){
+  editingSceneId=sceneId;
+  insertBeforeSceneId=null;
+  insertChapterId=null;
+  const s=sceneById(sceneId);
+  if(!s)return;
+  const index=sceneIndexById(sceneId);
+  document.getElementById("sceneModalTitle").textContent="Изменить сцену";
+  document.getElementById("sceneDate").value=s.date||"";
+  document.getElementById("sceneTime").value=s.time||"";
+  document.getElementById("sceneTitle").value=s.title||"";
+  document.getElementById("sceneText").value=s.sceneText||"";
+  document.getElementById("sceneStatus").value=s.status||"floating";
+  document.getElementById("sceneIncluded").checked=s.included!==false;
+  populateSceneSelectors();
+  document.getElementById("sceneChapter").value=s.chapterId||"chapter-unassigned";
+  document.getElementById("sceneLocation").value=s.locationId||"";
+  document.getElementById("sceneWritingStatus").value=s.writingStatus||"idea";
+  sceneTagDraft=[...(s.tags||[])];
+  renderSceneTagDraft();
+  buildPeopleForm(s.people||{},index);
+  showModal("sceneModal");
+}
+
+function populateSceneSelectors(){
+  document.getElementById("sceneChapter").innerHTML=data.chapters.map(c=>`<option value="${esc(c.id)}">${esc(c.title)}</option>`).join("");
+  document.getElementById("sceneLocation").innerHTML='<option value="">Локация не указана</option>'+
+    data.locations.map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+  document.getElementById("sceneWritingStatus").innerHTML=WRITING_STATUSES.map(s=>`<option value="${s.id}">${s.label}</option>`).join("");
+  document.getElementById("tagOptions").innerHTML=data.tags.map(t=>`<option value="${esc(t.name)}"></option>`).join("");
+}
+
+function ensureTag(name){
+  const clean=canonicalTagName(name);
+  if(!clean)return null;
+  const existing=data.tags.find(t=>t.name.toLocaleLowerCase("ru")===clean.toLocaleLowerCase("ru"));
+  if(existing)return existing.id;
+  const tag={id:makeId("tag"),name:clean};
+  data.tags.push(tag);
+  return tag.id;
+}
+
+function addTagToDraft(){
+  const input=document.getElementById("sceneTagInput");
+  const parts=input.value.split(/[,;]+/).map(x=>x.trim()).filter(Boolean);
+  parts.forEach(name=>{
+    const id=ensureTag(name);
+    if(id&&!sceneTagDraft.includes(id))sceneTagDraft.push(id);
+  });
+  input.value="";
+  renderSceneTagDraft();
+}
+
+function renderSceneTagDraft(){
+  document.getElementById("sceneTagDraftList").innerHTML=sceneTagDraft.map(id=>{
+    const tag=tagById(id);return tag?`<button type="button" onclick="removeSceneTag('${jsq(id)}')">#${esc(tag.name)} ×</button>`:"";
+  }).join("");
+}
+
+function removeSceneTag(id){sceneTagDraft=sceneTagDraft.filter(x=>x!==id);renderSceneTagDraft()}
+
+function buildPeopleForm(people,sceneIndex){
+  const inherited=relationshipsBefore(sceneIndex);
+  document.getElementById("scenePersons").innerHTML=data.characters.map(character=>{
+    const charId=character.id;
+    const p=people[charId]||{};
+    const rows=data.characters.filter(target=>target.id!==charId).map(target=>{
+      const targetId=target.id;
+      const inheritedValue=inherited[charId]?.[targetId]||"";
+      const hasChange=Object.prototype.hasOwnProperty.call(p.relationChanges||{},targetId);
+      const displayedValue=hasChange?(p.relationChanges[targetId]||""):inheritedValue;
+      const checked=(p.visibleRelations||[]).includes(targetId);
+      return `<div class="relation-row ${hasChange?"explicit":""}" data-relation-row>
+        <div class="relation-name">
+          ${esc(target.name)}
+          <span class="changed-note relation-explicit-note" style="${hasChange?"":"display:none"}">задано здесь</span>
+        </div>
+        <input class="rel-value"
+          data-char-id="${esc(charId)}"
+          data-target-id="${esc(targetId)}"
+          data-inherited="${esc(inheritedValue)}"
+          data-explicit="${hasChange?"true":"false"}"
+          value="${esc(displayedValue)}"
+          placeholder="Отношение не задано"
+          oninput="relationEdited(this)">
+        <label class="show-box">
+          <input type="checkbox" class="rel-visible"
+            data-char-id="${esc(charId)}"
+            data-target-id="${esc(targetId)}"
+            ${checked?"checked":""}>
+          показывать
+        </label>
+        <button type="button" class="inherit-btn" onclick="resetToInherited(this)">Наследовать</button>
+      </div>`;
+    }).join("");
+
+    return `<div class="person-block">
+      <h3>${esc(character.name)}</h3>
+      <label>
+        <span class="field-caption">События сцены</span>
+        <textarea class="p-action action-input" data-char-id="${esc(charId)}" placeholder="Что делает персонаж">${esc(p.action||"")}</textarea>
+      </label>
+      ${(p.legacyState||"").trim()?`
+        <div class="legacy-note">
+          <span class="field-caption">Старая заметка из предыдущей версии</span>
+          <textarea class="p-legacy" data-char-id="${esc(charId)}">${esc(p.legacyState)}</textarea>
+        </div>`:""}
+      <div class="relations-editor">
+        <div class="relations-editor-title">
+          <strong>Отношение к другим персонажам</strong>
+          <span>Введённое вручную значение закрепляется за этой сценой и не меняется при переносе</span>
+        </div>
+        ${rows}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function markRelationExplicit(input,isExplicit){
+  input.dataset.explicit=isExplicit?"true":"false";
+  const row=input.closest("[data-relation-row]");
+  if(row){
+    row.classList.toggle("explicit",isExplicit);
+    const note=row.querySelector(".relation-explicit-note");
+    if(note)note.style.display=isExplicit?"inline-block":"none";
+  }
+}
+
+function relationEdited(input){
+  // Любое ручное редактирование становится явным решением этой сцены.
+  // Даже если текст случайно совпадает с текущим наследуемым значением,
+  // он не исчезнет после перемещения сцены.
+  markRelationExplicit(input,true);
+  const charId=input.dataset.charId;
+  const targetId=input.dataset.targetId;
+  const checkbox=document.querySelector(`.rel-visible[data-char-id="${cssEscape(charId)}"][data-target-id="${cssEscape(targetId)}"]`);
+  if(checkbox)checkbox.checked=true;
+}
+
+function resetToInherited(button){
+  const row=button.closest("[data-relation-row]");
+  if(!row)return;
+  const input=row.querySelector(".rel-value");
+  const checkbox=row.querySelector(".rel-visible");
+  input.value=input.dataset.inherited||"";
+  markRelationExplicit(input,false);
+  // Наследуемое отношение можно всё равно показывать вручную,
+  // поэтому галочку не снимаем.
+  if(checkbox&&input.value.trim()==="")checkbox.checked=false;
+}
+
+function openSceneText(sceneId){
+  textEditingSceneId=sceneId;
+  const scene=sceneById(sceneId);
+  if(!scene)return;
+  document.getElementById("textModalTitle").textContent=scene.title||"Текст сцены";
+  const parts=[];
+  if(scene.date)parts.push(scene.date.split("-").reverse().join("."));
+  if(scene.time)parts.push(scene.time);
+  parts.push(scene.status==="fixed"?"сцена на своём месте":"сцену ещё нужно разместить");
+  document.getElementById("textModalMeta").textContent=parts.join(" · ");
+  document.getElementById("fullSceneText").value=scene.sceneText||"";
+  showModal("textModal");
+  setTimeout(()=>document.getElementById("fullSceneText").focus(),0);
+}
+
+function toggleIncluded(sceneId,checked){
+  const scene=sceneById(sceneId);if(!scene)return;
+  scene.included=checked;
+  saveData();
+  scheduleRender();
+}
+
+function confirmSceneDate(sceneId){
+  const scene=data.scenes.find(s=>s.id===sceneId);
+  if(!scene)return;
+  scene.dateReview=false;
+  saveData();
+  scheduleRender();
+}
+
+function quickUpdate(sceneId,key,value){
+  const scene=sceneById(sceneId);if(!scene)return;
+  scene[key]=value;
+  saveData();
+  scheduleRender();
+}
+
+function deleteScene(sceneId){
+  const scene=sceneById(sceneId);
+  if(!scene)return;
+  if(confirm(`Удалить сцену «${scene.title||"Без названия"}»?`)){
+    const index=sceneIndexById(sceneId);
+    if(index>=0)data.scenes.splice(index,1);
+    if(sceneId===selectedSceneId){selectedSceneId=null;selectedSceneIndex=null}
+    saveData();render();
+  }
+}
+
+Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
+export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};

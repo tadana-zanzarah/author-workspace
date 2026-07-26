@@ -1,0 +1,85 @@
+.profiles-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+    gap:14px;
+  }
+  .profile-card{
+    border:1px solid var(--line);
+    border-radius:13px;
+    overflow:hidden;
+    background:#fbfaf8;
+  }
+  .profile-cover{
+    height:210px;
+    background:#eee7df;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    color:var(--muted);
+  }
+  .profile-cover img{width:100%;height:100%;object-fit:cover}
+  .profile-body{padding:13px}
+  .profile-name{font-size:19px;font-weight:750;margin-bottom:8px}
+  .profile-facts{display:grid;gap:5px;font-size:13px}
+  .profile-fact strong{color:var(--muted);font-weight:650}
+  .profile-description{
+    margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
+    white-space:pre-wrap;line-height:1.4;font-size:13px;
+  }
+  .profile-card-actions{
+    display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;
+  }
+  .profile-card-actions button{padding:6px 8px;font-size:12px}
+  .profile-editor-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+  }
+  .profile-field{
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:10px;
+    background:#fbfaf8;
+  }
+  .profile-field.full{grid-column:1/-1}
+  .profile-field-top{
+    display:flex;justify-content:space-between;gap:10px;align-items:center;
+    margin-bottom:6px;
+  }
+  .profile-field-top strong{font-size:13px}
+  .hide-field{
+    display:flex;align-items:center;gap:6px;
+    color:var(--muted);font-size:11px;white-space:nowrap;
+  }
+  .hide-field input{width:auto}
+  .birthday-grid{
+    display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;
+  }
+  .photos-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:9px;
+    margin-top:9px;
+  }
+  .photo-item{
+    position:relative;border:1px solid var(--line);border-radius:9px;overflow:hidden;
+    height:145px;background:#eee;
+  }
+  .photo-item img{width:100%;height:100%;object-fit:cover}
+  .photo-item button{
+    position:absolute;right:5px;top:5px;padding:3px 7px;
+    background:rgba(255,255,255,.9);
+  }
+  .initial-relations{
+    display:grid;gap:8px;
+  }
+  .initial-relation-row{
+    display:grid;grid-template-columns:180px 1fr;gap:8px;align-items:center;
+  }
+  .profile-note{
+    color:var(--muted);font-size:12px;line-height:1.4;
+  }
+  @media(max-width:800px){
+    .profile-editor-grid{grid-template-columns:1fr}
+    .profile-field.full{grid-column:auto}
+    .initial-relation-row{grid-template-columns:1fr}
+  }
