@@ -1,110 +1,131 @@
+import {STORAGE_KEY,UI_STORAGE_KEY,OLD_KEYS} from "./constants.js";
+import {parseProjectJson,prepareProject,defaultData,safeOwnCopy} from "./migrations.js";
+
 function storageProjectScore(project){
-  if(!project||typeof project!=="object")return -1;
-  const scenes=Array.isArray(project.scenes)?project.scenes.length:0;
-  const characters=Array.isArray(project.characters)?project.characters.length:0;
-  const chapters=Array.isArray(project.chapters)?project.chapters.length:0;
-  const locations=Array.isArray(project.locations)?project.locations.length:0;
-  const tags=Array.isArray(project.tags)?project.tags.length:0;
-  const textSize=(project.scenes||[]).reduce((n,s)=>n+String(s?.sceneText||s?.text||"").length,0);
-  const photos=Object.values(project.profiles||{}).reduce((n,p)=>n+(Array.isArray(p?.photos)?p.photos.length:0),0);
-  return scenes*100000+textSize+characters*5000+chapters*2000+locations*1000+tags*500+photos*10000;
+  const scenes=Array.isArray(project?.scenes)?project.scenes.length:0;
+  const characters=Array.isArray(project?.characters)?project.characters.length:0;
+  const textSize=(project?.scenes||[]).reduce((n,s)=>n+String(s?.sceneText||s?.text||"").length,0);
+  return scenes*100000+textSize+characters*5000;
 }
-
-function parseStorageCandidate(key){
-  const raw=localStorage.getItem(key);
+function projectTimestamp(project){
+  for(const value of [project?.updatedAt,project?.modifiedAt,project?.lastModified]){
+    const time=Date.parse(value);if(Number.isFinite(time))return time;
+  }
+  return 0;
+}
+function parseStorageCandidate(key,storage=globalThis.localStorage){
+  let raw;
+  try{raw=storage.getItem(key)}catch(error){return {key,exists:false,valid:false,error,storageError:true}}
   if(raw===null)return {key,exists:false};
-  try{
-    const parsed=JSON.parse(raw);
-    const normalized=normalizeData(parsed);
-    return {key,exists:true,valid:true,parsed,normalized,score:storageProjectScore(parsed)};
-  }catch(error){
-    return {key,exists:true,valid:false,error};
-  }
+  const parsed=parseProjectJson(raw);
+  if(!parsed.ok)return {key,exists:true,valid:false,raw,error:parsed.error};
+  const report=prepareProject(parsed.value);
+  return {key,exists:true,valid:report.canApply,raw,parsed:parsed.value,normalized:report.migratedData,report,version:report.sourceVersion,score:storageProjectScore(parsed.value),timestamp:projectTimestamp(parsed.value)};
 }
-
+function blockedMemoryProject(){
+  return {version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Данные заблокированы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[],readOnlyRecovery:true};
+}
+function loadProjectFromStorage({storage=globalThis.localStorage,key=STORAGE_KEY,oldKeys=OLD_KEYS}={}){
+  const primary=parseStorageCandidate(key,storage);
+  const candidates=oldKeys.map(k=>parseStorageCandidate(k,storage)).filter(x=>x.exists&&x.valid)
+    .sort((a,b)=>(b.version-a.version)||(b.timestamp-a.timestamp)||(b.score-a.score));
+  if(primary.exists){
+    if(primary.valid)return {ok:true,data:primary.normalized,source:key,report:primary.report,candidates};
+    return {ok:false,blocked:true,data:blockedMemoryProject(),source:key,primary,candidates,raw:primary.raw};
+  }
+  if(candidates.length)return {ok:true,data:candidates[0].normalized,source:candidates[0].key,report:candidates[0].report,candidates,migrationNeedsConfirmation:true};
+  const anyStorageError=[primary,...oldKeys.map(k=>parseStorageCandidate(k,storage))].find(x=>x.storageError);
+  if(anyStorageError)return {ok:false,blocked:true,data:blockedMemoryProject(),primary:anyStorageError,candidates:[]};
+  return {ok:true,data:defaultData(),source:null,fresh:true,candidates:[]};
+}
 function loadDataSafe(){
-  const v11=parseStorageCandidate(STORAGE_KEY);
-  if(v11.exists&&v11.valid){
-    startupLoadInfo={source:STORAGE_KEY,migrated:false,errors:[]};
-    return v11.normalized;
-  }
-
-  const candidates=OLD_KEYS.map(parseStorageCandidate);
-  const valid=candidates.filter(x=>x.exists&&x.valid).sort((a,b)=>b.score-a.score);
-  const errors=[v11,...candidates].filter(x=>x.exists&&!x.valid);
-
-  if(valid.length){
-    const chosen=valid[0];
-    startupLoadInfo={source:chosen.key,migrated:true,errors};
-    try{
-      localStorage.setItem(STORAGE_KEY,JSON.stringify(chosen.normalized));
-    }catch(error){
+  const result=loadProjectFromStorage();
+  startupLoadInfo=result;
+  if(result.ok&&result.migrationNeedsConfirmation){
+    const saved=persistProject(result.data);
+    if(saved.ok){
+      result.migrationNeedsConfirmation=false;
+      result.migrated=true;
+    }else{
+      result.saveError=saved;
       storageWriteEnabled=false;
-      startupLoadInfo.saveError=error;
     }
-    return chosen.normalized;
-  }
-
-  const anyExisting=[v11,...candidates].some(x=>x.exists);
-  if(anyExisting){
-    storageWriteEnabled=false;
-    startupLoadInfo={source:null,migrated:false,errors,fatal:true};
-    return defaultData();
-  }
-
-  startupLoadInfo={source:null,migrated:false,errors:[],fresh:true};
-  return defaultData();
+  }else if(!result.ok)storageWriteEnabled=false;
+  return result.data;
 }
-
-function showStorageMessage(message,type="warning"){
-  const banner=document.getElementById("storageBanner");
-  if(!banner)return;
-  banner.textContent=message;
-  banner.className=`storage-banner ${type}`;
+function storageErrorMessage(error){
+  if(error?.name==="QuotaExceededError")return "Память браузера переполнена. Изменение не сохранено; уменьшите размер фотографий или экспортируйте резервную копию.";
+  if(error?.name==="SecurityError")return "Браузер запретил доступ к локальному хранилищу. Изменение не сохранено.";
+  if(error?.name==="TypeError"&&/circular|cyclic/i.test(error.message||""))return "Проект содержит циклическую структуру и не может быть сохранён.";
+  return "Не удалось сохранить проект в браузере. Подтверждённые данные и открытая форма оставлены без изменений.";
 }
-
-function saveData(){
+function persistProject(project,{storage=globalThis.localStorage,key=STORAGE_KEY}={}){
+  try{
+    const serialized=JSON.stringify(project);
+    if(typeof serialized!=="string")throw new TypeError("Проект не сериализуется");
+    storage.setItem(key,serialized);
+    return {ok:true,serialized};
+  }catch(error){return {ok:false,error,userMessage:storageErrorMessage(error)}}
+}
+function cloneProject(project){
+  if(typeof structuredClone==="function")return structuredClone(project);
+  return safeOwnCopy(project);
+}
+function commitProjectChange(current,mutator,{storage=globalThis.localStorage,key=STORAGE_KEY,validate=true}={}){
+  let next;
+  try{next=cloneProject(current);mutator(next)}
+  catch(error){return {ok:false,error,userMessage:"Изменение не удалось подготовить. Текущий проект не изменён."}}
+  if(validate){
+    const report=prepareProject(next);
+    if(!report.canApply)return {ok:false,report,userMessage:"Изменение нарушает целостность проекта и не было применено."};
+    next=report.migratedData;
+  }
+  const persisted=persistProject(next,{storage,key});
+  return persisted.ok?{ok:true,data:next,report:null}:persisted;
+}
+function commitDataChange(mutator,{renderAfter=true,onSuccess,onError}={}){
   if(!storageWriteEnabled){
-    showStorageMessage("Автосохранение отключено: ранее обнаружена ошибка чтения или записи. Сначала экспортируйте данные и перезагрузите файл после проверки.","error");
-    return false;
+    const result={ok:false,userMessage:"Автосохранение заблокировано: сначала сохраните проблемные исходные данные."};
+    showStorageMessage(result.userMessage,"error");onError?.(result);return result;
   }
-  try{
-    localStorage.setItem(STORAGE_KEY,JSON.stringify(data));
-    const status=document.getElementById("saveStatus");
-    if(status)status.textContent=`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
-    return true;
-  }catch(error){
-    storageWriteEnabled=false;
-    const quota=error?.name==="QuotaExceededError";
-    showStorageMessage(quota
-      ?"Память браузера переполнена. Последние изменения не сохранены. Немедленно экспортируйте JSON; уменьшите количество или размер фотографий."
-      :"Не удалось сохранить проект в браузере. Последние изменения могут быть не сохранены. Экспортируйте JSON.", "error");
-    return false;
-  }
+  const result=commitProjectChange(data,mutator);
+  if(!result.ok){showStorageMessage(result.userMessage,"error");onError?.(result);return result}
+  data=result.data;
+  const status=document.getElementById("saveStatus");
+  if(status)status.textContent=`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  onSuccess?.(data);if(renderAfter)render();return result;
 }
-
+function showStorageMessage(message,type="warning"){
+  const banner=document.getElementById("storageBanner");if(!banner)return;
+  banner.textContent=message;banner.className=`storage-banner ${type}`;
+}
+function saveData(){
+  if(!storageWriteEnabled){showStorageMessage("Автосохранение отключено: проблемная база защищена от перезаписи.","error");return false}
+  const result=persistProject(data);
+  if(!result.ok){showStorageMessage(result.userMessage,"error");return false}
+  const status=document.getElementById("saveStatus");
+  if(status)status.textContent=`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  return true;
+}
+function downloadProblemRaw(){
+  const raw=startupLoadInfo?.raw??startupLoadInfo?.primary?.raw;if(raw==null)return false;
+  const blob=new Blob([raw],{type:"application/json"}),a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download="author-workspace-problem-original.json";a.click();URL.revokeObjectURL(a.href);return true;
+}
 function initializeStorageNotice(){
-  if(startupLoadInfo?.fatal){
-    showStorageMessage("Найдены данные проекта, но их не удалось прочитать. Пустой проект открыт только в памяти и НЕ будет записан поверх старых данных. Импортируйте исправную резервную копию или экспортируйте содержимое localStorage вручную.","error");
+  if(startupLoadInfo?.blocked){
+    showStorageMessage("Основная база повреждена или имеет опасные конфликты. Она не изменена, обычное сохранение заблокировано. Нажмите «Скачать проблемный JSON» перед восстановлением.","error");
+  }else if(startupLoadInfo?.migrationNeedsConfirmation){
+    showStorageMessage(`Найдена резервная база ${startupLoadInfo.source}. Она открыта только для просмотра и не записана поверх V11.`,"warning");
   }else if(startupLoadInfo?.migrated){
-    const suffix=startupLoadInfo.saveError?" Миграцию не удалось сохранить из-за ошибки браузера.":" Копия сохранена в формате V11.";
-    showStorageMessage(`Загружена наиболее заполненная база ${startupLoadInfo.source}.${suffix}`,startupLoadInfo.saveError?"error":"warning");
-  }else if(startupLoadInfo?.errors?.length){
-    showStorageMessage("База V11 повреждена, поэтому загружена исправная предыдущая версия. Рекомендуется сразу сделать экспорт JSON.","warning");
+    showStorageMessage(`Старая база ${startupLoadInfo.source} проверена и безопасно мигрирована в V11.`,"warning");
   }
 }
-
 function loadUiState(){
-  try{
-    const ui=JSON.parse(localStorage.getItem(UI_STORAGE_KEY)||"{}");
-    navigationVisible=ui.navigationVisible!==false;
-  }catch(error){navigationVisible=true}
+  try{const ui=JSON.parse(localStorage.getItem(UI_STORAGE_KEY)||"{}");navigationVisible=ui.navigationVisible!==false}catch{navigationVisible=true}
   document.querySelector(".app-shell").classList.toggle("navigation-hidden",!navigationVisible);
 }
+function saveUiState(){try{localStorage.setItem(UI_STORAGE_KEY,JSON.stringify({navigationVisible}))}catch{}}
 
-function saveUiState(){
-  try{localStorage.setItem(UI_STORAGE_KEY,JSON.stringify({navigationVisible}))}catch(error){}
-}
-
-Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadDataSafe,showStorageMessage,saveData,initializeStorageNotice,loadUiState,saveUiState});
-export {storageProjectScore,parseStorageCandidate,loadDataSafe,showStorageMessage,saveData,initializeStorageNotice,loadUiState,saveUiState};
+Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,initializeStorageNotice,loadUiState,saveUiState});
+export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,initializeStorageNotice,loadUiState,saveUiState};
