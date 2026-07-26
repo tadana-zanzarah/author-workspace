@@ -1,0 +1,2482 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Таймлайн романа</title>
+<style>
+  :root{
+    --bg:#f6f3ee;
+    --panel:#ffffff;
+    --ink:#2a2520;
+    --muted:#746c64;
+    --line:#d9d1c8;
+    --accent:#7a5c44;
+    --soft:#eee7df;
+    --danger:#a33d3d;
+    --sticky-width:220px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+  }
+  header{
+    position:sticky; top:0; z-index:50;
+    display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+    padding:12px 16px;
+    background:rgba(246,243,238,.97);
+    backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  h1{font-size:18px;margin:0 8px 0 0}
+  button,.file-label{
+    border:1px solid var(--line);
+    background:var(--panel);
+    color:var(--ink);
+    border-radius:9px;
+    padding:8px 11px;
+    cursor:pointer;
+    font-size:14px;
+  }
+  button:hover,.file-label:hover{background:var(--soft)}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  button.danger{color:var(--danger)}
+  input,textarea,select{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:#fff;
+    color:var(--ink);
+    padding:8px 9px;
+    font:inherit;
+  }
+  textarea{resize:vertical;line-height:1.35}
+  .hint{color:var(--muted);font-size:13px;margin-left:auto}
+
+  .viewport{
+    margin:16px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    overflow:auto;
+    background:var(--panel);
+    max-height:calc(100vh - 100px);
+  }
+  .board{min-width:max-content;--cols:4}
+  .board-grid,.scene-row,.insert-row{
+    display:grid;
+    grid-template-columns:var(--sticky-width) repeat(var(--cols),250px);
+  }
+  .board-head{
+    position:sticky;top:0;z-index:30;
+    background:#eee7df;
+    border-bottom:1px solid var(--line);
+  }
+  .head-cell{
+    padding:13px 14px;
+    font-weight:700;
+    border-right:1px solid var(--line);
+    min-height:50px;
+  }
+  .sticky-cell{
+    position:sticky;left:0;z-index:15;
+    background:#fbfaf8;
+    box-shadow:3px 0 5px rgba(52,44,37,.07);
+  }
+  .board-head .sticky-cell{z-index:40;background:#eee7df}
+  .insert-row{
+    min-height:31px;background:var(--bg);border-bottom:1px solid var(--line);
+  }
+  .insert-content{
+    grid-column:1/-1;display:flex;justify-content:center;align-items:center;
+  }
+  .insert-content button{
+    padding:4px 12px;border-radius:999px;font-size:12px;background:#fff;
+  }
+  .scene-row{border-bottom:1px solid var(--line);background:#fff}
+  .scene-row.fixed .cell{background:#f3f8f0}
+  .scene-row.fixed .time-cell{background:#e8f2e3}
+  .scene-row.floating .cell{background:#fffaf0}
+  .scene-row.floating .time-cell{background:#f8efdc}
+  .scene-row.dragging{opacity:.45}
+  .scene-row.drop-before{box-shadow:inset 0 4px 0 var(--accent)}
+  .scene-row.drop-after{box-shadow:inset 0 -4px 0 var(--accent)}
+  .cell{
+    min-height:176px;padding:11px;border-right:1px solid var(--line);
+  }
+  .time-cell{
+    background:#fbfaf8;display:flex;flex-direction:column;gap:8px;
+  }
+  .scene-title{
+    font-size:14px;font-weight:650;line-height:1.35;
+    overflow-wrap:anywhere;white-space:normal;
+  }
+  .date-time{display:grid;gap:7px}
+  .date-review{
+    border-color:#d46a2f!important;
+    background:#fff0e7!important;
+    box-shadow:0 0 0 2px rgba(212,106,47,.12);
+  }
+  .review-note{
+    font-size:11px;
+    color:#a84f20;
+    font-weight:700;
+  }
+  .scene-kind{
+    display:inline-flex;
+    align-items:center;
+    width:max-content;
+    gap:6px;
+    border-radius:999px;
+    padding:3px 8px;
+    font-size:11px;
+    font-weight:700;
+  }
+  .scene-kind.fixed{background:#dcebd5;color:#44633a}
+  .scene-kind.floating{background:#f1dfb7;color:#735b25}
+  .legend{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    flex-wrap:wrap;
+    font-size:12px;
+    color:var(--muted);
+    margin-left:4px;
+  }
+  .legend-item{display:flex;align-items:center;gap:6px}
+  .legend-dot{width:13px;height:13px;border-radius:4px;border:1px solid var(--line)}
+  .legend-dot.fixed{background:#dcebd5}
+  .legend-dot.floating{background:#f1dfb7}
+  .row-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+  .row-actions button{padding:5px 7px;font-size:12px}
+  .drag-handle{
+    display:flex;align-items:center;gap:7px;color:var(--muted);
+    font-size:12px;cursor:grab;user-select:none;
+    border:1px dashed var(--line);border-radius:7px;padding:5px 7px;
+  }
+  .drag-handle:active{cursor:grabbing}
+  .card{
+    height:100%;border:1px solid #cabeb2;background:#fffaf5;
+    border-radius:10px;padding:9px;display:flex;flex-direction:column;gap:8px;
+  }
+  .scene-row.fixed .card{
+    background:#f3f8f0;
+    border-color:#bfd0b8;
+  }
+  .card-action{
+    white-space:pre-wrap;line-height:1.35;overflow-wrap:anywhere;
+    min-height:54px;
+  }
+  .relations-title{
+    font-size:11px;font-weight:700;letter-spacing:.02em;
+    color:var(--muted);text-transform:uppercase;
+    border-top:1px solid #e5dbd2;padding-top:7px;
+  }
+  .relation-chip{
+    font-size:12px;line-height:1.35;padding:6px 7px;
+    background:#fff;border:1px solid #dfd4ca;border-radius:7px;
+    overflow-wrap:anywhere;
+  }
+  .relation-chip.changed{border-left:4px solid var(--accent)}
+  .relation-target{font-weight:700}
+  .empty{
+    color:#aaa19a;font-size:13px;text-align:center;padding-top:58px;
+  }
+
+  .modal-backdrop{
+    position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.35);
+    display:none;align-items:center;justify-content:center;padding:20px;
+  }
+  .modal{
+    width:min(920px,100%);max-height:92vh;overflow:auto;
+    background:#fff;border-radius:14px;padding:18px;
+    box-shadow:0 20px 70px rgba(0,0,0,.25);
+  }
+  .modal h2{margin-top:0}
+  .modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .modal-actions{
+    display:flex;justify-content:flex-end;gap:8px;margin-top:16px;
+  }
+  .person-block{
+    border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;
+  }
+  .person-block h3{margin:0 0 8px;font-size:16px}
+  .field-caption{
+    display:block;font-size:12px;color:var(--muted);margin-bottom:4px;
+  }
+  .action-input{min-height:88px}
+  .relations-editor{
+    margin-top:10px;border-top:1px solid var(--line);padding-top:10px;
+  }
+  .relations-editor-title{
+    display:flex;justify-content:space-between;align-items:center;
+    gap:10px;margin-bottom:7px;
+  }
+  .relations-editor-title strong{font-size:13px}
+  .relations-editor-title span{font-size:12px;color:var(--muted)}
+  .relation-row{
+    display:grid;
+    grid-template-columns:170px minmax(260px,1fr) 120px 104px;
+    gap:8px;align-items:center;margin-bottom:7px;
+  }
+  .relation-row.explicit{
+    padding:6px;
+    border-radius:9px;
+    background:#faf4ec;
+  }
+  .inherit-btn{
+    padding:7px 8px;
+    font-size:12px;
+    white-space:nowrap;
+  }
+  .relation-name{font-weight:650;font-size:13px}
+  .show-box{
+    display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
+  }
+  .show-box input{width:auto}
+  .changed-note{
+    display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;
+    font-size:10px;background:#efe5da;color:var(--accent);vertical-align:middle;
+  }
+  .legacy-note{
+    margin-top:8px;padding:8px;border:1px dashed var(--line);
+    border-radius:8px;background:#faf8f5;
+  }
+  .scene-text-area{
+    min-height:62vh;
+    line-height:1.55;
+    font-family:Georgia,"Times New Roman",serif;
+    font-size:16px;
+  }
+  .scene-text-meta{
+    color:var(--muted);
+    font-size:13px;
+    margin:-4px 0 12px;
+  }
+  .include-toggle{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-size:12px;
+    color:var(--muted);
+  }
+  .include-toggle input{width:auto}
+  .scene-row.excluded{opacity:.62}
+  .all-scenes-list{
+    display:flex;
+    flex-direction:column;
+    gap:22px;
+  }
+  .all-scene-block{
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:16px;
+    background:#fbfaf8;
+  }
+  .all-scene-block.fixed{background:#f3f8f0;border-color:#bfd0b8}
+  .all-scene-block.floating{background:#fffaf0}
+  .all-scene-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:15px;
+    margin-bottom:10px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--line);
+  }
+  .all-scene-title{
+    font-size:18px;
+    font-weight:700;
+    line-height:1.35;
+  }
+  .all-scene-number{
+    color:var(--muted);
+    font-size:12px;
+    white-space:nowrap;
+  }
+  .all-scene-text{
+    min-height:260px;
+    line-height:1.55;
+    font-family:Georgia,"Times New Roman",serif;
+    font-size:16px;
+  }
+  .empty-work{
+    padding:40px;
+    text-align:center;
+    color:var(--muted);
+  }
+  @media(max-width:800px){
+    .hint{display:none}
+    .modal-grid{grid-template-columns:1fr}
+    .relation-row{grid-template-columns:1fr}
+  }
+
+  .profiles-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+    gap:14px;
+  }
+  .profile-card{
+    border:1px solid var(--line);
+    border-radius:13px;
+    overflow:hidden;
+    background:#fbfaf8;
+  }
+  .profile-cover{
+    height:210px;
+    background:#eee7df;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    color:var(--muted);
+  }
+  .profile-cover img{width:100%;height:100%;object-fit:cover}
+  .profile-body{padding:13px}
+  .profile-name{font-size:19px;font-weight:750;margin-bottom:8px}
+  .profile-facts{display:grid;gap:5px;font-size:13px}
+  .profile-fact strong{color:var(--muted);font-weight:650}
+  .profile-description{
+    margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
+    white-space:pre-wrap;line-height:1.4;font-size:13px;
+  }
+  .profile-card-actions{
+    display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;
+  }
+  .profile-card-actions button{padding:6px 8px;font-size:12px}
+  .profile-editor-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+  }
+  .profile-field{
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:10px;
+    background:#fbfaf8;
+  }
+  .profile-field.full{grid-column:1/-1}
+  .profile-field-top{
+    display:flex;justify-content:space-between;gap:10px;align-items:center;
+    margin-bottom:6px;
+  }
+  .profile-field-top strong{font-size:13px}
+  .hide-field{
+    display:flex;align-items:center;gap:6px;
+    color:var(--muted);font-size:11px;white-space:nowrap;
+  }
+  .hide-field input{width:auto}
+  .birthday-grid{
+    display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;
+  }
+  .photos-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:9px;
+    margin-top:9px;
+  }
+  .photo-item{
+    position:relative;border:1px solid var(--line);border-radius:9px;overflow:hidden;
+    height:145px;background:#eee;
+  }
+  .photo-item img{width:100%;height:100%;object-fit:cover}
+  .photo-item button{
+    position:absolute;right:5px;top:5px;padding:3px 7px;
+    background:rgba(255,255,255,.9);
+  }
+  .initial-relations{
+    display:grid;gap:8px;
+  }
+  .initial-relation-row{
+    display:grid;grid-template-columns:180px 1fr;gap:8px;align-items:center;
+  }
+  .profile-note{
+    color:var(--muted);font-size:12px;line-height:1.4;
+  }
+  @media(max-width:800px){
+    .profile-editor-grid{grid-template-columns:1fr}
+    .profile-field.full{grid-column:auto}
+    .initial-relation-row{grid-template-columns:1fr}
+  }
+
+
+  /* Этап 1: структура проекта */
+  .app-shell{
+    display:grid;
+    grid-template-columns:230px minmax(0,1fr);
+    gap:14px;
+    padding:14px;
+  }
+  .project-sidebar{
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:var(--panel);
+    padding:12px;
+    height:calc(100vh - 145px);
+    overflow:auto;
+    position:sticky;
+    top:128px;
+  }
+  .sidebar-section{margin-bottom:15px}
+  .sidebar-title{
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:12px;text-transform:uppercase;letter-spacing:.04em;
+    color:var(--muted);font-weight:750;margin-bottom:6px;
+  }
+  .sidebar-list{display:grid;gap:4px}
+  .sidebar-item{
+    width:100%;text-align:left;border:0;background:transparent;
+    padding:7px 8px;border-radius:7px;font-size:13px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .sidebar-item:hover,.sidebar-item.active{background:var(--soft)}
+  .sidebar-count{float:right;color:var(--muted);font-size:11px}
+  .main-workspace{min-width:0}
+  .toolbar-panel{
+    margin-bottom:12px;border:1px solid var(--line);border-radius:14px;
+    background:var(--panel);padding:11px;
+  }
+  .search-row{
+    display:grid;grid-template-columns:minmax(230px,1.5fr) repeat(5,minmax(130px,1fr)) auto;
+    gap:8px;align-items:end;
+  }
+  .filter-label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px}
+  .search-input{font-size:15px}
+  .stats-strip{
+    display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;
+  }
+  .stat-pill{
+    border:1px solid var(--line);background:#fbfaf8;border-radius:999px;
+    padding:5px 9px;font-size:11px;color:var(--muted);
+  }
+  .stat-pill strong{color:var(--ink)}
+  .viewport.workspace-viewport{margin:0;max-height:calc(100vh - 255px)}
+  .chapter-divider{
+    grid-column:1/-1;
+    display:flex;align-items:center;gap:10px;
+    min-height:48px;padding:8px 14px;
+    background:#e8e1d9;border-bottom:1px solid var(--line);
+    position:relative;
+  }
+  .chapter-divider strong{font-size:15px}
+  .chapter-divider .chapter-actions{margin-left:auto;display:flex;gap:6px}
+  .chapter-divider button{padding:5px 8px;font-size:12px}
+  .chapter-summary{font-size:12px;color:var(--muted)}
+  .scene-meta{display:flex;gap:5px;flex-wrap:wrap}
+  .meta-chip{
+    display:inline-flex;align-items:center;max-width:100%;
+    border:1px solid var(--line);border-radius:999px;padding:3px 7px;
+    background:#fff;font-size:10px;color:var(--muted);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .tag-chip{
+    display:inline-flex;align-items:center;border-radius:999px;
+    padding:3px 7px;font-size:10px;font-weight:650;
+    background:#e7e1f1;color:#57456e;border:1px solid #d3c8e2;
+  }
+  .writing-chip.idea{background:#eee;color:#666}
+  .writing-chip.plan{background:#e8edf4;color:#46586f}
+  .writing-chip.draft{background:#f5e7c8;color:#745c24}
+  .writing-chip.edit1{background:#e3edf7;color:#3f607d}
+  .writing-chip.edit2{background:#e8e1f3;color:#594575}
+  .writing-chip.final{background:#dcebd5;color:#41623a}
+  .tag-editor{margin-top:8px}
+  .tag-draft-list{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+  .tag-draft-list button{
+    padding:3px 7px;border-radius:999px;font-size:11px;background:#e7e1f1;
+  }
+  .manager-list{display:grid;gap:8px}
+  .manager-row{
+    display:grid;grid-template-columns:1fr auto auto auto;gap:7px;align-items:center;
+    border:1px solid var(--line);border-radius:9px;padding:8px;background:#fbfaf8;
+  }
+  .location-row{grid-template-columns:1fr 1.5fr auto}
+  .tag-manager-row{grid-template-columns:1fr auto}
+  .nav-manage{padding:3px 6px!important;font-size:10px!important}
+  .hidden-scene{display:none!important}
+  .chapter-empty{
+    grid-column:1/-1;padding:18px;text-align:center;color:var(--muted);
+    border-bottom:1px solid var(--line);background:#fbfaf8;
+  }
+  @media(max-width:1200px){
+    .search-row{grid-template-columns:repeat(3,minmax(150px,1fr))}
+  }
+  @media(max-width:900px){
+    .app-shell{grid-template-columns:1fr}
+    .project-sidebar{position:static;height:auto;max-height:260px}
+    .search-row{grid-template-columns:1fr 1fr}
+  }
+
+
+  /* Этап 2: режимы просмотра и навигация */
+  .app-shell{grid-template-columns:230px minmax(0,1fr) 300px}
+  .app-shell.info-collapsed{grid-template-columns:230px minmax(0,1fr) 44px}
+  .project-dashboard{
+    border:1px solid var(--line);border-radius:14px;background:var(--panel);
+    padding:13px;margin-bottom:12px;
+  }
+  .dashboard-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .dashboard-title{font-size:16px;font-weight:750}
+  .dashboard-metrics{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+  .dashboard-metric{
+    border:1px solid var(--line);border-radius:10px;background:#fbfaf8;
+    padding:8px 10px;min-width:100px;font-size:11px;color:var(--muted);
+  }
+  .dashboard-metric strong{display:block;color:var(--ink);font-size:17px;margin-top:2px}
+  .progress-wrap{margin-top:12px}
+  .progress-label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:5px}
+  .progress-track{height:12px;background:#e9e3dc;border-radius:999px;overflow:hidden}
+  .progress-bar{height:100%;background:var(--accent);border-radius:999px;transition:width .2s}
+  .status-breakdown{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .view-switch{display:flex;gap:5px}
+  .view-switch button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .scene-cards-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
+    gap:12px;padding:12px;background:var(--bg);min-height:180px;
+  }
+  .compact-scene-card{
+    border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff;
+    cursor:pointer;transition:box-shadow .12s,transform .12s;
+  }
+  .compact-scene-card:hover{box-shadow:0 5px 18px rgba(0,0,0,.08);transform:translateY(-1px)}
+  .compact-scene-card.fixed{background:#f3f8f0;border-color:#bfd0b8}
+  .compact-scene-card.floating{background:#fffaf0}
+  .compact-card-title{font-size:15px;font-weight:750;line-height:1.35;margin-bottom:7px}
+  .compact-card-description{
+    font-size:12px;color:var(--muted);line-height:1.4;margin:8px 0;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .entity-link{
+    border:0;background:transparent;padding:0;color:inherit;font:inherit;
+    cursor:pointer;text-decoration:underline;text-decoration-color:transparent;
+  }
+  .entity-link:hover{text-decoration-color:currentColor}
+  .compact-list{width:100%;border-collapse:collapse;background:#fff;font-size:12px}
+  .compact-list th{
+    position:sticky;top:0;z-index:3;background:#eee7df;text-align:left;
+    padding:9px;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  .compact-list td{padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  .compact-list tr:hover{background:#fbf7f2}
+  .compact-list .title-cell{font-weight:700;min-width:220px}
+  .compact-list-wrap{overflow:auto;max-height:calc(100vh - 355px)}
+  .scene-info-panel{
+    border:1px solid var(--line);border-radius:14px;background:var(--panel);
+    height:calc(100vh - 145px);position:sticky;top:128px;overflow:auto;
+    padding:12px;transition:width .15s;
+  }
+  .info-collapsed .scene-info-panel{padding:7px;overflow:hidden}
+  .info-collapsed .scene-info-content{display:none}
+  .info-panel-head{display:flex;align-items:center;justify-content:space-between;gap:7px}
+  .info-panel-title{font-weight:750;font-size:14px}
+  .info-section{margin-top:13px;padding-top:10px;border-top:1px solid var(--line)}
+  .info-row{font-size:12px;line-height:1.45;margin:6px 0}
+  .info-row strong{color:var(--muted)}
+  .info-nav{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}
+  .info-nav button{font-size:11px;padding:7px}
+  .selected-scene{outline:3px solid rgba(122,92,68,.2);outline-offset:-3px}
+  .quick-editable{cursor:text;border-radius:5px}
+  .quick-editable:hover{background:rgba(255,255,255,.7)}
+  .quick-select{
+    width:100%;font-size:11px;padding:4px 5px;border-radius:6px;
+  }
+  .profile-auto{
+    margin-top:12px;border-top:1px solid var(--line);padding-top:10px;
+  }
+  .profile-auto-grid{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;
+  }
+  .profile-auto-card{
+    border:1px solid var(--line);border-radius:8px;padding:7px;background:#fff;
+    font-size:11px;cursor:pointer;text-align:left;
+  }
+  .profile-auto-card strong{display:block;font-size:15px;margin-bottom:2px}
+  .character-timeline{
+    display:grid;gap:8px;margin-top:10px;
+  }
+  .timeline-entry{
+    border-left:3px solid var(--accent);padding:7px 9px;background:#fbfaf8;
+    border-radius:0 8px 8px 0;cursor:pointer;
+  }
+  .timeline-entry-title{font-weight:700;font-size:13px}
+  .timeline-entry-meta{font-size:11px;color:var(--muted);margin-top:3px}
+  .profile-relations-list{font-size:11px;line-height:1.45}
+  .mobile-only{display:none}
+  @media(max-width:1250px){
+    .app-shell{grid-template-columns:210px minmax(0,1fr)}
+    .scene-info-panel{position:fixed;right:12px;top:130px;width:300px;z-index:45;box-shadow:0 8px 30px rgba(0,0,0,.15)}
+    .app-shell.info-collapsed{grid-template-columns:210px minmax(0,1fr)}
+    .info-collapsed .scene-info-panel{width:44px}
+  }
+  @media(max-width:900px){
+    .scene-info-panel{top:80px;right:7px;height:calc(100vh - 95px)}
+    .profile-auto-grid{grid-template-columns:1fr}
+  }
+
+</style>
+</head>
+<body>
+<header>
+  <h1>Таймлайн романа</h1>
+  <button class="primary" id="addFirst">＋ Новая сцена</button>
+  <button id="manageChapters">Главы</button>
+  <button id="manageChars">Персонажи</button>
+  <button id="manageLocations">Локации</button>
+  <button id="manageTags">Теги</button>
+  <button id="allScenesBtn">Весь текст</button>
+  <button id="exportTextBtn">Выгрузить текст</button>
+  <button id="exportBtn">Экспорт JSON</button>
+  <label class="file-label">Импорт JSON<input id="importInput" type="file" accept=".json,application/json" hidden></label>
+  <button class="danger" id="clearBtn">Очистить</button>
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot fixed"></span>сцена на своём месте</span>
+    <span class="legend-item"><span class="legend-dot floating"></span>сцену ещё нужно разместить</span>
+  </div>
+  <div class="hint">Данные автоматически сохраняются в этом браузере</div>
+</header>
+
+<div class="app-shell">
+  <aside class="project-sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-title">Главы <button class="nav-manage" onclick="openChaptersManager()">настроить</button></div>
+      <div id="sideChapters" class="sidebar-list"></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">Персонажи</div>
+      <div id="sideCharacters" class="sidebar-list"></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">Локации <button class="nav-manage" onclick="openLocationsManager()">настроить</button></div>
+      <div id="sideLocations" class="sidebar-list"></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">Теги <button class="nav-manage" onclick="openTagsManager()">настроить</button></div>
+      <div id="sideTags" class="sidebar-list"></div>
+    </div>
+  </aside>
+  <main class="main-workspace">
+    <section id="projectDashboard" class="project-dashboard"></section>
+    <section class="toolbar-panel">
+      <div class="dashboard-top" style="margin-bottom:9px">
+        <div class="view-switch" id="viewSwitch">
+          <button data-view="table" class="active">Таблица</button>
+          <button data-view="cards">Карточки</button>
+          <button data-view="list">Компактный список</button>
+        </div>
+      </div>
+      <div class="search-row">
+        <label><span class="filter-label">Поиск</span><input id="projectSearch" class="search-input" placeholder="Сцена, текст, персонаж, глава, локация или тег"></label>
+        <label><span class="filter-label">Глава</span><select id="filterChapter"></select></label>
+        <label><span class="filter-label">Персонаж</span><select id="filterCharacter"></select></label>
+        <label><span class="filter-label">Локация</span><select id="filterLocation"></select></label>
+        <label><span class="filter-label">Тег</span><select id="filterTag"></select></label>
+        <label><span class="filter-label">Написание</span><select id="filterWriting"></select></label>
+        <label><span class="filter-label">Расположение</span><select id="filterPlacement">
+          <option value="">Все</option><option value="fixed">На своём месте</option><option value="floating">Нужно разместить</option>
+        </select></label>
+        <button id="clearFilters">Сбросить</button>
+      </div>
+      <div id="statsStrip" class="stats-strip"></div>
+    </section>
+    <div class="viewport workspace-viewport">
+      <div id="board" class="board"></div>
+    </div>
+  </main>
+  <aside id="sceneInfoPanel" class="scene-info-panel">
+    <div class="info-panel-head">
+      <div class="info-panel-title">Выбранная сцена</div>
+      <button id="toggleInfoPanel" title="Свернуть панель">›</button>
+    </div>
+    <div id="sceneInfoContent" class="scene-info-content">
+      <p class="profile-note">Выберите сцену в любом режиме просмотра.</p>
+    </div>
+  </aside>
+</div>
+
+<div class="modal-backdrop" id="sceneModal">
+  <div class="modal">
+    <h2 id="sceneModalTitle">Новая сцена</h2>
+    <div class="modal-grid">
+      <label><span class="field-caption">Дата</span><input id="sceneDate" type="date"></label>
+      <label><span class="field-caption">Время</span><input id="sceneTime" type="time"></label>
+    </div>
+    <label style="display:block;margin-top:12px">
+      <span class="field-caption">Статус сцены</span>
+      <select id="sceneStatus">
+        <option value="floating">Ещё нужно разместить</option>
+        <option value="fixed">Уже на своём месте</option>
+      </select>
+    </label>
+    <label class="include-toggle" style="margin-top:12px;font-size:14px;color:var(--ink)">
+      <input id="sceneIncluded" type="checkbox" checked>
+      Включить сцену в общий текст и выгрузку
+    </label>
+    <div class="modal-grid" style="margin-top:12px">
+      <label><span class="field-caption">Глава</span><select id="sceneChapter"></select></label>
+      <label><span class="field-caption">Статус написания</span><select id="sceneWritingStatus"></select></label>
+    </div>
+    <div class="modal-grid" style="margin-top:12px">
+      <label><span class="field-caption">Локация</span><select id="sceneLocation"></select></label>
+      <div style="display:flex;align-items:end"><button type="button" id="quickAddLocation">＋ Новая локация</button></div>
+    </div>
+    <div class="tag-editor">
+      <span class="field-caption">Теги</span>
+      <div style="display:flex;gap:7px">
+        <input id="sceneTagInput" list="tagOptions" placeholder="Введите тег и нажмите Enter">
+        <button type="button" id="addSceneTag">Добавить</button>
+      </div>
+      <div id="sceneTagDraftList" class="tag-draft-list"></div>
+    </div>
+    <label style="display:block;margin-top:12px">
+      <span class="field-caption">Название сцены</span>
+      <textarea id="sceneTitle" style="min-height:70px" placeholder="Например: Рене встречает Зейна в аэропорту"></textarea>
+    </label>
+    <label style="display:block;margin-top:12px">
+      <span class="field-caption">Текст сцены</span>
+      <textarea id="sceneText" style="min-height:180px" placeholder="Здесь можно хранить и редактировать полный текст сцены"></textarea>
+    </label>
+    <p style="color:var(--muted);font-size:13px;margin:13px 0 5px">
+      Незаполненный персонаж считается не участвующим. Отношения наследуются автоматически. Любое отношение, которое вы редактируете вручную, закрепляется за этой сценой; кнопка «Наследовать» снимает закрепление.
+    </p>
+    <div id="scenePersons"></div>
+    <div class="modal-actions">
+      <button id="cancelScene">Отмена</button>
+      <button class="primary" id="saveScene">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+
+
+<datalist id="tagOptions"></datalist>
+
+<div class="modal-backdrop" id="chaptersModal">
+  <div class="modal" style="width:min(760px,100%)">
+    <h2>Главы</h2>
+    <p class="profile-note">Порядок глав определяет порядок разделов на таймлайне и при экспорте.</p>
+    <div id="chaptersList" class="manager-list"></div>
+    <div class="modal-actions">
+      <button id="closeChapters">Закрыть</button>
+      <button class="primary" id="addChapter">＋ Создать главу</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="locationsModal">
+  <div class="modal" style="width:min(850px,100%)">
+    <h2>Локации</h2>
+    <div id="locationsList" class="manager-list"></div>
+    <div class="modal-actions">
+      <button id="closeLocations">Закрыть</button>
+      <button class="primary" id="addLocation">＋ Создать локацию</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="tagsModal">
+  <div class="modal" style="width:min(650px,100%)">
+    <h2>Теги</h2>
+    <p class="profile-note">Регистр не создаёт отдельные теги: #Романтика и #романтика считаются одним тегом.</p>
+    <div id="tagsList" class="manager-list"></div>
+    <div class="modal-actions">
+      <button id="closeTags">Закрыть</button>
+      <button class="primary" id="addTag">＋ Создать тег</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="textModal">
+  <div class="modal" style="width:min(1100px,100%)">
+    <h2 id="textModalTitle">Текст сцены</h2>
+    <div class="scene-text-meta" id="textModalMeta"></div>
+    <textarea id="fullSceneText" class="scene-text-area" placeholder="Текст сцены"></textarea>
+    <div class="modal-actions">
+      <button id="closeText">Закрыть</button>
+      <button class="primary" id="saveText">Сохранить текст</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-backdrop" id="allScenesModal">
+  <div class="modal" style="width:min(1180px,100%);max-height:94vh">
+    <h2>Все сцены</h2>
+    <p class="scene-text-meta">
+      Сцены идут в том же порядке, что и на таймлайне. Изменения сохраняются обратно в каждую отдельную сцену.
+    </p>
+    <div id="allScenesList" class="all-scenes-list"></div>
+    <div class="modal-actions" style="position:sticky;bottom:-18px;background:#fff;padding:14px 0 2px">
+      <button id="closeAllScenes">Закрыть</button>
+      <button class="primary" id="saveAllScenes">Сохранить все изменения</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-backdrop" id="charsModal">
+  <div class="modal" style="width:min(1180px,100%);max-height:94vh">
+    <h2>Анкеты персонажей</h2>
+    <p class="profile-note">
+      Отношения, указанные в анкете, считаются отношениями на начало истории и становятся исходными для первой сцены.
+      Фотографии сохраняются внутри файла данных браузера, поэтому лучше не загружать слишком много очень больших изображений.
+    </p>
+    <div id="profilesGrid" class="profiles-grid"></div>
+    <div class="modal-actions">
+      <button id="closeChars">Закрыть</button>
+      <button class="primary" id="addChar">＋ Новый персонаж</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-backdrop" id="characterTimelineModal">
+  <div class="modal" style="width:min(900px,100%);max-height:94vh">
+    <h2 id="characterTimelineTitle">История персонажа</h2>
+    <div id="characterTimelineSummary" class="profile-note"></div>
+    <div id="characterTimelineList" class="character-timeline"></div>
+    <div class="modal-actions"><button id="closeCharacterTimeline">Закрыть</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="profileEditorModal">
+  <div class="modal" style="width:min(1050px,100%);max-height:94vh">
+    <h2 id="profileEditorTitle">Анкета персонажа</h2>
+
+    <div class="profile-field full">
+      <div class="profile-field-top"><strong>Фото и визуализации</strong></div>
+      <input id="profilePhotosInput" type="file" accept="image/*" multiple>
+      <div id="profilePhotosGrid" class="photos-grid"></div>
+    </div>
+
+    <div class="profile-editor-grid" style="margin-top:12px">
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Имя</strong></div>
+        <input id="pf_name" placeholder="Имя">
+      </div>
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Фамилия</strong></div>
+        <input id="pf_surname" placeholder="Фамилия">
+      </div>
+
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Раса</strong><label class="hide-field"><input id="hide_race" type="checkbox"> не указывать</label></div>
+        <input id="pf_race" list="raceOptions" placeholder="Выберите или введите вручную">
+      </div>
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Пол</strong><label class="hide-field"><input id="hide_sex" type="checkbox"> не указывать</label></div>
+        <select id="pf_sex">
+          <option value="">Не указано</option><option>Мужской</option><option>Женский</option><option>Неизвестно</option><option>Другой</option>
+        </select>
+      </div>
+
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Вторичный пол</strong><label class="hide-field"><input id="hide_secondarySex" type="checkbox"> не указывать</label></div>
+        <input id="pf_secondarySex" list="secondarySexOptions" placeholder="Выберите или введите вручную">
+      </div>
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Возраст на начало истории</strong><label class="hide-field"><input id="hide_age" type="checkbox"> не указывать</label></div>
+        <input id="pf_age" type="number" min="0" step="1" placeholder="Не указано">
+      </div>
+
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Дата рождения</strong><label class="hide-field"><input id="hide_birthday" type="checkbox"> не указывать</label></div>
+        <div class="birthday-grid">
+          <input id="pf_birthYear" type="number" min="1" placeholder="Год необязателен">
+          <select id="pf_birthMonth"></select>
+          <select id="pf_birthDay"></select>
+        </div>
+      </div>
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Знак зодиака</strong><label class="hide-field"><input id="hide_zodiac" type="checkbox"> не указывать</label></div>
+        <input id="pf_zodiac" readonly placeholder="Определится по дате рождения">
+      </div>
+
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Рост</strong><label class="hide-field"><input id="hide_height" type="checkbox"> не указывать</label></div>
+        <input id="pf_height" placeholder="Например: 182 см">
+      </div>
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Телосложение</strong><label class="hide-field"><input id="hide_build" type="checkbox"> не указывать</label></div>
+        <input id="pf_build" list="buildOptions" placeholder="Выберите или введите вручную">
+      </div>
+
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Профессия / сфера занятости</strong><label class="hide-field"><input id="hide_profession" type="checkbox"> не указывать</label></div>
+        <input id="pf_profession" list="professionOptions" placeholder="Выберите или введите вручную">
+      </div>
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Сексуальная ориентация</strong><label class="hide-field"><input id="hide_orientation" type="checkbox"> не указывать</label></div>
+        <input id="pf_orientation" list="orientationOptions" placeholder="Выберите или введите вручную">
+      </div>
+
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Любимая еда и напитки</strong><label class="hide-field"><input id="hide_favorites" type="checkbox"> не указывать</label></div>
+        <input id="pf_favorites" list="foodOptions" placeholder="Можно перечислить через запятую">
+      </div>
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Хобби / увлечения</strong><label class="hide-field"><input id="hide_hobbies" type="checkbox"> не указывать</label></div>
+        <input id="pf_hobbies" list="hobbyOptions" placeholder="Можно перечислить через запятую">
+      </div>
+
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Характер</strong><label class="hide-field"><input id="hide_character" type="checkbox"> не указывать</label></div>
+        <textarea id="pf_character" list="characterOptions" style="min-height:90px" placeholder="Можно перечислить несколько черт"></textarea>
+      </div>
+      <div class="profile-field">
+        <div class="profile-field-top"><strong>Особенности</strong><label class="hide-field"><input id="hide_features" type="checkbox"> не указывать</label></div>
+        <textarea id="pf_features" style="min-height:90px" placeholder="Например: левша, гетерохромия, топографическая дезориентация"></textarea>
+      </div>
+
+      <div class="profile-field full">
+        <div class="profile-field-top"><strong>Описание героя</strong><label class="hide-field"><input id="hide_description" type="checkbox"> не указывать</label></div>
+        <textarea id="pf_description" style="min-height:180px" placeholder="Свободное описание персонажа"></textarea>
+      </div>
+
+      <div class="profile-field full">
+        <div class="profile-field-top"><strong>Отношения с другими персонажами на начало истории</strong></div>
+        <div id="profileInitialRelations" class="initial-relations"></div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button id="cancelProfile">Отмена</button>
+      <button class="primary" id="saveProfile">Сохранить анкету</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="raceOptions">
+  <option value="Человек"><option value="Эльф"><option value="Полуэльф"><option value="Гном"><option value="Дворф">
+  <option value="Орк"><option value="Полуорк"><option value="Гоблин"><option value="Тролль"><option value="Огр">
+  <option value="Фейри"><option value="Вампир"><option value="Оборотень"><option value="Демон"><option value="Ангел">
+  <option value="Дракон"><option value="Зверолюд"><option value="Русал"><option value="Неизвестно">
+</datalist>
+<datalist id="secondarySexOptions">
+  <option value="Альфа"><option value="Бета"><option value="Омега"><option value="Энигма">
+  <option value="Дельта"><option value="Гамма"><option value="Сигма"><option value="Тета">
+  <option value="Нейтральный"><option value="Неизвестно">
+</datalist>
+<datalist id="buildOptions">
+  <option value="Худощавое"><option value="Стройное"><option value="Подтянутое"><option value="Спортивное">
+  <option value="Атлетическое"><option value="Мускулистое"><option value="Коренастое"><option value="Плотное">
+  <option value="Крупное"><option value="Хрупкое"><option value="Миниатюрное"><option value="Неизвестно">
+</datalist>
+<datalist id="professionOptions">
+  <option value="Школьник"><option value="Студент"><option value="Аспирант"><option value="Стажёр">
+  <option value="Безработный"><option value="Домохозяин"><option value="Фрилансер"><option value="Предприниматель">
+  <option value="Бизнесмен"><option value="Руководитель"><option value="Офисный сотрудник"><option value="Преподаватель">
+  <option value="Врач"><option value="Медработник"><option value="Юрист"><option value="Полицейский">
+  <option value="Военный"><option value="Музыкант"><option value="Художник"><option value="Дизайнер">
+  <option value="Писатель"><option value="Журналист"><option value="Актёр"><option value="Спортсмен">
+  <option value="Работник сферы обслуживания"><option value="Неизвестно">
+</datalist>
+<datalist id="orientationOptions">
+  <option value="Гетеросексуальная"><option value="Гомосексуальная"><option value="Бисексуальная">
+  <option value="Пансексуальная"><option value="Асексуальная"><option value="Демисексуальная">
+  <option value="Квир"><option value="Не определился"><option value="Неизвестно">
+</datalist>
+<datalist id="foodOptions">
+  <option value="Кофе"><option value="Чай"><option value="Вино"><option value="Пиво"><option value="Коктейли">
+  <option value="Сладости"><option value="Выпечка"><option value="Острая еда"><option value="Домашняя кухня">
+  <option value="Мясо"><option value="Рыба"><option value="Фрукты"><option value="Неизвестно">
+</datalist>
+<datalist id="hobbyOptions">
+  <option value="Чтение"><option value="Музыка"><option value="Игра на музыкальных инструментах">
+  <option value="Рисование"><option value="Фотография"><option value="Кино"><option value="Видеоигры">
+  <option value="Спорт"><option value="Танцы"><option value="Кулинария"><option value="Путешествия">
+  <option value="Садоводство"><option value="Коллекционирование"><option value="Неизвестно">
+</datalist>
+
+<script>
+const STORAGE_KEY="novelTimelineV10";
+const OLD_KEYS=["novelTimelineV9","novelTimelineV8","novelTimelineV7","novelTimelineV4","novelTimelineV3","novelTimelineV2","novelTimelineV1"];
+let data=loadData();
+let editingIndex=null;
+let insertIndex=null;
+let draggedIndex=null;
+let textEditingIndex=null;
+let profileEditingName=null;
+let profileDraftPhotos=[];
+let sceneTagDraft=[];
+let selectedSceneIndex=null;
+let selectedSceneId=null;
+const filters={search:"",chapter:"",character:"",location:"",tag:"",writing:"",placement:""};
+let currentView="table";
+let infoPanelCollapsed=false;
+let renderQueued=false;
+
+
+const WRITING_STATUSES=[
+  {id:"idea",label:"Идея"},
+  {id:"plan",label:"План"},
+  {id:"draft",label:"Черновик"},
+  {id:"edit1",label:"Первая редактура"},
+  {id:"edit2",label:"Вторая редактура"},
+  {id:"final",label:"Финал"}
+];
+function makeId(prefix){
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
+}
+function normalizeChapters(chapters){
+  const list=Array.isArray(chapters)&&chapters.length?chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}];
+  const result=list.map((c,i)=>({
+    id:c.id||makeId("chapter"),
+    title:String(c.title||`Глава ${i+1}`),
+    collapsed:!!c.collapsed
+  }));
+  if(!result.some(c=>c.id==="chapter-unassigned"))result.unshift({id:"chapter-unassigned",title:"Без главы",collapsed:false});
+  return result;
+}
+function normalizeLocations(locations){
+  return (Array.isArray(locations)?locations:[]).map(l=>({
+    id:l.id||makeId("location"),name:String(l.name||"Локация"),description:String(l.description||"")
+  }));
+}
+function canonicalTagName(name){
+  return String(name||"").trim().replace(/^#+/,"").replace(/\s+/g," ");
+}
+function normalizeTags(tags,scenes){
+  const result=[];
+  const seen=new Set();
+  (Array.isArray(tags)?tags:[]).forEach(t=>{
+    const name=canonicalTagName(typeof t==="string"?t:t.name);
+    const key=name.toLocaleLowerCase("ru");
+    if(name&&!seen.has(key)){seen.add(key);result.push({id:(typeof t==="object"&&t.id)||makeId("tag"),name})}
+  });
+  return result;
+}
+function defaultData(){
+  return {
+    version:10,
+    characters:["Рене","Зейн","Реми","Арман"],
+    profiles:{},
+    chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],
+    locations:[],
+    tags:[],
+    future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},
+    scenes:[]
+  };
+}
+
+function emptyProfile(name=""){
+  return {
+    name,
+    surname:"",
+    photos:[],
+    race:"",
+    sex:"",
+    secondarySex:"",
+    age:"",
+    birthday:{year:"",month:"",day:""},
+    zodiac:"",
+    height:"",
+    build:"",
+    profession:"",
+    orientation:"",
+    favorites:"",
+    hobbies:"",
+    character:"",
+    features:"",
+    description:"",
+    hidden:{},
+    initialRelations:{}
+  };
+}
+function normalizeProfile(profile,name){
+  const base=emptyProfile(name);
+  const p=profile||{};
+  return {
+    ...base,
+    ...p,
+    name:p.name||name,
+    photos:Array.isArray(p.photos)?p.photos:[],
+    birthday:{...base.birthday,...(p.birthday||{})},
+    hidden:{...(p.hidden||{})},
+    initialRelations:{...(p.initialRelations||{})}
+  };
+}
+function normalizeData(raw){
+  const src=raw&&Array.isArray(raw.characters)&&Array.isArray(raw.scenes)?raw:defaultData();
+  const chapters=normalizeChapters(src.chapters);
+  const locations=normalizeLocations(src.locations);
+  const tags=normalizeTags(src.tags,src.scenes);
+  const tagByName=new Map(tags.map(t=>[t.name.toLocaleLowerCase("ru"),t.id]));
+  const chapterIds=new Set(chapters.map(c=>c.id));
+  const locationIds=new Set(locations.map(l=>l.id));
+
+  const scenes=src.scenes.map(scene=>{
+    const normalizedTags=[];
+    for(const rawTag of (Array.isArray(scene.tags)?scene.tags:[])){
+      const existingById=tags.find(t=>t.id===rawTag);
+      if(existingById){normalizedTags.push(existingById.id);continue}
+      const name=canonicalTagName(rawTag);
+      if(!name)continue;
+      const key=name.toLocaleLowerCase("ru");
+      let id=tagByName.get(key);
+      if(!id){
+        id=makeId("tag");tags.push({id,name});tagByName.set(key,id);
+      }
+      normalizedTags.push(id);
+    }
+    return {
+      id:scene.id||makeId("scene"),
+      date:scene.date||"",
+      time:scene.time||"",
+      title:scene.title||"",
+      chapterId:chapterIds.has(scene.chapterId)?scene.chapterId:"chapter-unassigned",
+      locationId:locationIds.has(scene.locationId)?scene.locationId:"",
+      tags:[...new Set(normalizedTags)],
+      writingStatus:WRITING_STATUSES.some(x=>x.id===scene.writingStatus)?scene.writingStatus:"idea",
+      sceneText:scene.sceneText||scene.text||"",
+      included:scene.included!==false,
+      status:scene.status==="fixed"?"fixed":"floating",
+      dateReview:!!scene.dateReview,
+      people:Object.fromEntries(Object.entries(scene.people||{}).map(([name,p])=>[
+        name,{
+          action:p?.action||"",
+          relationChanges:{...(p?.relationChanges||{})},
+          visibleRelations:Array.isArray(p?.visibleRelations)?[...p.visibleRelations]:[],
+          legacyState:p?.legacyState||((p?.state||p?.feelings||"").trim())
+        }
+      ]))
+    };
+  });
+
+  return {
+    version:10,
+    characters:[...src.characters],
+    profiles:Object.fromEntries(src.characters.map(name=>[
+      name,normalizeProfile((src.profiles||{})[name],name)
+    ])),
+    chapters,locations,tags,
+    future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[],...(src.future||{})},
+    scenes
+  };
+}
+function loadData(){
+  try{
+    let raw=localStorage.getItem(STORAGE_KEY);
+    if(!raw){
+      for(const key of OLD_KEYS){
+        raw=localStorage.getItem(key);
+        if(raw)break;
+      }
+    }
+    return normalizeData(raw?JSON.parse(raw):defaultData());
+  }catch(e){return defaultData()}
+}
+function saveData(){
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(data));
+}
+function esc(s=""){
+  return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+}
+function jsq(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
+function cssEscape(s){return String(s).replace(/\\/g,"\\\\").replace(/"/g,'\\"')}
+
+/* Состояние отношений вычисляется из порядка сцен, поэтому после вставки
+   или перетаскивания всё наследование перестраивается автоматически. */
+function relationshipsBefore(sceneIndex){
+  const state={};
+  data.characters.forEach(from=>{
+    state[from]={...((data.profiles?.[from]?.initialRelations)||{})};
+  });
+  for(let i=0;i<sceneIndex;i++){
+    const scene=data.scenes[i];
+    for(const [from,p] of Object.entries(scene.people||{})){
+      state[from] ||= {};
+      for(const [to,value] of Object.entries(p.relationChanges||{})){
+        if(value==="") delete state[from][to];
+        else state[from][to]=value;
+      }
+    }
+  }
+  return state;
+}
+function relationshipsAt(sceneIndex){
+  const state=relationshipsBefore(sceneIndex);
+  const scene=data.scenes[sceneIndex];
+  if(scene){
+    for(const [from,p] of Object.entries(scene.people||{})){
+      state[from] ||= {};
+      for(const [to,value] of Object.entries(p.relationChanges||{})){
+        if(value==="") delete state[from][to];
+        else state[from][to]=value;
+      }
+    }
+  }
+  return state;
+}
+function personHasContent(p){
+  return !!(p&&(
+    (p.action||"").trim() ||
+    Object.keys(p.relationChanges||{}).length ||
+    (p.visibleRelations||[]).length ||
+    (p.legacyState||"").trim()
+  ));
+}
+
+
+function parseSceneMoment(scene){
+  if(!scene?.date)return null;
+  const dateParts=scene.date.split("-").map(Number);
+  if(dateParts.length!==3||dateParts.some(Number.isNaN))return null;
+  const [y,m,d]=dateParts;
+  let hh=0,mm=0,hasTime=false;
+  if(scene.time){
+    const parts=scene.time.split(":").map(Number);
+    if(parts.length>=2&&!parts.some(Number.isNaN)){
+      [hh,mm]=parts;
+      hasTime=true;
+    }
+  }
+  return {value:new Date(y,m-1,d,hh,mm).getTime(),date:scene.date,time:scene.time||"",hasTime};
+}
+function chronologicalWarning(index){
+  const current=parseSceneMoment(data.scenes[index]);
+  if(!current)return false;
+  let prev=null,next=null;
+  for(let i=index-1;i>=0;i--){
+    const p=parseSceneMoment(data.scenes[i]);
+    if(p){prev=p;break}
+  }
+  for(let i=index+1;i<data.scenes.length;i++){
+    const n=parseSceneMoment(data.scenes[i]);
+    if(n){next=n;break}
+  }
+  if(prev){
+    if(current.date<prev.date)return true;
+    if(current.date===prev.date&&current.hasTime&&prev.hasTime&&current.time<prev.time)return true;
+  }
+  if(next){
+    if(current.date>next.date)return true;
+    if(current.date===next.date&&current.hasTime&&next.hasTime&&current.time>next.time)return true;
+  }
+  return false;
+}
+
+function chapterById(id){return data.chapters.find(c=>c.id===id)}
+function locationById(id){return data.locations.find(l=>l.id===id)}
+function tagById(id){return data.tags.find(t=>t.id===id)}
+function writingStatusById(id){return WRITING_STATUSES.find(x=>x.id===id)||WRITING_STATUSES[0]}
+function sceneCharacters(scene){
+  return data.characters.filter(name=>personHasContent(scene.people?.[name]));
+}
+function countWords(value){
+  return (String(value||"").trim().match(/[\p{L}\p{N}]+(?:[-’'][\p{L}\p{N}]+)*/gu)||[]).length;
+}
+function sceneMatches(scene){
+  if(filters.chapter&&scene.chapterId!==filters.chapter)return false;
+  if(filters.location&&scene.locationId!==filters.location)return false;
+  if(filters.tag&&!scene.tags.includes(filters.tag))return false;
+  if(filters.writing&&scene.writingStatus!==filters.writing)return false;
+  if(filters.placement&&scene.status!==filters.placement)return false;
+  if(filters.character&&!personHasContent(scene.people?.[filters.character]))return false;
+  const q=filters.search.trim().toLocaleLowerCase("ru");
+  if(q){
+    const chapter=chapterById(scene.chapterId)?.title||"";
+    const location=locationById(scene.locationId)?.name||"";
+    const tagNames=scene.tags.map(id=>tagById(id)?.name||"").join(" ");
+    const chars=sceneCharacters(scene).join(" ");
+    const hay=[scene.title,scene.sceneText,chapter,location,tagNames,chars].join("\n").toLocaleLowerCase("ru");
+    if(!hay.includes(q))return false;
+  }
+  return true;
+}
+
+
+function projectReadiness(){
+  const weights={idea:0,plan:20,draft:50,edit1:80,edit2:80,final:100};
+  if(!data.scenes.length)return 0;
+  return Math.round(data.scenes.reduce((sum,s)=>sum+(weights[s.writingStatus]??0),0)/data.scenes.length);
+}
+function renderDashboard(){
+  const totalWords=data.scenes.reduce((n,s)=>n+countWords(s.sceneText),0);
+  const readiness=projectReadiness();
+  const counts=WRITING_STATUSES.map(status=>[status,data.scenes.filter(s=>s.writingStatus===status.id).length]);
+  document.getElementById("projectDashboard").innerHTML=`
+    <div class="dashboard-top"><div class="dashboard-title">Проект</div>
+      <div class="view-switch">${counts.map(([s,n])=>`<span class="stat-pill writing-chip ${s.id}">${s.label}: <strong>${n}</strong></span>`).join("")}</div>
+    </div>
+    <div class="dashboard-metrics">
+      ${[["Сцен",data.scenes.length],["Глав",data.chapters.filter(c=>c.id!=="chapter-unassigned").length],["Персонажей",data.characters.length],["Локаций",data.locations.length],["Тегов",data.tags.length],["Слов",totalWords]].map(([k,v])=>`<div class="dashboard-metric">${k}<strong>${v}</strong></div>`).join("")}
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-label"><span>Общая готовность</span><strong>${readiness}%</strong></div>
+      <div class="progress-track"><div class="progress-bar" style="width:${readiness}%"></div></div>
+    </div>`;
+}
+function renderSceneInfo(){
+  const root=document.getElementById("sceneInfoContent");
+  const scene=selectedSceneIndex!==null?data.scenes[selectedSceneIndex]:null;
+  if(!scene){root.innerHTML='<p class="profile-note">Выберите сцену в любом режиме просмотра.</p>';return}
+  const chapter=chapterById(scene.chapterId),loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
+  const chars=sceneCharacters(scene),tags=scene.tags.map(id=>tagById(id)).filter(Boolean);
+  const prev=selectedSceneIndex>0?data.scenes[selectedSceneIndex-1]:null;
+  const next=selectedSceneIndex<data.scenes.length-1?data.scenes[selectedSceneIndex+1]:null;
+  root.innerHTML=`
+    <div class="info-section" style="border-top:0;margin-top:8px;padding-top:0">
+      <div class="info-row"><strong>Название</strong><br>${esc(scene.title||"Без названия")}</div>
+      <div class="info-row"><strong>Дата</strong><br>${esc(readableDate(scene)||"Не указана")}</div>
+      <div class="info-row"><strong>Глава</strong><br><button class="entity-link" onclick="setFilter('chapter','${jsq(chapter?.id||"")}')">${esc(chapter?.title||"Без главы")}</button></div>
+      <div class="info-row"><strong>Локация</strong><br>${loc?`<button class="entity-link" onclick="setFilter('location','${jsq(loc.id)}')">${esc(loc.name)}</button>`:"Не указана"}</div>
+      <div class="info-row"><strong>Статус</strong><br>${esc(ws.label)} · ${scene.status==="fixed"?"на своём месте":"нужно разместить"}</div>
+      <div class="info-row"><strong>Слов</strong><br>${countWords(scene.sceneText)}</div>
+    </div>
+    <div class="info-section"><strong style="font-size:12px;color:var(--muted)">Персонажи</strong><div class="scene-meta" style="margin-top:6px">${chars.map(c=>`<button class="meta-chip entity-link" onclick="setFilter('character','${jsq(c)}')">${esc(c)}</button>`).join("")||"—"}</div></div>
+    <div class="info-section"><strong style="font-size:12px;color:var(--muted)">Теги</strong><div class="scene-meta" style="margin-top:6px">${tags.map(t=>`<button class="tag-chip entity-link" onclick="setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}</button>`).join("")||"—"}</div></div>
+    <div class="info-nav">
+      <button ${prev?"":"disabled"} onclick="${prev?`selectScene(${selectedSceneIndex-1})`:""}">← ${prev?esc(prev.title||"Предыдущая"):"Нет"}</button>
+      <button ${next?"":"disabled"} onclick="${next?`selectScene(${selectedSceneIndex+1})`:""}">${next?esc(next.title||"Следующая"):"Нет"} →</button>
+    </div>
+    <div class="row-actions" style="margin-top:10px"><button onclick="openSceneText(${selectedSceneIndex})">Текст</button><button onclick="editScene(${selectedSceneIndex})">Редактировать</button></div>`;
+}
+function quickEditTitle(index,element){
+  const scene=data.scenes[index];
+  const input=document.createElement("input");input.value=scene.title||"";
+  input.style.width="100%";element.replaceWith(input);input.focus();input.select();
+  const finish=()=>{scene.title=input.value.trim();saveData();scheduleRender()};
+  input.onblur=finish;input.onkeydown=e=>{if(e.key==="Enter")input.blur();if(e.key==="Escape")scheduleRender()};
+}
+function quickSelectField(index,field,items,currentValue){
+  const scene=data.scenes[index];
+  const select=document.createElement("select");select.className="quick-select";
+  select.innerHTML=items.map(x=>`<option value="${esc(x.value)}">${esc(x.label)}</option>`).join("");
+  select.value=currentValue;
+  const panel=document.getElementById("sceneInfoContent");
+  const temp=document.createElement("div");temp.className="info-section";temp.innerHTML="<strong>Быстрое изменение</strong>";
+  temp.appendChild(select);panel.prepend(temp);select.focus();
+  select.onchange=()=>{scene[field]=select.value;saveData();scheduleRender()};
+  select.onblur=()=>scheduleRender();
+}
+function quickEditLocation(i){quickSelectField(i,"locationId",[{value:"",label:"Не указана"},...data.locations.map(l=>({value:l.id,label:l.name}))],data.scenes[i].locationId)}
+function quickEditWriting(i){quickSelectField(i,"writingStatus",WRITING_STATUSES.map(s=>({value:s.id,label:s.label})),data.scenes[i].writingStatus)}
+function quickEditChapter(i){quickSelectField(i,"chapterId",data.chapters.map(c=>({value:c.id,label:c.title})),data.scenes[i].chapterId)}
+function refreshControls(){
+  const preserve=(id)=>document.getElementById(id)?.value||"";
+  const opts=(items,value,label)=>`<option value="">Все</option>`+items.map(x=>`<option value="${esc(value(x))}">${esc(label(x))}</option>`).join("");
+  document.getElementById("filterChapter").innerHTML=opts(data.chapters,x=>x.id,x=>x.title);
+  document.getElementById("filterCharacter").innerHTML=opts(data.characters,x=>x,x=>x);
+  document.getElementById("filterLocation").innerHTML=opts(data.locations,x=>x.id,x=>x.name);
+  document.getElementById("filterTag").innerHTML=opts(data.tags,x=>x.id,x=>"#"+x.name);
+  document.getElementById("filterWriting").innerHTML=opts(WRITING_STATUSES,x=>x.id,x=>x.label);
+  document.getElementById("filterChapter").value=filters.chapter;
+  document.getElementById("filterCharacter").value=filters.character;
+  document.getElementById("filterLocation").value=filters.location;
+  document.getElementById("filterTag").value=filters.tag;
+  document.getElementById("filterWriting").value=filters.writing;
+  document.getElementById("filterPlacement").value=filters.placement;
+  document.getElementById("projectSearch").value=filters.search;
+}
+function renderSidebar(){
+  const countBy=predicate=>data.scenes.filter(predicate).length;
+  document.getElementById("sideChapters").innerHTML=data.chapters.map(c=>`<button class="sidebar-item ${filters.chapter===c.id?"active":""}" onclick="setFilter('chapter','${jsq(c.id)}')">${esc(c.title)}<span class="sidebar-count">${countBy(s=>s.chapterId===c.id)}</span></button>`).join("");
+  document.getElementById("sideCharacters").innerHTML=data.characters.map(c=>`<button class="sidebar-item ${filters.character===c?"active":""}" onclick="setFilter('character','${jsq(c)}')">${esc(c)}<span class="sidebar-count">${countBy(s=>personHasContent(s.people?.[c]))}</span></button>`).join("");
+  document.getElementById("sideLocations").innerHTML=data.locations.map(l=>`<button class="sidebar-item ${filters.location===l.id?"active":""}" onclick="setFilter('location','${jsq(l.id)}')">${esc(l.name)}<span class="sidebar-count">${countBy(s=>s.locationId===l.id)}</span></button>`).join("")||'<div class="profile-note">Локаций пока нет</div>';
+  document.getElementById("sideTags").innerHTML=data.tags.slice(0,80).map(t=>`<button class="sidebar-item ${filters.tag===t.id?"active":""}" onclick="setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}<span class="sidebar-count">${countBy(s=>s.tags.includes(t.id))}</span></button>`).join("")||'<div class="profile-note">Тегов пока нет</div>';
+}
+function setFilter(key,value){filters[key]=filters[key]===value?"":value;scheduleRender()}
+function renderStats(){
+  const totalWords=data.scenes.reduce((n,s)=>n+countWords(s.sceneText),0);
+  const selected=selectedSceneIndex!==null&&data.scenes[selectedSceneIndex]?countWords(data.scenes[selectedSceneIndex].sceneText):0;
+  const finals=data.scenes.filter(s=>s.writingStatus==="final").length;
+  const readiness=projectReadiness();
+  document.getElementById("statsStrip").innerHTML=[
+    ["Глав",data.chapters.filter(c=>c.id!=="chapter-unassigned").length],["Сцен",data.scenes.length],
+    ["Персонажей",data.characters.length],["Локаций",data.locations.length],["Тегов",data.tags.length],
+    ["Слов",totalWords],["В выбранной сцене",selected],["Финал",finals],["Готовность",readiness+"%"]
+  ].map(([k,v])=>`<span class="stat-pill">${k}: <strong>${v}</strong></span>`).join("");
+}
+["Chapter","Character","Location","Tag","Writing","Placement"].forEach(key=>{
+  const el=document.getElementById("filter"+key);
+  el.onchange=()=>{filters[key.toLowerCase()]=el.value;render()};
+});
+let searchTimer=null;
+document.getElementById("projectSearch").oninput=e=>{
+  filters.search=e.target.value;
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(render,120);
+};
+document.getElementById("clearFilters").onclick=()=>{Object.keys(filters).forEach(k=>filters[k]="");render()};
+document.querySelectorAll("#viewSwitch button").forEach(btn=>btn.onclick=()=>{currentView=btn.dataset.view;render()});
+document.getElementById("toggleInfoPanel").onclick=()=>{
+  infoPanelCollapsed=!infoPanelCollapsed;
+  document.querySelector(".app-shell").classList.toggle("info-collapsed",infoPanelCollapsed);
+  document.getElementById("toggleInfoPanel").textContent=infoPanelCollapsed?"‹":"›";
+};
+
+function getVisibleSceneEntries(){
+  return data.scenes.map((scene,index)=>({scene,index})).filter(x=>sceneMatches(x.scene));
+}
+function render(){
+  normalizeSceneOrder();
+  if(selectedSceneId){
+    const resolved=data.scenes.findIndex(s=>s.id===selectedSceneId);
+    selectedSceneIndex=resolved>=0?resolved:null;
+  }
+  refreshControls();
+  renderSidebar();
+  renderDashboard();
+  renderStats();
+  renderSceneInfo();
+  renderViewSwitch();
+  const board=document.getElementById("board");
+  board.className="board view-"+currentView;
+  if(currentView==="cards")renderCardsView(board);
+  else if(currentView==="list")renderListView(board);
+  else renderTableView(board);
+}
+function scheduleRender(){
+  if(renderQueued)return;
+  renderQueued=true;
+  requestAnimationFrame(()=>{renderQueued=false;render()});
+}
+function renderViewSwitch(){
+  document.querySelectorAll("#viewSwitch button").forEach(btn=>btn.classList.toggle("active",btn.dataset.view===currentView));
+}
+function selectScene(index){
+  selectedSceneIndex=index;
+  selectedSceneId=data.scenes[index]?.id||null;
+  renderSceneInfo();
+  renderStats();
+  document.querySelectorAll("[data-scene-index]").forEach(el=>el.classList.toggle("selected-scene",Number(el.dataset.sceneIndex)===index));
+}
+function renderTableView(board){
+  board.style.setProperty("--cols",data.characters.length);
+  let html=`<div class="board-grid board-head">
+    <div class="head-cell sticky-cell">Сцена</div>
+    ${data.characters.map(c=>`<div class="head-cell"><button class="entity-link" onclick="setFilter('character','${jsq(c)}')">${esc(c)}</button></div>`).join("")}
+  </div>`;
+  let shown=0;
+  data.chapters.forEach(chapter=>{
+    const chapterScenes=data.scenes.map((scene,index)=>({scene,index})).filter(x=>x.scene.chapterId===chapter.id&&sceneMatches(x.scene));
+    const allCount=data.scenes.filter(s=>s.chapterId===chapter.id).length;
+    if(!chapterScenes.length&&hasActiveFilters())return;
+    html+=renderChapterDivider(chapter,allCount);
+    if(chapter.collapsed)return;
+    if(!chapterScenes.length){html+=`<div class="insert-row"><div class="chapter-empty">В этой главе пока нет сцен</div></div>`;return}
+    chapterScenes.forEach(({scene,index})=>{shown++;html+=renderTableScene(scene,index,chapter)});
+  });
+  if(!shown&&hasActiveFilters())html+=emptySearchMessage();
+  board.innerHTML=html;
+}
+function renderChapterDivider(chapter,count){
+  return `<div class="insert-row"><div class="chapter-divider">
+    <button onclick="toggleChapter('${jsq(chapter.id)}')">${chapter.collapsed?"▸":"▾"}</button>
+    <button class="entity-link" onclick="setFilter('chapter','${jsq(chapter.id)}')"><strong>${esc(chapter.title)}</strong></button>
+    <span class="chapter-summary">${count} сцен</span>
+    <div class="chapter-actions">
+      <button onclick="openNewSceneInChapter('${jsq(chapter.id)}')">＋ сцена</button>
+      <button onclick="openChaptersManager()">Настроить</button>
+    </div>
+  </div></div>`;
+}
+function sceneMetadataHtml(scene,chapter,loc,ws){
+  const tags=scene.tags.map(id=>tagById(id)).filter(Boolean);
+  return `<div class="scene-meta">
+    <button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditChapter(${data.scenes.indexOf(scene)})" onclick="event.stopPropagation();setFilter('chapter','${jsq(chapter.id)}')">📚 ${esc(chapter.title)}</button>
+    ${loc?`<button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditLocation(${data.scenes.indexOf(scene)})" onclick="event.stopPropagation();setFilter('location','${jsq(loc.id)}')">📍 ${esc(loc.name)}</button>`:`<button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditLocation(${data.scenes.indexOf(scene)})">📍 не указана</button>`}
+    <button class="meta-chip writing-chip ${ws.id} entity-link" ondblclick="event.stopPropagation();quickEditWriting(${data.scenes.indexOf(scene)})">📝 ${esc(ws.label)}</button>
+    <span class="scene-kind ${scene.status==="fixed"?"fixed":"floating"}">${scene.status==="fixed"?"На месте":"Разместить"}</span>
+  </div>
+  ${tags.length?`<div class="scene-meta">${tags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">🏷 #${esc(t.name)}</button>`).join("")}</div>`:""}`;
+}
+function renderTableScene(scene,i,chapter){
+  const relationState=relationshipsAt(i);
+  const needsDateReview=!!scene.dateReview||chronologicalWarning(i);
+  const loc=locationById(scene.locationId);
+  const ws=writingStatusById(scene.writingStatus);
+  let html=insertBar(i,chapter.id);
+  html+=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" draggable="true" data-index="${i}" data-scene-index="${i}"
+    onclick="selectScene(${i})" ondragstart="dragStart(event,${i})" ondragover="dragOver(event,${i})"
+    ondragleave="dragLeave(event)" ondrop="dropScene(event,${i})" ondragend="dragEnd(event)">`;
+  html+=`<div class="cell time-cell sticky-cell">
+    <div class="drag-handle">↕ Перетащить сцену</div>
+    <div class="scene-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle(${i},this)">${esc(scene.title||"Без названия")}</div>
+    ${sceneMetadataHtml(scene,chapter,loc,ws)}
+    <div class="scene-meta"><span class="meta-chip">👥 ${sceneCharacters(scene).map(esc).join(", ")||"нет участников"}</span></div>
+    <div class="date-time">
+      <input class="${needsDateReview?"date-review":""}" type="date" value="${esc(scene.date||"")}" onchange="quickUpdate(${i},'date',this.value)">
+      <input class="${needsDateReview?"date-review":""}" type="time" value="${esc(scene.time||"")}" onchange="quickUpdate(${i},'time',this.value)">
+    </div>
+    ${needsDateReview?'<div class="review-note">Проверь дату и время после перемещения</div>':""}
+    <label class="include-toggle"><input type="checkbox" ${scene.included!==false?"checked":""} onchange="toggleIncluded(${i},this.checked)"> включить в работу</label>
+    <div class="row-actions">
+      <button onclick="event.stopPropagation();openSceneText(${i})">Текст</button>
+      <button onclick="event.stopPropagation();editScene(${i})">Изменить</button>
+      <button class="danger" onclick="event.stopPropagation();deleteScene(${i})">Удалить</button>
+    </div>
+  </div>`;
+  data.characters.forEach(char=>{
+    const p=scene.people?.[char];
+    html+=`<div class="cell">`;
+    if(personHasContent(p)){
+      const visible=(p.visibleRelations||[]).filter(t=>relationState[char]?.[t]);
+      const changed=new Set(Object.keys(p.relationChanges||{}));
+      html+=`<div class="card">`;
+      if((p.action||"").trim())html+=`<div class="card-action">${esc(p.action)}</div>`;
+      if((p.legacyState||"").trim())html+=`<div class="legacy-note"><strong>Старая заметка:</strong><br>${esc(p.legacyState)}</div>`;
+      if(visible.length){
+        html+=`<div class="relations-title">Отношения</div>`;
+        visible.forEach(target=>html+=`<div class="relation-chip ${changed.has(target)?"changed":""}"><span class="relation-target">${esc(target)}:</span> ${esc(relationState[char][target])}</div>`);
+      }
+      if(!(p.action||"").trim()&&!(p.legacyState||"").trim()&&!visible.length)html+=`<div class="empty" style="padding-top:38px">отношения скрыты</div>`;
+      html+=`</div>`;
+    }else html+=`<div class="empty">не участвует</div>`;
+    html+=`</div>`;
+  });
+  return html+`</div>`;
+}
+function renderCardsView(board){
+  const entries=getVisibleSceneEntries();
+  board.style.removeProperty("--cols");
+  board.innerHTML=entries.length?`<div class="scene-cards-grid">${entries.map(({scene,index})=>renderCompactCard(scene,index)).join("")}</div>`:emptySearchMessage();
+}
+function renderCompactCard(scene,index){
+  const chapter=chapterById(scene.chapterId),loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
+  const chars=sceneCharacters(scene),tags=scene.tags.map(id=>tagById(id)).filter(Boolean);
+  const description=chars.map(c=>scene.people?.[c]?.action||"").filter(Boolean).join(" ");
+  return `<article class="compact-scene-card ${scene.status} ${selectedSceneIndex===index?"selected-scene":""}" data-scene-index="${index}" onclick="selectScene(${index})" ondblclick="editScene(${index})">
+    <div class="compact-card-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle(${index},this)">${esc(scene.title||"Без названия")}</div>
+    <div class="scene-meta">
+      <button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('chapter','${jsq(chapter?.id||"")}')">📚 ${esc(chapter?.title||"Без главы")}</button>
+      <span class="meta-chip">🕒 ${esc(readableDate(scene)||"без даты")}</span>
+      ${loc?`<button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('location','${jsq(loc.id)}')">📍 ${esc(loc.name)}</button>`:""}
+      <span class="meta-chip writing-chip ${ws.id}">📝 ${esc(ws.label)}</span>
+    </div>
+    <div class="scene-meta">${chars.map(c=>`<button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('character','${jsq(c)}')">👤 ${esc(c)}</button>`).join("")}</div>
+    ${tags.length?`<div class="scene-meta">${tags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}</button>`).join("")}</div>`:""}
+    ${description?`<div class="compact-card-description">${esc(description)}</div>`:""}
+  </article>`;
+}
+function renderListView(board){
+  const entries=getVisibleSceneEntries();
+  board.style.removeProperty("--cols");
+  const rows=entries.map(({scene,index})=>{
+    const chapter=chapterById(scene.chapterId),loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
+    return `<tr data-scene-index="${index}" class="${selectedSceneIndex===index?"selected-scene":""}" onclick="selectScene(${index})" ondblclick="editScene(${index})">
+      <td>${esc(readableDate(scene)||"—")}</td>
+      <td><button class="entity-link" onclick="event.stopPropagation();setFilter('chapter','${jsq(chapter?.id||"")}')">${esc(chapter?.title||"Без главы")}</button></td>
+      <td class="title-cell quick-editable" ondblclick="event.stopPropagation();quickEditTitle(${index},this)">${esc(scene.title||"Без названия")}</td>
+      <td>${sceneCharacters(scene).map(c=>`<button class="entity-link" onclick="event.stopPropagation();setFilter('character','${jsq(c)}')">${esc(c)}</button>`).join(", ")||"—"}</td>
+      <td>${loc?`<button class="entity-link" onclick="event.stopPropagation();setFilter('location','${jsq(loc.id)}')">${esc(loc.name)}</button>`:"—"}</td>
+      <td><span class="meta-chip writing-chip ${ws.id}">${esc(ws.label)}</span></td>
+    </tr>`;
+  }).join("");
+  board.innerHTML=`<div class="compact-list-wrap"><table class="compact-list"><thead><tr><th>Дата</th><th>Глава</th><th>Название</th><th>Персонажи</th><th>Локация</th><th>Статус</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Ничего не найдено</td></tr>'}</tbody></table></div>`;
+}
+function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
+
+function insertBar(index,chapterId,label="＋ вставить сцену здесь"){
+  return `<div class="insert-row"><div class="insert-content"><button onclick="openNewScene(${index},'${jsq(chapterId)}')">${label}</button></div></div>`;
+}
+function hasActiveFilters(){return Object.values(filters).some(Boolean)}
+function normalizeSceneOrder(){
+  const order=new Map(data.chapters.map((c,i)=>[c.id,i]));
+  data.scenes=data.scenes.map((scene,i)=>({scene,i})).sort((a,b)=>{
+    const ca=order.get(a.scene.chapterId)??9999, cb=order.get(b.scene.chapterId)??9999;
+    return ca-cb||a.i-b.i;
+  }).map(x=>x.scene);
+}
+function toggleChapter(id){
+  const c=chapterById(id);if(!c)return;c.collapsed=!c.collapsed;saveData();render();
+}
+function openNewSceneInChapter(chapterId){
+  const indices=data.scenes.map((s,i)=>({s,i})).filter(x=>x.s.chapterId===chapterId).map(x=>x.i);
+  const index=indices.length?Math.max(...indices)+1:data.scenes.findIndex(s=>{
+    const current=data.chapters.findIndex(c=>c.id===s.chapterId);
+    const wanted=data.chapters.findIndex(c=>c.id===chapterId);
+    return current>wanted;
+  });
+  openNewScene(index<0?data.scenes.length:index,chapterId);
+}
+
+function openNewScene(index,chapterId=""){
+  editingIndex=null;insertIndex=index;
+  document.getElementById("sceneModalTitle").textContent="Новая сцена";
+  document.getElementById("sceneDate").value="";
+  document.getElementById("sceneTime").value="";
+  document.getElementById("sceneTitle").value="";
+  document.getElementById("sceneText").value="";
+  document.getElementById("sceneStatus").value="floating";
+  document.getElementById("sceneIncluded").checked=true;
+  populateSceneSelectors();
+  document.getElementById("sceneChapter").value=chapterId||filters.chapter||data.chapters[0]?.id||"chapter-unassigned";
+  document.getElementById("sceneLocation").value="";
+  document.getElementById("sceneWritingStatus").value="idea";
+  sceneTagDraft=[];
+  renderSceneTagDraft();
+  buildPeopleForm({},index);
+  showModal("sceneModal");
+}
+function editScene(index){
+  editingIndex=index;insertIndex=null;
+  const s=data.scenes[index];
+  document.getElementById("sceneModalTitle").textContent="Изменить сцену";
+  document.getElementById("sceneDate").value=s.date||"";
+  document.getElementById("sceneTime").value=s.time||"";
+  document.getElementById("sceneTitle").value=s.title||"";
+  document.getElementById("sceneText").value=s.sceneText||"";
+  document.getElementById("sceneStatus").value=s.status||"floating";
+  document.getElementById("sceneIncluded").checked=s.included!==false;
+  populateSceneSelectors();
+  document.getElementById("sceneChapter").value=s.chapterId||"chapter-unassigned";
+  document.getElementById("sceneLocation").value=s.locationId||"";
+  document.getElementById("sceneWritingStatus").value=s.writingStatus||"idea";
+  sceneTagDraft=[...(s.tags||[])];
+  renderSceneTagDraft();
+  buildPeopleForm(s.people||{},index);
+  showModal("sceneModal");
+}
+
+function populateSceneSelectors(){
+  document.getElementById("sceneChapter").innerHTML=data.chapters.map(c=>`<option value="${esc(c.id)}">${esc(c.title)}</option>`).join("");
+  document.getElementById("sceneLocation").innerHTML='<option value="">Локация не указана</option>'+
+    data.locations.map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+  document.getElementById("sceneWritingStatus").innerHTML=WRITING_STATUSES.map(s=>`<option value="${s.id}">${s.label}</option>`).join("");
+  document.getElementById("tagOptions").innerHTML=data.tags.map(t=>`<option value="${esc(t.name)}"></option>`).join("");
+}
+function ensureTag(name){
+  const clean=canonicalTagName(name);
+  if(!clean)return null;
+  const existing=data.tags.find(t=>t.name.toLocaleLowerCase("ru")===clean.toLocaleLowerCase("ru"));
+  if(existing)return existing.id;
+  const tag={id:makeId("tag"),name:clean};
+  data.tags.push(tag);
+  return tag.id;
+}
+function addTagToDraft(){
+  const input=document.getElementById("sceneTagInput");
+  const parts=input.value.split(/[,;]+/).map(x=>x.trim()).filter(Boolean);
+  parts.forEach(name=>{
+    const id=ensureTag(name);
+    if(id&&!sceneTagDraft.includes(id))sceneTagDraft.push(id);
+  });
+  input.value="";
+  renderSceneTagDraft();
+}
+function renderSceneTagDraft(){
+  document.getElementById("sceneTagDraftList").innerHTML=sceneTagDraft.map(id=>{
+    const tag=tagById(id);return tag?`<button type="button" onclick="removeSceneTag('${jsq(id)}')">#${esc(tag.name)} ×</button>`:"";
+  }).join("");
+}
+function removeSceneTag(id){sceneTagDraft=sceneTagDraft.filter(x=>x!==id);renderSceneTagDraft()}
+document.getElementById("addSceneTag").onclick=addTagToDraft;
+document.getElementById("sceneTagInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addTagToDraft()}};
+document.getElementById("quickAddLocation").onclick=()=>{
+  const name=prompt("Название новой локации:");
+  if(!name?.trim())return;
+  const location={id:makeId("location"),name:name.trim(),description:""};
+  data.locations.push(location);saveData();populateSceneSelectors();
+  document.getElementById("sceneLocation").value=location.id;
+};
+
+function openChaptersManager(){renderChaptersManager();showModal("chaptersModal")}
+function renderChaptersManager(){
+  document.getElementById("chaptersList").innerHTML=data.chapters.map((c,i)=>`
+    <div class="manager-row">
+      <input class="chapter-name-input" data-id="${esc(c.id)}" value="${esc(c.title)}">
+      <button onclick="moveChapter(${i},-1)">↑</button><button onclick="moveChapter(${i},1)">↓</button>
+      <button class="danger" onclick="deleteChapter('${jsq(c.id)}')" ${c.id==="chapter-unassigned"?"disabled":""}>Удалить</button>
+    </div>`).join("");
+}
+function saveChapterNames(){
+  document.querySelectorAll(".chapter-name-input").forEach(input=>{
+    const c=chapterById(input.dataset.id);if(c&&input.value.trim())c.title=input.value.trim();
+  });
+}
+function moveChapter(i,dir){
+  saveChapterNames();const j=i+dir;if(j<0||j>=data.chapters.length)return;
+  [data.chapters[i],data.chapters[j]]=[data.chapters[j],data.chapters[i]];
+  normalizeSceneOrder();saveData();renderChaptersManager();render();
+}
+function deleteChapter(id){
+  const c=chapterById(id);if(!c||id==="chapter-unassigned")return;
+  if(!confirm(`Удалить главу «${c.title}»? Её сцены перейдут в «Без главы».`))return;
+  data.scenes.forEach(s=>{if(s.chapterId===id)s.chapterId="chapter-unassigned"});
+  data.chapters=data.chapters.filter(x=>x.id!==id);
+  normalizeSceneOrder();saveData();renderChaptersManager();render();
+}
+document.getElementById("manageChapters").onclick=openChaptersManager;
+document.getElementById("addChapter").onclick=()=>{
+  saveChapterNames();data.chapters.push({id:makeId("chapter"),title:`Глава ${data.chapters.length}`,collapsed:false});
+  saveData();renderChaptersManager();render();
+};
+document.getElementById("closeChapters").onclick=()=>{saveChapterNames();saveData();hideModal("chaptersModal");render()};
+document.getElementById("chaptersModal").onclick=e=>{if(e.target.id==="chaptersModal"){saveChapterNames();saveData();hideModal("chaptersModal");render()}};
+
+function openLocationsManager(){renderLocationsManager();showModal("locationsModal")}
+function renderLocationsManager(){
+  document.getElementById("locationsList").innerHTML=data.locations.map(l=>`
+    <div class="manager-row location-row">
+      <input class="location-name-input" data-id="${esc(l.id)}" value="${esc(l.name)}" placeholder="Название">
+      <input class="location-desc-input" data-id="${esc(l.id)}" value="${esc(l.description)}" placeholder="Необязательное описание">
+      <button class="danger" onclick="deleteLocation('${jsq(l.id)}')">Удалить</button>
+    </div>`).join("");
+}
+function saveLocations(){
+  document.querySelectorAll(".location-name-input").forEach(input=>{
+    const l=locationById(input.dataset.id);if(l&&input.value.trim())l.name=input.value.trim();
+  });
+  document.querySelectorAll(".location-desc-input").forEach(input=>{
+    const l=locationById(input.dataset.id);if(l)l.description=input.value.trim();
+  });
+}
+function deleteLocation(id){
+  const l=locationById(id);if(!l)return;
+  if(!confirm(`Удалить локацию «${l.name}»? В сценах она станет не указанной.`))return;
+  data.scenes.forEach(s=>{if(s.locationId===id)s.locationId=""});
+  data.locations=data.locations.filter(x=>x.id!==id);
+  saveData();renderLocationsManager();render();
+}
+document.getElementById("manageLocations").onclick=openLocationsManager;
+document.getElementById("addLocation").onclick=()=>{
+  saveLocations();data.locations.push({id:makeId("location"),name:"Новая локация",description:""});
+  saveData();renderLocationsManager();render();
+};
+document.getElementById("closeLocations").onclick=()=>{saveLocations();saveData();hideModal("locationsModal");render()};
+document.getElementById("locationsModal").onclick=e=>{if(e.target.id==="locationsModal"){saveLocations();saveData();hideModal("locationsModal");render()}};
+
+function openTagsManager(){renderTagsManager();showModal("tagsModal")}
+function renderTagsManager(){
+  document.getElementById("tagsList").innerHTML=data.tags.map(t=>`
+    <div class="manager-row tag-manager-row"><input class="tag-name-input" data-id="${esc(t.id)}" value="${esc(t.name)}">
+    <button class="danger" onclick="deleteTag('${jsq(t.id)}')">Удалить</button></div>`).join("");
+}
+function saveTags(){
+  const used=new Set();
+  document.querySelectorAll(".tag-name-input").forEach(input=>{
+    const t=tagById(input.dataset.id);if(!t)return;
+    let name=canonicalTagName(input.value)||t.name;
+    const key=name.toLocaleLowerCase("ru");
+    if(used.has(key))return;
+    used.add(key);t.name=name;
+  });
+}
+function deleteTag(id){
+  const t=tagById(id);if(!t)return;
+  if(!confirm(`Удалить тег #${t.name} из всех сцен?`))return;
+  data.scenes.forEach(s=>s.tags=s.tags.filter(x=>x!==id));
+  data.tags=data.tags.filter(x=>x.id!==id);
+  saveData();renderTagsManager();render();
+}
+document.getElementById("manageTags").onclick=openTagsManager;
+document.getElementById("addTag").onclick=()=>{
+  const name=prompt("Название тега:");if(!name?.trim())return;ensureTag(name);saveData();renderTagsManager();render();
+};
+document.getElementById("closeTags").onclick=()=>{saveTags();saveData();hideModal("tagsModal");render()};
+document.getElementById("tagsModal").onclick=e=>{if(e.target.id==="tagsModal"){saveTags();saveData();hideModal("tagsModal");render()}};
+
+function buildPeopleForm(people,sceneIndex){
+  const inherited=relationshipsBefore(sceneIndex);
+  document.getElementById("scenePersons").innerHTML=data.characters.map(char=>{
+    const p=people[char]||{};
+    const current={...(inherited[char]||{})};
+    for(const [target,value] of Object.entries(p.relationChanges||{})){
+      if(value==="") delete current[target];
+      else current[target]=value;
+    }
+
+    const rows=data.characters.filter(t=>t!==char).map(target=>{
+      const inheritedValue=inherited[char]?.[target]||"";
+      const hasChange=Object.prototype.hasOwnProperty.call(p.relationChanges||{},target);
+      const displayedValue=hasChange?(p.relationChanges[target]||""):inheritedValue;
+      const checked=(p.visibleRelations||[]).includes(target);
+      return `<div class="relation-row ${hasChange?"explicit":""}" data-relation-row>
+        <div class="relation-name">
+          ${esc(target)}
+          <span class="changed-note relation-explicit-note" style="${hasChange?"":"display:none"}">задано здесь</span>
+        </div>
+        <input class="rel-value"
+          data-char="${esc(char)}"
+          data-target="${esc(target)}"
+          data-inherited="${esc(inheritedValue)}"
+          data-explicit="${hasChange?"true":"false"}"
+          value="${esc(displayedValue)}"
+          placeholder="Отношение не задано"
+          oninput="relationEdited(this)">
+        <label class="show-box">
+          <input type="checkbox" class="rel-visible"
+            data-char="${esc(char)}"
+            data-target="${esc(target)}"
+            ${checked?"checked":""}>
+          показывать
+        </label>
+        <button type="button" class="inherit-btn" onclick="resetToInherited(this)">Наследовать</button>
+      </div>`;
+    }).join("");
+
+    return `<div class="person-block">
+      <h3>${esc(char)}</h3>
+      <label>
+        <span class="field-caption">События сцены</span>
+        <textarea class="p-action action-input" data-char="${esc(char)}" placeholder="Что делает персонаж">${esc(p.action||"")}</textarea>
+      </label>
+      ${(p.legacyState||"").trim()?`
+        <div class="legacy-note">
+          <span class="field-caption">Старая заметка из предыдущей версии</span>
+          <textarea class="p-legacy" data-char="${esc(char)}">${esc(p.legacyState)}</textarea>
+        </div>`:""}
+      <div class="relations-editor">
+        <div class="relations-editor-title">
+          <strong>Отношение к другим персонажам</strong>
+          <span>Введённое вручную значение закрепляется за этой сценой и не меняется при переносе</span>
+        </div>
+        ${rows}
+      </div>
+    </div>`;
+  }).join("");
+}
+function markRelationExplicit(input,isExplicit){
+  input.dataset.explicit=isExplicit?"true":"false";
+  const row=input.closest("[data-relation-row]");
+  if(row){
+    row.classList.toggle("explicit",isExplicit);
+    const note=row.querySelector(".relation-explicit-note");
+    if(note)note.style.display=isExplicit?"inline-block":"none";
+  }
+}
+function relationEdited(input){
+  // Любое ручное редактирование становится явным решением этой сцены.
+  // Даже если текст случайно совпадает с текущим наследуемым значением,
+  // он не исчезнет после перемещения сцены.
+  markRelationExplicit(input,true);
+  const char=input.dataset.char;
+  const target=input.dataset.target;
+  const checkbox=document.querySelector(`.rel-visible[data-char="${cssEscape(char)}"][data-target="${cssEscape(target)}"]`);
+  if(checkbox)checkbox.checked=true;
+}
+function resetToInherited(button){
+  const row=button.closest("[data-relation-row]");
+  if(!row)return;
+  const input=row.querySelector(".rel-value");
+  const checkbox=row.querySelector(".rel-visible");
+  input.value=input.dataset.inherited||"";
+  markRelationExplicit(input,false);
+  // Наследуемое отношение можно всё равно показывать вручную,
+  // поэтому галочку не снимаем.
+  if(checkbox&&input.value.trim()==="")checkbox.checked=false;
+}
+
+document.getElementById("saveScene").onclick=()=>{
+  const sceneIndex=editingIndex!==null?editingIndex:(insertIndex??data.scenes.length);
+  const inherited=relationshipsBefore(sceneIndex);
+  const scene={
+    date:document.getElementById("sceneDate").value,
+    time:document.getElementById("sceneTime").value,
+    title:document.getElementById("sceneTitle").value.trim(),
+    chapterId:document.getElementById("sceneChapter").value||"chapter-unassigned",
+    locationId:document.getElementById("sceneLocation").value||"",
+    tags:[...sceneTagDraft],
+    writingStatus:document.getElementById("sceneWritingStatus").value||"idea",
+    sceneText:document.getElementById("sceneText").value,
+    included:document.getElementById("sceneIncluded").checked,
+    status:document.getElementById("sceneStatus").value,
+    dateReview:false,
+    people:{}
+  };
+
+  data.characters.forEach(char=>{
+    const action=document.querySelector(`.p-action[data-char="${cssEscape(char)}"]`).value.trim();
+    const legacyEl=document.querySelector(`.p-legacy[data-char="${cssEscape(char)}"]`);
+    const legacyState=legacyEl?legacyEl.value.trim():"";
+    const relationChanges={};
+    const visibleRelations=[];
+
+    document.querySelectorAll(`.rel-value[data-char="${cssEscape(char)}"]`).forEach(input=>{
+      const target=input.dataset.target;
+      const value=input.value.trim();
+      // relationChanges теперь означает не "разницу с текущим соседом",
+      // а явное решение автора в этой конкретной сцене.
+      if(input.dataset.explicit==="true")relationChanges[target]=value;
+    });
+    document.querySelectorAll(`.rel-visible[data-char="${cssEscape(char)}"]:checked`).forEach(cb=>{
+      const target=cb.dataset.target;
+      const input=document.querySelector(`.rel-value[data-char="${cssEscape(char)}"][data-target="${cssEscape(target)}"]`);
+      if(input&&input.value.trim())visibleRelations.push(target);
+    });
+
+    if(action||legacyState||Object.keys(relationChanges).length||visibleRelations.length){
+      scene.people[char]={action,relationChanges,visibleRelations,legacyState};
+    }
+  });
+
+  if(editingIndex!==null)data.scenes[editingIndex]=scene;
+  else data.scenes.splice(insertIndex??data.scenes.length,0,scene);
+
+  normalizeSceneOrder();saveData();hideModal("sceneModal");render();
+};
+
+
+function openSceneText(index){
+  textEditingIndex=index;
+  const scene=data.scenes[index];
+  document.getElementById("textModalTitle").textContent=scene.title||"Текст сцены";
+  const parts=[];
+  if(scene.date)parts.push(scene.date.split("-").reverse().join("."));
+  if(scene.time)parts.push(scene.time);
+  parts.push(scene.status==="fixed"?"сцена на своём месте":"сцену ещё нужно разместить");
+  document.getElementById("textModalMeta").textContent=parts.join(" · ");
+  document.getElementById("fullSceneText").value=scene.sceneText||"";
+  showModal("textModal");
+  setTimeout(()=>document.getElementById("fullSceneText").focus(),0);
+}
+document.getElementById("saveText").onclick=()=>{
+  if(textEditingIndex===null)return;
+  data.scenes[textEditingIndex].sceneText=document.getElementById("fullSceneText").value;
+  saveData();
+  hideModal("textModal");
+};
+document.getElementById("closeText").onclick=()=>hideModal("textModal");
+document.getElementById("textModal").onclick=e=>{
+  if(e.target.id==="textModal")hideModal("textModal");
+};
+
+
+function toggleIncluded(index,checked){
+  data.scenes[index].included=checked;
+  saveData();
+  scheduleRender();
+}
+
+function quickUpdate(i,key,value){
+  data.scenes[i][key]=value;
+  if(key==="date"||key==="time")data.scenes[i].dateReview=false;
+  saveData();
+  scheduleRender();
+}
+function deleteScene(i){
+  if(confirm("Удалить эту сцену?")){
+    const removed=data.scenes[i];
+    data.scenes.splice(i,1);
+    if(removed?.id===selectedSceneId){selectedSceneId=null;selectedSceneIndex=null}
+    saveData();render();
+  }
+}
+
+/* Перетаскивание сцен */
+function dragStart(event,index){
+  draggedIndex=index;
+  event.currentTarget.classList.add("dragging");
+  event.dataTransfer.effectAllowed="move";
+  event.dataTransfer.setData("text/plain",String(index));
+}
+function dragOver(event,targetIndex){
+  event.preventDefault();
+  const row=event.currentTarget;
+  const rect=row.getBoundingClientRect();
+  const after=event.clientY>rect.top+rect.height/2;
+  row.classList.toggle("drop-before",!after);
+  row.classList.toggle("drop-after",after);
+}
+function dragLeave(event){event.currentTarget.classList.remove("drop-before","drop-after")}
+function dropScene(event,targetIndex){
+  event.preventDefault();
+  const row=event.currentTarget;
+  const rect=row.getBoundingClientRect();
+  const after=event.clientY>rect.top+rect.height/2;
+  row.classList.remove("drop-before","drop-after");
+  if(draggedIndex===null||draggedIndex===targetIndex)return;
+  const targetScene=data.scenes[targetIndex];
+  const [moved]=data.scenes.splice(draggedIndex,1);
+  moved.chapterId=targetScene.chapterId;
+  let newIndex=targetIndex+(after?1:0);
+  if(draggedIndex<newIndex)newIndex--;
+  if(moved.date)moved.dateReview=true;
+  data.scenes.splice(newIndex,0,moved);
+  saveData();render();
+}
+function dragEnd(){
+  draggedIndex=null;
+  document.querySelectorAll(".scene-row").forEach(r=>r.classList.remove("dragging","drop-before","drop-after"));
+}
+
+function showModal(id){document.getElementById(id).style.display="flex"}
+function hideModal(id){document.getElementById(id).style.display="none"}
+
+document.getElementById("addFirst").onclick=()=>openNewScene(data.scenes.length);
+document.getElementById("cancelScene").onclick=()=>hideModal("sceneModal");
+document.getElementById("sceneModal").onclick=e=>{if(e.target.id==="sceneModal")hideModal("sceneModal")};
+
+
+document.getElementById("manageChars").onclick=()=>{
+  renderProfiles();
+  showModal("charsModal");
+};
+document.getElementById("closeChars").onclick=()=>hideModal("charsModal");
+document.getElementById("charsModal").onclick=e=>{if(e.target.id==="charsModal")hideModal("charsModal")};
+
+function profileDisplayValue(profile,key){
+  if(profile.hidden?.[key])return null;
+  const value=profile[key];
+  return String(value??"").trim()||"Не указано";
+}
+function birthdayDisplay(profile){
+  if(profile.hidden?.birthday)return null;
+  const b=profile.birthday||{};
+  if(!b.month&&!b.day&&!b.year)return "Не указано";
+  const parts=[];
+  if(b.day)parts.push(String(b.day).padStart(2,"0"));
+  if(b.month)parts.push(String(b.month).padStart(2,"0"));
+  let result=parts.join(".");
+  if(b.year)result+=(result?".":"")+b.year;
+  return result||"Не указано";
+}
+function renderProfiles(){
+  data.profiles ||= {};
+  data.characters.forEach(name=>{
+    data.profiles[name]=normalizeProfile(data.profiles[name],name);
+  });
+  document.getElementById("profilesGrid").innerHTML=data.characters.map((name,index)=>{
+    const p=data.profiles[name];
+    const full=[p.name||name,p.surname].filter(Boolean).join(" ");
+    const facts=[
+      ["Раса",profileDisplayValue(p,"race")],
+      ["Пол",profileDisplayValue(p,"sex")],
+      ["Вторичный пол",profileDisplayValue(p,"secondarySex")],
+      ["Возраст",profileDisplayValue(p,"age")],
+      ["Дата рождения",birthdayDisplay(p)],
+      ["Знак зодиака",profileDisplayValue(p,"zodiac")],
+      ["Рост",profileDisplayValue(p,"height")],
+      ["Телосложение",profileDisplayValue(p,"build")],
+      ["Занятость",profileDisplayValue(p,"profession")],
+      ["Ориентация",profileDisplayValue(p,"orientation")]
+    ].filter(([,v])=>v!==null);
+    const cover=p.photos?.[0]
+      ?`<img src="${p.photos[0]}" alt="">`
+      :`Нет изображения`;
+    return `<article class="profile-card">
+      <div class="profile-cover">${cover}</div>
+      <div class="profile-body">
+        <div class="profile-name">${esc(full||name)}</div>
+        <div class="profile-facts">
+          ${facts.map(([k,v])=>`<div class="profile-fact"><strong>${k}:</strong> ${esc(v)}</div>`).join("")}
+        </div>
+        ${!p.hidden?.description&&p.description?`<div class="profile-description">${esc(p.description)}</div>`:""}
+        ${renderProfileAutomaticSection(name)}
+        <div class="profile-card-actions">
+          <button onclick="openCharacterTimeline('${jsq(name)}')">Личная хронология</button>
+          <button onclick="editProfile('${jsq(name)}')">Открыть анкету</button>
+          <button onclick="moveProfile(${index},-1)">←</button>
+          <button onclick="moveProfile(${index},1)">→</button>
+          <button class="danger" onclick="deleteProfile('${jsq(name)}')">Удалить</button>
+        </div>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function characterSceneEntries(name){
+  return data.scenes.map((scene,index)=>({scene,index})).filter(x=>personHasContent(x.scene.people?.[name]));
+}
+function characterLocations(name){
+  const ids=new Set(characterSceneEntries(name).map(x=>x.scene.locationId).filter(Boolean));
+  return [...ids].map(locationById).filter(Boolean);
+}
+function characterTags(name){
+  const ids=new Set(characterSceneEntries(name).flatMap(x=>x.scene.tags));
+  return [...ids].map(tagById).filter(Boolean);
+}
+function characterRelations(name){
+  const result={...data.profiles?.[name]?.initialRelations};
+  characterSceneEntries(name).forEach(({scene})=>{
+    Object.entries(scene.people?.[name]?.relationChanges||{}).forEach(([target,value])=>{
+      if(value)result[target]=value;else delete result[target];
+    });
+  });
+  return result;
+}
+function renderProfileAutomaticSection(name){
+  const entries=characterSceneEntries(name);
+  const locations=characterLocations(name);
+  const tags=characterTags(name);
+  const words=entries.reduce((n,x)=>n+countWords(x.scene.sceneText),0);
+  const relations=characterRelations(name);
+  return `<div class="profile-auto">
+    <div class="profile-auto-grid">
+      <button class="profile-auto-card" onclick="setFilter('character','${jsq(name)}');hideModal('charsModal')"><strong>${entries.length}</strong>Все сцены</button>
+      <button class="profile-auto-card" onclick="openCharacterTimeline('${jsq(name)}')"><strong>${entries.length}</strong>Хронология</button>
+      <button class="profile-auto-card" onclick="filterCharacterLocations('${jsq(name)}')"><strong>${locations.length}</strong>Локации</button>
+      <button class="profile-auto-card" onclick="filterCharacterTags('${jsq(name)}')"><strong>${tags.length}</strong>Теги</button>
+      <div class="profile-auto-card"><strong>${words}</strong>Слов в сценах</div>
+      <div class="profile-auto-card"><strong>${Object.keys(relations).length}</strong>Отношений</div>
+    </div>
+    ${Object.keys(relations).length?`<div class="profile-relations-list" style="margin-top:8px">${Object.entries(relations).map(([t,v])=>`<div><strong>${esc(t)}:</strong> ${esc(v)}</div>`).join("")}</div>`:""}
+  </div>`;
+}
+function filterCharacterLocations(name){
+  const locations=characterLocations(name);hideModal("charsModal");
+  filters.character=name;
+  if(locations.length===1)filters.location=locations[0].id;
+  render();
+}
+function filterCharacterTags(name){
+  const tags=characterTags(name);hideModal("charsModal");
+  filters.character=name;
+  if(tags.length===1)filters.tag=tags[0].id;
+  render();
+}
+function openCharacterTimeline(name){
+  const entries=characterSceneEntries(name);
+  document.getElementById("characterTimelineTitle").textContent=`История персонажа: ${name}`;
+  document.getElementById("characterTimelineSummary").textContent=`${entries.length} сцен · ${entries.reduce((n,x)=>n+countWords(x.scene.sceneText),0)} слов`;
+  document.getElementById("characterTimelineList").innerHTML=entries.map(({scene,index})=>{
+    const chapter=chapterById(scene.chapterId),loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
+    return `<div class="timeline-entry" onclick="hideModal('characterTimelineModal');selectScene(${index});currentView='list';render()">
+      <div class="timeline-entry-title">${esc(scene.title||"Без названия")}</div>
+      <div class="timeline-entry-meta">${esc(readableDate(scene)||"без даты")} · ${esc(chapter?.title||"Без главы")} · ${esc(loc?.name||"без локации")} · ${esc(ws.label)}</div>
+    </div>`;
+  }).join("")||'<div class="empty-work">У персонажа пока нет сцен.</div>';
+  showModal("characterTimelineModal");
+}
+document.getElementById("closeCharacterTimeline").onclick=()=>hideModal("characterTimelineModal");
+document.getElementById("characterTimelineModal").onclick=e=>{if(e.target.id==="characterTimelineModal")hideModal("characterTimelineModal")};
+function moveProfile(index,dir){
+  const j=index+dir;
+  if(j<0||j>=data.characters.length)return;
+  [data.characters[index],data.characters[j]]=[data.characters[j],data.characters[index]];
+  saveData();renderProfiles();render();
+}
+function deleteProfile(name){
+  if(data.characters.length<=1)return alert("Нужен хотя бы один персонаж.");
+  if(!confirm(`Удалить персонажа «${name}» из анкет и колонок? Данные этого персонажа в сценах также будут удалены.`))return;
+  data.characters=data.characters.filter(c=>c!==name);
+  delete data.profiles[name];
+  data.scenes.forEach(scene=>{
+    delete scene.people?.[name];
+    for(const p of Object.values(scene.people||{})){
+      delete p.relationChanges?.[name];
+      p.visibleRelations=(p.visibleRelations||[]).filter(x=>x!==name);
+    }
+  });
+  for(const p of Object.values(data.profiles||{}))delete p.initialRelations?.[name];
+  saveData();renderProfiles();render();
+}
+document.getElementById("addChar").onclick=()=>{
+  let base="Новый персонаж",name=base,n=2;
+  while(data.characters.includes(name))name=`${base} ${n++}`;
+  data.characters.push(name);
+  data.profiles ||= {};
+  data.profiles[name]=emptyProfile(name);
+  saveData();
+  editProfile(name);
+};
+
+function setupBirthdaySelectors(){
+  const month=document.getElementById("pf_birthMonth");
+  const day=document.getElementById("pf_birthDay");
+  if(!month.options.length){
+    month.innerHTML='<option value="">Месяц не указан</option>'+
+      Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join("");
+    day.innerHTML='<option value="">День не указан</option>'+
+      Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join("");
+  }
+}
+function zodiacFor(month,day){
+  month=Number(month);day=Number(day);
+  if(!month||!day)return "";
+  const signs=[
+    [1,20,"Козерог","Водолей"],[2,19,"Водолей","Рыбы"],[3,21,"Рыбы","Овен"],
+    [4,20,"Овен","Телец"],[5,21,"Телец","Близнецы"],[6,22,"Близнецы","Рак"],
+    [7,23,"Рак","Лев"],[8,23,"Лев","Дева"],[9,23,"Дева","Весы"],
+    [10,23,"Весы","Скорпион"],[11,22,"Скорпион","Стрелец"],[12,22,"Стрелец","Козерог"]
+  ];
+  const [,cut,before,after]=signs[month-1];
+  return day<cut?before:after;
+}
+function updateZodiac(){
+  document.getElementById("pf_zodiac").value=zodiacFor(
+    document.getElementById("pf_birthMonth").value,
+    document.getElementById("pf_birthDay").value
+  );
+}
+document.getElementById("pf_birthMonth").onchange=updateZodiac;
+document.getElementById("pf_birthDay").onchange=updateZodiac;
+
+function editProfile(name){
+  setupBirthdaySelectors();
+  profileEditingName=name;
+  const p=normalizeProfile(data.profiles?.[name],name);
+  profileDraftPhotos=[...(p.photos||[])];
+  document.getElementById("profileEditorTitle").textContent=`Анкета: ${p.name||name}`;
+  const values={
+    name:p.name||name,surname:p.surname,race:p.race,sex:p.sex,secondarySex:p.secondarySex,
+    age:p.age,height:p.height,build:p.build,profession:p.profession,orientation:p.orientation,
+    favorites:p.favorites,hobbies:p.hobbies,character:p.character,features:p.features,
+    description:p.description
+  };
+  for(const [key,value] of Object.entries(values)){
+    const el=document.getElementById("pf_"+key);
+    if(el)el.value=value??"";
+  }
+  document.getElementById("pf_birthYear").value=p.birthday?.year||"";
+  document.getElementById("pf_birthMonth").value=p.birthday?.month||"";
+  document.getElementById("pf_birthDay").value=p.birthday?.day||"";
+  updateZodiac();
+  ["race","sex","secondarySex","age","birthday","zodiac","height","build","profession",
+   "orientation","favorites","hobbies","character","features","description"].forEach(key=>{
+    document.getElementById("hide_"+key).checked=!!p.hidden?.[key];
+  });
+  renderProfilePhotos();
+  renderInitialRelations(p.initialRelations||{},name);
+  showModal("profileEditorModal");
+}
+function renderProfilePhotos(){
+  document.getElementById("profilePhotosGrid").innerHTML=profileDraftPhotos.map((src,i)=>`
+    <div class="photo-item">
+      <img src="${src}" alt="">
+      <button type="button" class="danger" onclick="removeProfilePhoto(${i})">×</button>
+    </div>`).join("");
+}
+function removeProfilePhoto(index){
+  profileDraftPhotos.splice(index,1);
+  renderProfilePhotos();
+}
+async function compressImage(file){
+  const dataUrl=await new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(reader.result);
+    reader.onerror=reject;
+    reader.readAsDataURL(file);
+  });
+  const img=await new Promise((resolve,reject)=>{
+    const image=new Image();
+    image.onload=()=>resolve(image);
+    image.onerror=reject;
+    image.src=dataUrl;
+  });
+  const max=1000;
+  const scale=Math.min(1,max/Math.max(img.width,img.height));
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.max(1,Math.round(img.width*scale));
+  canvas.height=Math.max(1,Math.round(img.height*scale));
+  canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+  return canvas.toDataURL("image/jpeg",.82);
+}
+document.getElementById("profilePhotosInput").onchange=async e=>{
+  const files=[...e.target.files];
+  for(const file of files){
+    try{profileDraftPhotos.push(await compressImage(file))}
+    catch(err){alert(`Не удалось добавить изображение ${file.name}`)}
+  }
+  renderProfilePhotos();
+  e.target.value="";
+};
+function renderInitialRelations(initial,name){
+  document.getElementById("profileInitialRelations").innerHTML=data.characters
+    .filter(other=>other!==name)
+    .map(other=>`<div class="initial-relation-row">
+      <strong>${esc(other)}</strong>
+      <input class="initial-rel-input" data-target="${esc(other)}"
+        value="${esc(initial[other]||"")}"
+        placeholder="Отношение на начало истории; пусто — не задано">
+    </div>`).join("");
+}
+document.getElementById("cancelProfile").onclick=()=>hideModal("profileEditorModal");
+document.getElementById("profileEditorModal").onclick=e=>{
+  if(e.target.id==="profileEditorModal")hideModal("profileEditorModal");
+};
+document.getElementById("saveProfile").onclick=()=>{
+  const oldName=profileEditingName;
+  const newName=document.getElementById("pf_name").value.trim()||oldName;
+  if(newName!==oldName&&data.characters.includes(newName)){
+    alert("Персонаж с таким именем уже существует.");
+    return;
+  }
+  const old=normalizeProfile(data.profiles?.[oldName],oldName);
+  const hidden={};
+  ["race","sex","secondarySex","age","birthday","zodiac","height","build","profession",
+   "orientation","favorites","hobbies","character","features","description"].forEach(key=>{
+    hidden[key]=document.getElementById("hide_"+key).checked;
+  });
+  const initialRelations={};
+  document.querySelectorAll(".initial-rel-input").forEach(input=>{
+    const value=input.value.trim();
+    if(value)initialRelations[input.dataset.target]=value;
+  });
+  const profile={
+    ...old,
+    name:newName,
+    surname:document.getElementById("pf_surname").value.trim(),
+    photos:[...profileDraftPhotos],
+    race:document.getElementById("pf_race").value.trim(),
+    sex:document.getElementById("pf_sex").value,
+    secondarySex:document.getElementById("pf_secondarySex").value.trim(),
+    age:document.getElementById("pf_age").value,
+    birthday:{
+      year:document.getElementById("pf_birthYear").value,
+      month:document.getElementById("pf_birthMonth").value,
+      day:document.getElementById("pf_birthDay").value
+    },
+    zodiac:document.getElementById("pf_zodiac").value,
+    height:document.getElementById("pf_height").value.trim(),
+    build:document.getElementById("pf_build").value.trim(),
+    profession:document.getElementById("pf_profession").value.trim(),
+    orientation:document.getElementById("pf_orientation").value.trim(),
+    favorites:document.getElementById("pf_favorites").value.trim(),
+    hobbies:document.getElementById("pf_hobbies").value.trim(),
+    character:document.getElementById("pf_character").value.trim(),
+    features:document.getElementById("pf_features").value.trim(),
+    description:document.getElementById("pf_description").value.trim(),
+    hidden,initialRelations
+  };
+
+  data.profiles ||= {};
+  if(newName!==oldName){
+    const renameMap={[oldName]:newName};
+    data.characters=data.characters.map(c=>c===oldName?newName:c);
+    delete data.profiles[oldName];
+    data.scenes.forEach(scene=>{
+      if(scene.people?.[oldName]){
+        scene.people[newName]=scene.people[oldName];
+        delete scene.people[oldName];
+      }
+      for(const p of Object.values(scene.people||{})){
+        if(Object.prototype.hasOwnProperty.call(p.relationChanges||{},oldName)){
+          p.relationChanges[newName]=p.relationChanges[oldName];
+          delete p.relationChanges[oldName];
+        }
+        p.visibleRelations=(p.visibleRelations||[]).map(x=>x===oldName?newName:x);
+      }
+    });
+    for(const otherProfile of Object.values(data.profiles)){
+      if(Object.prototype.hasOwnProperty.call(otherProfile.initialRelations||{},oldName)){
+        otherProfile.initialRelations[newName]=otherProfile.initialRelations[oldName];
+        delete otherProfile.initialRelations[oldName];
+      }
+    }
+  }
+  data.profiles[newName]=profile;
+  saveData();
+  hideModal("profileEditorModal");
+  renderProfiles();
+  render();
+};
+
+
+function includedScenes(){
+  return data.scenes
+    .map((scene,index)=>({scene,index}))
+    .filter(item=>item.scene.included!==false);
+}
+function readableDate(scene){
+  const parts=[];
+  if(scene.date)parts.push(scene.date.split("-").reverse().join("."));
+  if(scene.time)parts.push(scene.time);
+  return parts.join(" ");
+}
+function openAllScenes(){
+  const root=document.getElementById("allScenesList");
+  let html="",order=0;
+  data.chapters.forEach(chapter=>{
+    const items=includedScenes().filter(x=>x.scene.chapterId===chapter.id);
+    if(!items.length)return;
+    html+=`<h2 style="margin:18px 0 8px">${esc(chapter.title)}</h2>`;
+    items.forEach(({scene,index})=>{
+      order++;
+      html+=`<section class="all-scene-block ${scene.status==="fixed"?"fixed":"floating"}">
+        <div class="all-scene-header">
+          <div>
+            <div class="all-scene-title">${esc(scene.title||"Без названия")}</div>
+            <div class="scene-text-meta" style="margin:4px 0 0">
+              ${esc(readableDate(scene)||"дата не указана")} · ${esc(locationById(scene.locationId)?.name||"локация не указана")} · ${esc(writingStatusById(scene.writingStatus).label)}
+            </div>
+          </div>
+          <div class="all-scene-number">Сцена ${order}</div>
+        </div>
+        <textarea class="all-scene-text" data-scene-index="${index}" placeholder="Текст сцены">${esc(scene.sceneText||"")}</textarea>
+      </section>`;
+    });
+  });
+  root.innerHTML=html||'<div class="empty-work">Нет сцен, включённых в общий текст.</div>';
+  showModal("allScenesModal");
+}
+function saveAllScenes(){
+  document.querySelectorAll(".all-scene-text").forEach(area=>{
+    const index=Number(area.dataset.sceneIndex);
+    if(Number.isInteger(index)&&data.scenes[index]){
+      data.scenes[index].sceneText=area.value;
+    }
+  });
+  saveData();
+}
+document.getElementById("allScenesBtn").onclick=openAllScenes;
+document.getElementById("saveAllScenes").onclick=()=>{
+  saveAllScenes();
+  hideModal("allScenesModal");
+};
+document.getElementById("closeAllScenes").onclick=()=>{
+  if(confirm("Закрыть окно? Несохранённые изменения в текстах будут потеряны.")){
+    hideModal("allScenesModal");
+  }
+};
+document.getElementById("allScenesModal").onclick=e=>{
+  if(e.target.id==="allScenesModal"&&confirm("Закрыть окно? Несохранённые изменения в текстах будут потеряны.")){
+    hideModal("allScenesModal");
+  }
+};
+
+function wordEscape(s=""){
+  return String(s)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
+}
+function exportWholeText(){
+  const items=includedScenes();
+  if(!items.length){alert("Нет сцен, включённых в общий текст.");return}
+  let sections="";
+  data.chapters.forEach((chapter,chapterIndex)=>{
+    const chapterItems=items.filter(x=>x.scene.chapterId===chapter.id);
+    if(!chapterItems.length)return;
+    sections+=`${sections?'<div class="page-break"></div>':""}<h1 class="chapter">${wordEscape(chapter.title)}</h1>`;
+    chapterItems.forEach(({scene},sceneIndex)=>{
+      const meta=[readableDate(scene),locationById(scene.locationId)?.name].filter(Boolean).join(" · ");
+      const paragraphs=wordEscape(scene.sceneText||"").split(/\n/).map(line=>line.trim()?`<p>${line}</p>`:"<p>&nbsp;</p>").join("");
+      sections+=`<section class="scene">
+        <h2>${wordEscape(scene.title||"Без названия")}</h2>
+        ${meta?`<p class="meta">${wordEscape(meta)}</p>`:""}
+        ${paragraphs}
+      </section>`;
+    });
+  });
+  const documentHtml=`<!doctype html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Текст романа</title><style>
+    @page{margin:2cm}body{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.5}
+    h1.chapter{font-size:20pt;text-align:center;margin:0 0 28pt}
+    h2{font-size:15pt;text-align:center;margin:24pt 0 6pt}.meta{text-align:center;color:#666;margin:0 0 18pt}
+    p{margin:0 0 8pt;text-indent:1.25cm}.page-break{page-break-before:always}
+  </style></head><body>${sections}</body></html>`;
+  const blob=new Blob(["\ufeff",documentHtml],{type:"application/msword"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="текст_романа.doc";a.click();URL.revokeObjectURL(a.href);
+}
+document.getElementById("exportTextBtn").onclick=exportWholeText;
+
+document.getElementById("exportBtn").onclick=()=>{
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="author-workspace-backup-v10.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+document.getElementById("importInput").onchange=async e=>{
+  const file=e.target.files[0];if(!file)return;
+  try{
+    data=normalizeData(JSON.parse(await file.text()));
+    normalizeSceneOrder();saveData();render();
+  }catch(err){alert("Не удалось прочитать файл.")}
+  e.target.value="";
+};
+document.getElementById("clearBtn").onclick=()=>{
+  if(confirm("Удалить все сцены и вернуть начальные колонки?")){
+    data=defaultData();saveData();render();
+  }
+};
+
+normalizeSceneOrder();
+saveData();
+render();
+</script>
+</body>
+</html>
