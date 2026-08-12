@@ -138,7 +138,7 @@ function renderTableView(board){
 
 function renderChapterDivider(chapter,count){
   return `<div class="insert-row"><div class="chapter-divider">
-    <button onclick="toggleChapter('${jsq(chapter.id)}')">${chapter.collapsed?"▸":"▾"}</button>
+    <button aria-label="${chapter.collapsed?"Развернуть":"Свернуть"} главу ${esc(chapter.title)}" onclick="toggleChapter('${jsq(chapter.id)}')">${chapter.collapsed?"▸":"▾"}</button>
     <button class="entity-link" onclick="setFilter('chapter','${jsq(chapter.id)}')"><strong>${esc(chapter.title)}</strong></button>
     <span class="chapter-summary">${count} сцен</span>
     <div class="chapter-actions">
@@ -166,7 +166,7 @@ function renderTableScene(scene,i,chapter){
   const loc=locationById(scene.locationId);
   const ws=writingStatusById(scene.writingStatus);
   let html=insertBar(scene.id,chapter.id);
-  html+=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" draggable="true" data-scene-id="${esc(scene.id)}"
+  html+=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" draggable="true" aria-description="Строку можно перетаскивать мышью для изменения порядка" data-scene-id="${esc(scene.id)}"
     onclick="selectScene('${jsq(scene.id)}')" ondragstart="dragStart(event,'${jsq(scene.id)}')" ondragover="dragOver(event,'${jsq(scene.id)}')"
     ondragleave="dragLeave(event)" ondrop="dropScene(event,'${jsq(scene.id)}')" ondragend="dragEnd(event)">`;
   html+=`<div class="cell time-cell sticky-cell">

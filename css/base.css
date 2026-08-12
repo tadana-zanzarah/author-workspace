@@ -47,4 +47,8 @@
     font:inherit;
   }
   textarea{resize:vertical;line-height:1.35}
+  :where(button,input,textarea,select,summary,a,[tabindex]):focus-visible{
+    outline:3px solid #315f9b;
+    outline-offset:3px;
+  }
   .hint{color:var(--muted);font-size:13px;margin-left:auto}

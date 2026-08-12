@@ -38,9 +38,9 @@
     <span class="legend-item"><span class="legend-dot fixed"></span>сцена на своём месте</span>
     <span class="legend-item"><span class="legend-dot floating"></span>сцену ещё нужно разместить</span>
   </div>
-  <div class="hint" id="saveStatus">Автосохранение включено</div>
+  <div class="hint" id="saveStatus" role="status" aria-live="polite">Автосохранение включено</div>
 </header>
-<div id="storageBanner" class="storage-banner"></div>
+<div id="storageBanner" class="storage-banner" role="status" aria-live="polite"></div>
 
 <div class="app-shell">
   <aside class="project-sidebar">
@@ -91,10 +91,10 @@
   </main>
 </div>
 
-<div class="modal-backdrop" id="inspectorModal">
+<div class="modal-backdrop" id="inspectorModal" role="dialog" aria-modal="true" aria-labelledby="inspectorModalTitle">
   <div class="modal" style="width:min(720px,100%)">
     <div class="info-panel-head">
-      <h2 style="margin:0">Подробнее о сцене</h2>
+      <h2 id="inspectorModalTitle" style="margin:0">Подробнее о сцене</h2>
       <button id="closeInspector">Закрыть</button>
     </div>
     <div id="sceneInfoContent" class="scene-info-content">
@@ -103,10 +103,10 @@
   </div>
 </div>
 
-<div class="modal-backdrop discard-changes" id="discardChangesModal" role="dialog" aria-modal="true" aria-labelledby="discardChangesTitle">
+<div class="modal-backdrop discard-changes" id="discardChangesModal" role="alertdialog" aria-modal="true" aria-labelledby="discardChangesTitle" aria-describedby="discardChangesDescription">
   <div class="modal" style="width:min(520px,100%)">
     <h2 id="discardChangesTitle">Есть несохранённые изменения. Закрыть без сохранения?</h2>
-    <p>Введённые после последнего сохранения данные будут потеряны.</p>
+    <p id="discardChangesDescription">Введённые после последнего сохранения данные будут потеряны.</p>
     <div class="modal-actions">
       <button id="continueEditing" type="button">Продолжить редактирование</button>
       <button id="discardChanges" class="danger" type="button">Закрыть без сохранения</button>
@@ -114,10 +114,10 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="recoveryModal">
+<div class="modal-backdrop" id="recoveryModal" role="dialog" aria-modal="true" aria-labelledby="recoveryModalTitle" aria-describedby="recoveryModalDescription">
   <div class="modal" style="width:min(1050px,100%);max-height:94vh">
-    <h2>Безопасное восстановление проекта</h2>
-    <p class="recovery-warning">Основная база повреждена или не может быть выбрана безопасно. Данные ещё не заменены. Сначала можно скачать исходную базу, затем выбрать резервную версию и проверить её.</p>
+    <h2 id="recoveryModalTitle">Безопасное восстановление проекта</h2>
+    <p class="recovery-warning" id="recoveryModalDescription">Основная база повреждена или не может быть выбрана безопасно. Данные ещё не заменены. Сначала можно скачать исходную базу, затем выбрать резервную версию и проверить её.</p>
     <div class="recovery-toolbar"><button id="downloadPrimaryRecovery">Скачать повреждённую основную базу</button></div>
     <h3>Найденные версии</h3><div id="recoveryCandidates" class="recovery-candidates"></div>
     <div id="recoveryPreview" class="recovery-preview"></div>
@@ -131,12 +131,12 @@
 </div>
 
 
-<div class="modal-backdrop" id="quickFieldModal">
+<div class="modal-backdrop" id="quickFieldModal" role="dialog" aria-modal="true" aria-labelledby="quickFieldTitle">
   <div class="modal" style="width:min(480px,100%)">
     <h2 id="quickFieldTitle">Быстрое изменение</h2>
     <div class="quick-field-grid">
       <label><span class="field-caption" id="quickFieldCaption">Значение</span>
-        <select id="quickFieldSelect"></select>
+        <select id="quickFieldSelect" data-initial-focus></select>
       </label>
     </div>
     <div class="modal-actions">
@@ -146,11 +146,11 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="sortScenesModal">
+<div class="modal-backdrop" id="sortScenesModal" role="dialog" aria-modal="true" aria-labelledby="sortScenesModalTitle" aria-describedby="sortScenesModalDescription">
   <div class="modal" style="width:min(980px,100%);max-height:94vh">
-    <h2>Компактная сортировка сцен</h2>
+    <h2 id="sortScenesModalTitle">Компактная сортировка сцен</h2>
     <div class="sort-toolbar">
-      <span class="profile-note">Перетаскивайте строки. Здесь отображаются все сцены без учёта фильтров.</span>
+      <span class="profile-note" id="sortScenesModalDescription">Перетаскивайте строки. Здесь отображаются все сцены без учёта фильтров.</span>
     </div>
     <div id="sortScenesList" class="sort-scenes-list"></div>
     <div class="modal-actions">
@@ -159,7 +159,7 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="sceneModal">
+<div class="modal-backdrop" id="sceneModal" role="dialog" aria-modal="true" aria-labelledby="sceneModalTitle">
   <div class="modal">
     <h2 id="sceneModalTitle">Новая сцена</h2>
     <div class="modal-grid">
@@ -188,14 +188,14 @@
     <div class="tag-editor">
       <span class="field-caption">Теги</span>
       <div style="display:flex;gap:7px">
-        <input id="sceneTagInput" list="tagOptions" placeholder="Введите тег и нажмите Enter">
+        <input id="sceneTagInput" list="tagOptions" aria-label="Добавить тег к сцене" placeholder="Введите тег и нажмите Enter">
         <button type="button" id="addSceneTag">Добавить</button>
       </div>
       <div id="sceneTagDraftList" class="tag-draft-list"></div>
     </div>
     <label style="display:block;margin-top:12px">
       <span class="field-caption">Название сцены</span>
-      <textarea id="sceneTitle" style="min-height:70px" placeholder="Например: Рене встречает Зейна в аэропорту"></textarea>
+      <textarea id="sceneTitle" data-initial-focus style="min-height:70px" placeholder="Например: Рене встречает Зейна в аэропорту"></textarea>
     </label>
     <label style="display:block;margin-top:12px">
       <span class="field-caption">Текст сцены</span>
@@ -216,10 +216,10 @@
 
 <datalist id="tagOptions"></datalist>
 
-<div class="modal-backdrop" id="chaptersModal">
+<div class="modal-backdrop" id="chaptersModal" role="dialog" aria-modal="true" aria-labelledby="chaptersModalTitle" aria-describedby="chaptersModalDescription">
   <div class="modal" style="width:min(760px,100%)">
-    <h2>Главы</h2>
-    <p class="profile-note">Порядок глав определяет порядок разделов на таймлайне и при экспорте.</p>
+    <h2 id="chaptersModalTitle">Главы</h2>
+    <p class="profile-note" id="chaptersModalDescription">Порядок глав определяет порядок разделов на таймлайне и при экспорте.</p>
     <div id="chaptersList" class="manager-list"></div>
     <div class="modal-actions">
       <button id="closeChapters">Закрыть</button>
@@ -229,9 +229,9 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="locationsModal">
+<div class="modal-backdrop" id="locationsModal" role="dialog" aria-modal="true" aria-labelledby="locationsModalTitle">
   <div class="modal" style="width:min(850px,100%)">
-    <h2>Локации</h2>
+    <h2 id="locationsModalTitle">Локации</h2>
     <div id="locationsList" class="manager-list"></div>
     <div class="modal-actions">
       <button id="closeLocations">Закрыть</button>
@@ -241,10 +241,10 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="tagsModal">
+<div class="modal-backdrop" id="tagsModal" role="dialog" aria-modal="true" aria-labelledby="tagsModalTitle" aria-describedby="tagsModalDescription">
   <div class="modal" style="width:min(650px,100%)">
-    <h2>Теги</h2>
-    <p class="profile-note">Регистр не создаёт отдельные теги: #Романтика и #романтика считаются одним тегом.</p>
+    <h2 id="tagsModalTitle">Теги</h2>
+    <p class="profile-note" id="tagsModalDescription">Регистр не создаёт отдельные теги: #Романтика и #романтика считаются одним тегом.</p>
     <div id="tagsList" class="manager-list"></div>
     <div class="modal-actions">
       <button id="closeTags">Закрыть</button>
@@ -254,11 +254,11 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="textModal">
+<div class="modal-backdrop" id="textModal" role="dialog" aria-modal="true" aria-labelledby="textModalTitle">
   <div class="modal" style="width:min(1100px,100%)">
     <h2 id="textModalTitle">Текст сцены</h2>
     <div class="scene-text-meta" id="textModalMeta"></div>
-    <textarea id="fullSceneText" class="scene-text-area" placeholder="Текст сцены"></textarea>
+    <textarea id="fullSceneText" data-initial-focus class="scene-text-area" aria-label="Текст сцены" placeholder="Текст сцены"></textarea>
     <div class="modal-actions">
       <button id="closeText">Закрыть</button>
       <button class="primary" id="saveText">Сохранить текст</button>
@@ -267,10 +267,10 @@
 </div>
 
 
-<div class="modal-backdrop" id="allScenesModal">
+<div class="modal-backdrop" id="allScenesModal" role="dialog" aria-modal="true" aria-labelledby="allScenesModalTitle" aria-describedby="allScenesModalDescription">
   <div class="modal" style="width:min(1180px,100%);max-height:94vh">
-    <h2>Все сцены</h2>
-    <p class="scene-text-meta">
+    <h2 id="allScenesModalTitle">Все сцены</h2>
+    <p class="scene-text-meta" id="allScenesModalDescription">
       Сцены идут в том же порядке, что и на таймлайне. Изменения сохраняются обратно в каждую отдельную сцену.
     </p>
     <div id="allScenesList" class="all-scenes-list"></div>
@@ -282,10 +282,10 @@
 </div>
 
 
-<div class="modal-backdrop" id="charsModal">
+<div class="modal-backdrop" id="charsModal" role="dialog" aria-modal="true" aria-labelledby="charsModalTitle" aria-describedby="charsModalDescription">
   <div class="modal" style="width:min(1180px,100%);max-height:94vh">
-    <h2>Анкеты персонажей</h2>
-    <p class="profile-note">
+    <h2 id="charsModalTitle">Анкеты персонажей</h2>
+    <p class="profile-note" id="charsModalDescription">
       Отношения, указанные в анкете, считаются отношениями на начало истории и становятся исходными для первой сцены.
       Фотографии сохраняются внутри файла данных браузера, поэтому лучше не загружать слишком много очень больших изображений.
     </p>
@@ -298,7 +298,7 @@
 </div>
 
 
-<div class="modal-backdrop" id="characterTimelineModal">
+<div class="modal-backdrop" id="characterTimelineModal" role="dialog" aria-modal="true" aria-labelledby="characterTimelineTitle" aria-describedby="characterTimelineSummary">
   <div class="modal" style="width:min(900px,100%);max-height:94vh">
     <h2 id="characterTimelineTitle">История персонажа</h2>
     <div id="characterTimelineSummary" class="profile-note"></div>
@@ -307,12 +307,13 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="profileEditorModal">
+<div class="modal-backdrop" id="profileEditorModal" role="dialog" aria-modal="true" aria-labelledby="profileEditorTitle">
   <div class="modal" style="width:min(1050px,100%);max-height:94vh">
     <h2 id="profileEditorTitle">Анкета персонажа</h2>
 
     <div class="profile-field full">
       <div class="profile-field-top"><strong>Фото и визуализации</strong></div>
+      <label for="profilePhotosInput">Добавить фотографии</label>
       <input id="profilePhotosInput" type="file" accept="image/*" multiple>
       <div id="profilePhotosGrid" class="photos-grid"></div>
     </div>
@@ -320,7 +321,7 @@
     <div class="profile-editor-grid" style="margin-top:12px">
       <div class="profile-field">
         <div class="profile-field-top"><strong>Имя</strong></div>
-        <input id="pf_name" placeholder="Имя">
+        <input id="pf_name" data-initial-focus aria-label="Имя" placeholder="Имя">
       </div>
       <div class="profile-field">
         <div class="profile-field-top"><strong>Фамилия</strong></div>

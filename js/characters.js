@@ -28,8 +28,8 @@ function renderProfiles(){
         <div class="profile-card-actions">
           <button onclick="openCharacterTimeline('${jsq(character.id)}')">Личная хронология</button>
           <button onclick="editProfile('${jsq(character.id)}')">Открыть анкету</button>
-          <button onclick="moveProfile('${jsq(character.id)}',-1)">←</button>
-          <button onclick="moveProfile('${jsq(character.id)}',1)">→</button>
+          <button aria-label="Переместить персонажа ${esc(character.name)} влево" onclick="moveProfile('${jsq(character.id)}',-1)">←</button>
+          <button aria-label="Переместить персонажа ${esc(character.name)} вправо" onclick="moveProfile('${jsq(character.id)}',1)">→</button>
           <button class="danger" onclick="deleteProfile('${jsq(character.id)}')">Удалить</button>
         </div>
       </div>
@@ -208,7 +208,7 @@ function renderProfilePhotos(){
   document.getElementById("profilePhotosGrid").innerHTML=profileDraftPhotos.map((src,i)=>`
     <div class="photo-item">
       <img src="${src}" alt="">
-      <button type="button" class="danger" onclick="removeProfilePhoto(${i})">×</button>
+      <button type="button" class="danger" aria-label="Удалить фотографию ${i+1}" onclick="removeProfilePhoto(${i})">×</button>
     </div>`).join("");
 }
 

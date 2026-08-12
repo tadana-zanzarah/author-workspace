@@ -45,7 +45,7 @@ function renderInitialRelations(initial,characterId){
     .filter(other=>other.id!==characterId)
     .map(other=>`<div class="initial-relation-row">
       <strong>${esc(other.name)}</strong>
-      <input class="initial-rel-input" data-target-id="${esc(other.id)}"
+      <input class="initial-rel-input" aria-label="Отношение с персонажем ${esc(other.name)}" data-target-id="${esc(other.id)}"
         value="${esc(initial[other.id]||"")}"
         placeholder="Отношение на начало истории; пусто — не задано">
     </div>`).join("");

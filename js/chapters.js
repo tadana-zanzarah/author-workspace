@@ -11,8 +11,8 @@ function openChaptersManager(){return requestEditorTransition(()=>{renderChapter
 function renderChaptersManager(){
   document.getElementById("chaptersList").innerHTML=data.chapters.map((c,i)=>`
     <div class="manager-row">
-      <input class="chapter-name-input" data-id="${esc(c.id)}" value="${esc(c.title)}">
-      <button onclick="moveChapter('${jsq(c.id)}',-1)">↑</button><button onclick="moveChapter('${jsq(c.id)}',1)">↓</button>
+      <input class="chapter-name-input" data-id="${esc(c.id)}" value="${esc(c.title)}" aria-label="Название главы ${esc(c.title)}">
+      <button aria-label="Переместить главу ${esc(c.title)} выше" onclick="moveChapter('${jsq(c.id)}',-1)">↑</button><button aria-label="Переместить главу ${esc(c.title)} ниже" onclick="moveChapter('${jsq(c.id)}',1)">↓</button>
       <button class="danger" onclick="deleteChapter('${jsq(c.id)}')" ${c.id==="chapter-unassigned"?"disabled":""}>Удалить</button>
     </div>`).join("");
 }
@@ -54,8 +54,8 @@ function openLocationsManager(){return requestEditorTransition(()=>{renderLocati
 function renderLocationsManager(){
   document.getElementById("locationsList").innerHTML=data.locations.map(l=>`
     <div class="manager-row location-row">
-      <input class="location-name-input" data-id="${esc(l.id)}" value="${esc(l.name)}" placeholder="Название">
-      <input class="location-desc-input" data-id="${esc(l.id)}" value="${esc(l.description)}" placeholder="Необязательное описание">
+      <input class="location-name-input" data-id="${esc(l.id)}" value="${esc(l.name)}" aria-label="Название локации" placeholder="Название">
+      <input class="location-desc-input" data-id="${esc(l.id)}" value="${esc(l.description)}" aria-label="Описание локации ${esc(l.name)}" placeholder="Необязательное описание">
       <button class="danger" onclick="deleteLocation('${jsq(l.id)}')">Удалить</button>
     </div>`).join("");
 }
@@ -85,7 +85,7 @@ function openTagsManager(){return requestEditorTransition(()=>{renderTagsManager
 
 function renderTagsManager(){
   document.getElementById("tagsList").innerHTML=data.tags.map(t=>`
-    <div class="manager-row tag-manager-row"><input class="tag-name-input" data-id="${esc(t.id)}" value="${esc(t.name)}">
+    <div class="manager-row tag-manager-row"><input class="tag-name-input" data-id="${esc(t.id)}" value="${esc(t.name)}" aria-label="Название тега">
     <button class="danger" onclick="deleteTag('${jsq(t.id)}')">Удалить</button></div>`).join("");
 }
 
