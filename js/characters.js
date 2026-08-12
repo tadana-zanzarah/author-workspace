@@ -170,9 +170,13 @@ function updateZodiac(){
 }
 
 function editProfile(characterId){
+  return requestEditorTransition(()=>editProfileNow(characterId));
+}
+
+function editProfileNow(characterId){
   setupBirthdaySelectors();
   profileEditingId=characterId;
-  const character=characterById(characterId);if(!character)return;
+  const character=characterById(characterId)||profileDraftCharacter;if(!character||character.id!==characterId)return;
   const p=normalizeProfile(data.profiles?.[characterId],character);
   profileDraftPhotos=[...(p.photos||[])];
   document.getElementById("profileEditorTitle").textContent=`Анкета: ${p.name||character.name}`;
@@ -197,6 +201,7 @@ function editProfile(characterId){
   renderProfilePhotos();
   renderInitialRelations(p.initialRelations||{},characterId);
   showModal("profileEditorModal");
+  trackerFor("profileEditorModal").captureInitialState();
 }
 
 function renderProfilePhotos(){
@@ -210,6 +215,7 @@ function renderProfilePhotos(){
 function removeProfilePhoto(index){
   profileDraftPhotos.splice(index,1);
   renderProfilePhotos();
+  syncBeforeUnload();
 }
 
 async function compressImage(file){

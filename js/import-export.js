@@ -4,7 +4,9 @@ function includedScenes(){
     .filter(item=>item.scene.included!==false);
 }
 
-function openAllScenes(){
+function openAllScenes(){return requestEditorTransition(()=>openAllScenesNow())}
+
+function openAllScenesNow(){
   const root=document.getElementById("allScenesList");
   let html="",order=0;
   data.chapters.forEach(chapter=>{
@@ -29,6 +31,7 @@ function openAllScenes(){
   });
   root.innerHTML=html||'<div class="empty-work">Нет сцен, включённых в общий текст.</div>';
   showModal("allScenesModal");
+  trackerFor("allScenesModal").captureInitialState();
 }
 
 function saveAllScenes(){

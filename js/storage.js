@@ -165,25 +165,25 @@ function renderRecoveryCandidates(){
 }
 
 function openRecoveryModal(){
-  renderRecoveryCandidates();renderRecoveryPreview(null);showModal("recoveryModal");
+  return requestEditorTransition(()=>{renderRecoveryCandidates();renderRecoveryPreview(null);showModal("recoveryModal");trackerFor("recoveryModal")?.captureInitialState()});
 }
 
 function initializeRecoveryUi(){
   const modal=document.getElementById("recoveryModal");if(!modal)return;
   document.getElementById("downloadPrimaryRecovery").onclick=downloadProblemRaw;
-  document.getElementById("cancelRecovery").onclick=()=>hideModal("recoveryModal");
+  document.getElementById("cancelRecovery").onclick=()=>requestCloseModal("recoveryModal","button");
   document.getElementById("downloadMigratedRecovery").onclick=()=>{const selected=document.querySelector('input[name="recoveryCandidate"]:checked'),candidate=selected&&recoveryCandidateByKey(selected.value);if(candidate?.previewReport?.canApply)downloadRecoveryText(JSON.stringify(candidate.previewReport.migratedData,null,2),`${candidate.key}-preview-v11.json`)};
   document.getElementById("applyRecovery").onclick=()=>{
     const selected=document.querySelector('input[name="recoveryCandidate"]:checked'),candidate=selected&&recoveryCandidateByKey(selected.value);if(!candidate?.previewReport?.canApply)return;
     if(!confirm("Восстановить выбранную версию? Повреждённая основная база будет отдельно сохранена в браузере."))return;
     const result=restoreProjectCandidate({candidateKey:candidate.key,candidateRaw:candidate.raw,candidateReport:candidate.previewReport});
     if(!result.ok){showStorageMessage(result.userMessage,"error");return}
-    data=result.data;storageWriteEnabled=true;startupLoadInfo={ok:true,recovered:true,backupKey:result.backupKey,candidates:startupLoadInfo.candidates};hideModal("recoveryModal");render();showStorageMessage("Проект восстановлен. Исходная повреждённая база сохранена отдельно.","warning");
+    data=result.data;storageWriteEnabled=true;startupLoadInfo={ok:true,recovered:true,backupKey:result.backupKey,candidates:startupLoadInfo.candidates};forceHideModal("recoveryModal");render();showStorageMessage("Проект восстановлен. Исходная повреждённая база сохранена отдельно.","warning");
   };
   document.getElementById("newProjectRecovery").onclick=()=>{
     if(prompt("Новый пустой проект заменит текущую повреждённую базу после создания резервной копии. Введите НОВЫЙ ПРОЕКТ:")!=="НОВЫЙ ПРОЕКТ")return;
     const temporaryKey=`${STORAGE_KEY}-new-project-source`,empty=defaultData();
-    try{localStorage.setItem(temporaryKey,JSON.stringify(empty));const result=restoreProjectCandidate({candidateKey:temporaryKey});if(!result.ok){showStorageMessage(result.userMessage,"error");return}data=result.data;storageWriteEnabled=true;hideModal("recoveryModal");render();showStorageMessage("Создан новый пустой проект. Предыдущая база сохранена отдельно.","warning")}finally{try{localStorage.removeItem(temporaryKey)}catch{}}
+    try{localStorage.setItem(temporaryKey,JSON.stringify(empty));const result=restoreProjectCandidate({candidateKey:temporaryKey});if(!result.ok){showStorageMessage(result.userMessage,"error");return}data=result.data;storageWriteEnabled=true;forceHideModal("recoveryModal");render();showStorageMessage("Создан новый пустой проект. Предыдущая база сохранена отдельно.","warning")}finally{try{localStorage.removeItem(temporaryKey)}catch{}}
   };
   if(startupLoadInfo?.blocked)openRecoveryModal();
 }

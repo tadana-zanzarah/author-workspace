@@ -20,12 +20,17 @@ function quickEditTitle(sceneId,element){
 
 function openQuickField(sceneId,field,title,items,currentValue){
   const scene=sceneById(sceneId);if(!scene)return;
+  return requestEditorTransition(()=>openQuickFieldNow(sceneId,field,title,items,currentValue));
+}
+
+function openQuickFieldNow(sceneId,field,title,items,currentValue){
   quickFieldState={sceneId,field};
   document.getElementById("quickFieldTitle").textContent=title;
   const select=document.getElementById("quickFieldSelect");
   select.innerHTML=items.map(item=>`<option value="${esc(item.value)}">${esc(item.label)}</option>`).join("");
   select.value=currentValue||"";
   showModal("quickFieldModal");
+  trackerFor("quickFieldModal").captureInitialState();
   setTimeout(()=>select.focus(),0);
 }
 
@@ -85,6 +90,10 @@ function openNewSceneInChapter(chapterId){
 }
 
 function openNewSceneAt(beforeSceneId=null,chapterId=""){
+  return requestEditorTransition(()=>openNewSceneAtNow(beforeSceneId,chapterId));
+}
+
+function openNewSceneAtNow(beforeSceneId=null,chapterId=""){
   editingSceneId=null;
   insertBeforeSceneId=beforeSceneId||null;
   const before=beforeSceneId?sceneById(beforeSceneId):null;
@@ -101,13 +110,19 @@ function openNewSceneAt(beforeSceneId=null,chapterId=""){
   document.getElementById("sceneLocation").value="";
   document.getElementById("sceneWritingStatus").value="idea";
   sceneTagDraft=[];
+  sceneNewTagDraft={};
   renderSceneTagDraft();
   const insertionIndex=insertBeforeSceneId?sceneIndexById(insertBeforeSceneId):data.scenes.length;
   buildPeopleForm({},insertionIndex<0?data.scenes.length:insertionIndex);
   showModal("sceneModal");
+  trackerFor("sceneModal").captureInitialState();
 }
 
 function editScene(sceneId){
+  return requestEditorTransition(()=>editSceneNow(sceneId));
+}
+
+function editSceneNow(sceneId){
   editingSceneId=sceneId;
   insertBeforeSceneId=null;
   insertChapterId=null;
@@ -126,9 +141,11 @@ function editScene(sceneId){
   document.getElementById("sceneLocation").value=s.locationId||"";
   document.getElementById("sceneWritingStatus").value=s.writingStatus||"idea";
   sceneTagDraft=[...(s.tags||[])];
+  sceneNewTagDraft={};
   renderSceneTagDraft();
   buildPeopleForm(s.people||{},index);
   showModal("sceneModal");
+  trackerFor("sceneModal").captureInitialState();
 }
 
 function populateSceneSelectors(){
@@ -144,9 +161,9 @@ function ensureTag(name){
   if(!clean)return null;
   const existing=data.tags.find(t=>t.name.toLocaleLowerCase("ru")===clean.toLocaleLowerCase("ru"));
   if(existing)return existing.id;
-  const tag={id:makeId("tag"),name:clean};
-  data.tags.push(tag);
-  return tag.id;
+  const draftEntry=Object.entries(sceneNewTagDraft).find(([,value])=>value.toLocaleLowerCase("ru")===clean.toLocaleLowerCase("ru"));
+  if(draftEntry)return draftEntry[0];
+  const id=makeId("tag");sceneNewTagDraft[id]=clean;return id;
 }
 
 function addTagToDraft(){
@@ -158,15 +175,16 @@ function addTagToDraft(){
   });
   input.value="";
   renderSceneTagDraft();
+  syncBeforeUnload();
 }
 
 function renderSceneTagDraft(){
   document.getElementById("sceneTagDraftList").innerHTML=sceneTagDraft.map(id=>{
-    const tag=tagById(id);return tag?`<button type="button" onclick="removeSceneTag('${jsq(id)}')">#${esc(tag.name)} ×</button>`:"";
+    const tag=tagById(id),name=tag?.name||sceneNewTagDraft[id];return name?`<button type="button" onclick="removeSceneTag('${jsq(id)}')">#${esc(name)} ×</button>`:"";
   }).join("");
 }
 
-function removeSceneTag(id){sceneTagDraft=sceneTagDraft.filter(x=>x!==id);renderSceneTagDraft()}
+function removeSceneTag(id){sceneTagDraft=sceneTagDraft.filter(x=>x!==id);renderSceneTagDraft();syncBeforeUnload()}
 
 function buildPeopleForm(people,sceneIndex){
   const inherited=relationshipsBefore(sceneIndex);
@@ -259,6 +277,10 @@ function resetToInherited(button){
 }
 
 function openSceneText(sceneId){
+  return requestEditorTransition(()=>openSceneTextNow(sceneId));
+}
+
+function openSceneTextNow(sceneId){
   textEditingSceneId=sceneId;
   const scene=sceneById(sceneId);
   if(!scene)return;
@@ -270,6 +292,7 @@ function openSceneText(sceneId){
   document.getElementById("textModalMeta").textContent=parts.join(" · ");
   document.getElementById("fullSceneText").value=scene.sceneText||"";
   showModal("textModal");
+  trackerFor("textModal").captureInitialState();
   setTimeout(()=>document.getElementById("fullSceneText").focus(),0);
 }
 

@@ -6,7 +6,7 @@ function tagById(id){return data.tags.find(t=>t.id===id)}
 
 function writingStatusById(id){return WRITING_STATUSES.find(x=>x.id===id)||WRITING_STATUSES[0]}
 
-function openChaptersManager(){renderChaptersManager();showModal("chaptersModal")}
+function openChaptersManager(){return requestEditorTransition(()=>{renderChaptersManager();showModal("chaptersModal");trackerFor("chaptersModal").captureInitialState()})}
 
 function renderChaptersManager(){
   document.getElementById("chaptersList").innerHTML=data.chapters.map((c,i)=>`
@@ -34,20 +34,22 @@ function moveChapter(chapterId,dir){
     const order=new Map(next.chapters.map((c,i)=>[c.id,i]));
     next.scenes.sort((a,b)=>(order.get(a.chapterId)??9999)-(order.get(b.chapterId)??9999));
   },{renderAfter:false});
-  if(result.ok){renderChaptersManager();render()}
+  if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState();render()}
 }
 
 function deleteChapter(id){
   const c=chapterById(id);if(!c||id==="chapter-unassigned")return;
   if(!confirm(`Удалить главу «${c.title}»? Её сцены перейдут в «Без главы».`))return;
+  const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
   const result=commitDataChange(next=>{
+    next.chapters.forEach(chapter=>{if(names.get(chapter.id))chapter.title=names.get(chapter.id)});
     next.scenes.forEach(s=>{if(s.chapterId===id)s.chapterId="chapter-unassigned"});
     next.chapters=next.chapters.filter(x=>x.id!==id);
   },{renderAfter:false});
-  if(result.ok){renderChaptersManager();render()}
+  if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState();render()}
 }
 
-function openLocationsManager(){renderLocationsManager();showModal("locationsModal")}
+function openLocationsManager(){return requestEditorTransition(()=>{renderLocationsManager();showModal("locationsModal");trackerFor("locationsModal").captureInitialState()})}
 
 function renderLocationsManager(){
   document.getElementById("locationsList").innerHTML=data.locations.map(l=>`
@@ -70,14 +72,16 @@ function saveLocations(){
 function deleteLocation(id){
   const l=locationById(id);if(!l)return;
   if(!confirm(`Удалить локацию «${l.name}»? В сценах она станет не указанной.`))return;
+  const values=[...document.querySelectorAll(".location-name-input")].map(input=>({id:input.dataset.id,name:input.value.trim(),description:document.querySelector(`.location-desc-input[data-id="${cssEscape(input.dataset.id)}"]`)?.value.trim()||""}));
   const result=commitDataChange(next=>{
+    values.forEach(value=>{const item=next.locations.find(location=>location.id===value.id);if(item&&value.name)Object.assign(item,value)});
     next.scenes.forEach(s=>{if(s.locationId===id)s.locationId=""});
     next.locations=next.locations.filter(x=>x.id!==id);
   },{renderAfter:false});
-  if(result.ok){renderLocationsManager();render()}
+  if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState();render()}
 }
 
-function openTagsManager(){renderTagsManager();showModal("tagsModal")}
+function openTagsManager(){return requestEditorTransition(()=>{renderTagsManager();showModal("tagsModal");trackerFor("tagsModal").captureInitialState()})}
 
 function renderTagsManager(){
   document.getElementById("tagsList").innerHTML=data.tags.map(t=>`
@@ -99,11 +103,13 @@ function saveTags(){
 function deleteTag(id){
   const t=tagById(id);if(!t)return;
   if(!confirm(`Удалить тег #${t.name} из всех сцен?`))return;
+  const values=new Map([...document.querySelectorAll(".tag-name-input")].map(input=>[input.dataset.id,canonicalTagName(input.value)]));
   const result=commitDataChange(next=>{
+    const used=new Set();next.tags.forEach(tag=>{const name=values.get(tag.id)||tag.name,key=name.toLocaleLowerCase("ru");if(!used.has(key)){tag.name=name;used.add(key)}});
     next.scenes.forEach(s=>s.tags=s.tags.filter(x=>x!==id));
     next.tags=next.tags.filter(x=>x.id!==id);
   },{renderAfter:false});
-  if(result.ok){renderTagsManager();render()}
+  if(result.ok){renderTagsManager();trackerFor("tagsModal").captureInitialState();render()}
 }
 
 function toggleChapter(id){
