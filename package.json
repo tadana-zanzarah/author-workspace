@@ -4,6 +4,7 @@
   "scripts": {
     "test:unit": "node tools/data-safety.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs",
     "test:smoke": "node tools/browser-smoke.mjs",
+    "test:dirty-browser": "node tools/dirty-browser.test.mjs",
     "test": "npm run test:unit"
   }
 }
