@@ -37,6 +37,12 @@ await page.addInitScript(()=>{
 
 await page.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
 await page.waitForSelector("#board");
+if(await page.locator("#recoveryModal").isVisible()){
+  await page.locator('input[name="recoveryCandidate"]').first().check();
+  page.once("dialog",dialog=>dialog.accept());
+  await page.click("#applyRecovery");
+  await page.waitForSelector("#recoveryModal",{state:"hidden"});
+}
 const migration = await page.evaluate(()=>{
   const data=JSON.parse(localStorage.getItem("novelTimelineV11"));
   const scene=data.scenes[0];
@@ -120,6 +126,7 @@ await fallbackPage.addInitScript(()=>{
   }));
 });
 await fallbackPage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+await fallbackPage.waitForSelector("#recoveryModal",{state:"visible"});
 const corruptFallback=await fallbackPage.evaluate(()=>{
   return {
     originalPreserved:localStorage.getItem("novelTimelineV11")==="{broken",
@@ -128,8 +135,28 @@ const corruptFallback=await fallbackPage.evaluate(()=>{
     banner:document.getElementById("storageBanner").textContent
   };
 });
+await fallbackPage.locator('input[name="recoveryCandidate"]').check();
+await fallbackPage.evaluate(()=>{
+  const original=Storage.prototype.setItem;
+  Storage.prototype.setItem=function(key,value){if(key==="novelTimelineV11")throw new DOMException("quota","QuotaExceededError");return original.call(this,key,value)};
+  globalThis.__restoreSetItem=()=>{Storage.prototype.setItem=original};
+});
+fallbackPage.once("dialog",dialog=>dialog.accept());
+await fallbackPage.click("#applyRecovery");
+const recoveryFailure=await fallbackPage.evaluate(()=>(
+  {primary:localStorage.getItem("novelTimelineV11"),modalOpen:document.getElementById("recoveryModal").style.display==="flex",memoryBlocked:data.readOnlyRecovery===true,banner:document.getElementById("storageBanner").textContent,backupKeys:Object.keys(localStorage).filter(key=>key.startsWith("novelTimelineV11-recovery-backup-")).length}
+));
+await fallbackPage.evaluate(()=>globalThis.__restoreSetItem());
+if(recoveryFailure.primary!=="{broken"||!recoveryFailure.modalOpen||!recoveryFailure.memoryBlocked||recoveryFailure.backupKeys<1||!/не удалось сохранить/i.test(recoveryFailure.banner))throw new Error("Ошибка восстановления создала ложное успешное состояние");
+fallbackPage.once("dialog",dialog=>dialog.accept());
+await fallbackPage.click("#applyRecovery");
+await fallbackPage.waitForSelector("#recoveryModal",{state:"hidden"});
+const recoverySuccess=await fallbackPage.evaluate(()=>(
+  {version:JSON.parse(localStorage.getItem("novelTimelineV11")).version,writesEnabled:storageWriteEnabled,backupKeys:Object.keys(localStorage).filter(key=>key.startsWith("novelTimelineV11-recovery-backup-")).length}
+));
 await fallbackContext.close();
 if(!corruptFallback.originalPreserved || !corruptFallback.writesDisabled || corruptFallback.candidateSource!=="novelTimelineV10") throw new Error("Повреждённая V11 была перезаписана резервной базой");
+if(recoverySuccess.version!==11||!recoverySuccess.writesEnabled||recoverySuccess.backupKeys<1)throw new Error("Успешное восстановление не завершилось безопасно");
 
 const fatalContext=await browser.newContext();
 const fatalPage=await fatalContext.newPage();
@@ -179,6 +206,41 @@ await quotaPage.evaluate(()=>globalThis.__restoreSetItem());
 await quotaContext.close();
 if(quotaRollback.memoryScenes!==0||quotaRollback.storedScenes!==0||!quotaRollback.modalOpen)throw new Error("Ошибка квоты не откатила создание сцены");
 
+const failureContext=await browser.newContext();
+const failurePage=await failureContext.newPage();
+await failurePage.addInitScript(()=>localStorage.setItem("novelTimelineV11",JSON.stringify({version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы"},{id:"chapter-two",title:"Глава 2"}],locations:[],tags:[],future:{},scenes:[{id:"scene-a",title:"A",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],people:{}},{id:"scene-b",title:"B",date:"2026-01-02",time:"10:00",dateReview:true,chapterId:"chapter-two",locationId:"",tags:[],people:{}}]})));
+await failurePage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+const beforeFailures=await failurePage.evaluate(()=>localStorage.getItem("novelTimelineV11"));
+await failurePage.evaluate(()=>{const original=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new DOMException("quota","QuotaExceededError")};globalThis.__restoreSetItem=()=>Storage.prototype.setItem=original});
+const dateFailure=await failurePage.evaluate(()=>{quickUpdate("scene-a","date","2026-01-03");return {memory:data.scenes[0].date,stored:JSON.parse(localStorage.getItem("novelTimelineV11")).scenes[0].date,banner:document.getElementById("storageBanner").textContent}});
+const confirmFailure=await failurePage.evaluate(()=>{confirmSceneDate("scene-b");return {review:data.scenes[1].dateReview,stored:JSON.parse(localStorage.getItem("novelTimelineV11")).scenes[1].dateReview}});
+const chapterFailure=await failurePage.evaluate(()=>{quickFieldState={sceneId:"scene-a",field:"chapterId"};document.getElementById("quickFieldSelect").innerHTML='<option value="chapter-two">Глава 2</option>';document.getElementById("quickFieldSelect").value="chapter-two";document.getElementById("saveQuickField").click();return {chapter:data.scenes[0].chapterId,modalState:quickFieldState!==null}});
+const dragFailure=await failurePage.evaluate(()=>{draggedSceneId="scene-a";const row=document.querySelector('[data-scene-id="scene-b"]');dropScene({preventDefault(){},currentTarget:row,clientY:0},"scene-b");return {order:data.scenes.map(s=>s.id),review:data.scenes[0].dateReview}});
+await failurePage.evaluate(()=>globalThis.__restoreSetItem());
+if(dateFailure.memory!=="2026-01-01"||dateFailure.stored!=="2026-01-01"||!/не сохранено/i.test(dateFailure.banner))throw new Error("Ошибка записи даты не откатилась");
+if(confirmFailure.review!==true||confirmFailure.stored!==true)throw new Error("Ошибка подтверждения даты не откатилась");
+if(chapterFailure.chapter!=="chapter-unassigned"||!chapterFailure.modalState)throw new Error("Ошибка смены главы закрыла редактор или изменила состояние");
+if(dragFailure.order.join(",")!=="scene-a,scene-b"||dragFailure.review!==false)throw new Error("Ошибка drag-and-drop изменила активное состояние");
+if(await failurePage.evaluate(()=>localStorage.getItem("novelTimelineV11"))!==beforeFailures)throw new Error("Failure-path изменил localStorage");
+await failureContext.close();
+
+const duplicateContext=await browser.newContext();
+const duplicatePage=await duplicateContext.newPage();
+await duplicatePage.addInitScript(()=>{localStorage.setItem("novelTimelineV11","{broken");localStorage.setItem("novelTimelineV10",JSON.stringify({version:10,characters:[{name:"Алекс",surname:"Первый"},{name:"Алекс",surname:"Второй"}],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы"}],locations:[],tags:[],future:{},scenes:[{title:"Выбор",chapterId:"chapter-unassigned",people:{Алекс:{action:"есть",relationChanges:{},visibleRelations:[]}}}]}))});
+await duplicatePage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+await duplicatePage.locator('input[name="recoveryCandidate"]').check();
+const unresolvedBlocked=await duplicatePage.locator("#applyRecovery").isDisabled();
+await duplicatePage.locator("[data-recovery-path]").selectOption({index:2});
+const manualReady=!(await duplicatePage.locator("#applyRecovery").isDisabled());
+await duplicatePage.evaluate(()=>{const original=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key==="novelTimelineV11")throw new DOMException("quota","QuotaExceededError");return original.call(this,key,value)};globalThis.__restoreSetItem=()=>Storage.prototype.setItem=original});
+duplicatePage.once("dialog",dialog=>dialog.accept());await duplicatePage.click("#applyRecovery");
+const manualFailure=await duplicatePage.evaluate(()=>({primary:localStorage.getItem("novelTimelineV11"),blocked:data.readOnlyRecovery===true,modalOpen:document.getElementById("recoveryModal").style.display==="flex",message:document.getElementById("storageBanner").textContent}));
+await duplicatePage.evaluate(()=>globalThis.__restoreSetItem());
+duplicatePage.once("dialog",dialog=>dialog.accept());await duplicatePage.click("#applyRecovery");
+const manualResolved=await duplicatePage.evaluate(()=>{const saved=JSON.parse(localStorage.getItem("novelTimelineV11"));return {people:Object.keys(saved.scenes[0].people),characters:saved.characters.map(c=>({id:c.id,surname:c.surname}))}});
+await duplicateContext.close();
+if(!unresolvedBlocked||!manualReady||manualFailure.primary!=="{broken"||!manualFailure.blocked||!manualFailure.modalOpen||manualResolved.people[0]!==manualResolved.characters[1].id)throw new Error("Ручное разрешение одинаковых имён не сработало безопасно");
+
 const result={
   title:await page.title(),
   migration,
@@ -189,9 +251,13 @@ const result={
   rejectedImportPreserved:true,
   importRoundTrip,
   corruptFallback,
+  recoveryFailure,
+  recoverySuccess,
   corruptProtected,
   invalidStructure,
   quotaRollback,
+  failurePaths:{dateFailure,confirmFailure,chapterFailure,dragFailure},
+  manualMigration:{unresolvedBlocked,manualReady,manualFailure,manualResolved},
   errors
 };
 console.log(JSON.stringify(result,null,2));
