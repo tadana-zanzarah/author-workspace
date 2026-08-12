@@ -5,7 +5,7 @@ import path from "node:path";
 const root = process.cwd();
 const types = {".html":"text/html; charset=utf-8",".css":"text/css; charset=utf-8",".js":"text/javascript; charset=utf-8",".json":"application/json; charset=utf-8"};
 const server = http.createServer((request,response)=>{
-  const requested = decodeURIComponent(new URL(request.url,"http://localhost").pathname);
+  const requested = decodeURIComponent(new URL(request.url,"http://localhost").pathname).replace(/^\/author-workspace(?=\/|$)/,"")||"/";
   const relative = requested === "/" ? "index.html" : requested.replace(/^\/+/,"");
   const file = path.resolve(root,relative);
   if (!file.startsWith(root + path.sep) && file !== path.join(root,"index.html")) {

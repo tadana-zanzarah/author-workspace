@@ -2,10 +2,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:unit": "node tools/data-safety.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs",
+    "test:unit": "node tools/data-safety.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs && node tools/cloud-foundation.test.mjs",
     "test:smoke": "node tools/browser-smoke.mjs",
     "test:dirty-browser": "node tools/dirty-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",
+    "test:cloud-browser": "node tools/cloud-browser.test.mjs",
     "test": "npm run test:unit"
   }
 }
