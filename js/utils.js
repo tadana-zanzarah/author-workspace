@@ -52,10 +52,11 @@ function wordEscape(s=""){
     .replace(/"/g,"&quot;");
 }
 
-function showModal(id){document.getElementById(id).style.display="flex"}
+function showModal(id,options){return globalThis.openModal?globalThis.openModal(id,options):document.getElementById(id).style.display="flex"}
 
 function hideModal(id){
   if(globalThis.trackerFor?.(id))return globalThis.requestCloseModal(id,"legacy");
+  if(globalThis.forceCloseModal)return globalThis.forceCloseModal(id);
   document.getElementById(id).style.display="none";
 }
 

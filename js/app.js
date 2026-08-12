@@ -1,6 +1,7 @@
 import "./constants.js";
 import "./state.js";
 import "./dirty-state.js";
+import "./modal-manager.js";
 import "./migrations.js";
 import "./storage.js";
 import "./dates.js";
@@ -30,6 +31,12 @@ const editorTrackers={
 };
 document.getElementById("continueEditing").onclick=()=>resolveDiscardConfirmation(false);
 document.getElementById("discardChanges").onclick=()=>resolveDiscardConfirmation(true);
+
+document.querySelectorAll("#profileEditorModal .profile-field").forEach((field,index)=>{
+  const heading=field.querySelector(".profile-field-top > strong");if(!heading)return;
+  if(!heading.id)heading.id=`profileFieldLabel${index+1}`;
+  field.querySelectorAll("input:not([type=checkbox]),select,textarea").forEach(control=>{if(!control.getAttribute("aria-label")&&!control.getAttribute("aria-labelledby"))control.setAttribute("aria-labelledby",heading.id)});
+});
 
 /* Состояние отношений вычисляется из порядка сцен, поэтому после вставки
    или перетаскивания всё наследование перестраивается автоматически. */

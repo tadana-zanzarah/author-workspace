@@ -42,6 +42,7 @@ function trackerFor(modalId){return dirtyTrackers.get(modalId)}
 function hasDirtyForms(){return [...dirtyTrackers.values()].some(tracker=>tracker.isDirty())}
 
 function forceHideModal(modalId){
+  if(globalThis.forceCloseModal){globalThis.forceCloseModal(modalId);return}
   const modal=document.getElementById(modalId);if(modal)modal.style.display="none";
   trackerFor(modalId)?.deactivate();syncBeforeUnload();
 }
@@ -49,12 +50,12 @@ function forceHideModal(modalId){
 function showDiscardConfirmation(){
   const modal=document.getElementById("discardChangesModal");
   if(!modal)return Promise.resolve(false);
-  modal.style.display="flex";
+  if(globalThis.openModal)globalThis.openModal("discardChangesModal",{initialFocus:"#continueEditing"});else modal.style.display="flex";
   return new Promise(resolve=>{discardResolve=resolve});
 }
 
 function resolveDiscardConfirmation(discard){
-  document.getElementById("discardChangesModal").style.display="none";
+  if(globalThis.forceCloseModal)globalThis.forceCloseModal("discardChangesModal");else document.getElementById("discardChangesModal").style.display="none";
   const resolve=discardResolve;discardResolve=null;if(resolve)resolve(discard);
 }
 
@@ -65,6 +66,7 @@ async function confirmDiscardIfDirty(modalId){
 }
 
 async function requestCloseModal(modalId,reason="close"){
+  if(globalThis.openModal&&globalThis.requestCloseModal!==requestCloseModal)return globalThis.requestCloseModal(modalId,reason);
   if(!(await confirmDiscardIfDirty(modalId)))return false;
   forceHideModal(modalId);return true;
 }
@@ -87,13 +89,7 @@ function serializeForm(root,extra={}){
 
 if(typeof document!=="undefined"){
   document.addEventListener("input",syncBeforeUnload,true);document.addEventListener("change",syncBeforeUnload,true);
-  document.addEventListener("keydown",event=>{
-    if(event.key!=="Escape")return;
-    if(document.getElementById("discardChangesModal")?.style.display==="flex"){event.preventDefault();resolveDiscardConfirmation(false);return}
-    const visible=[...document.querySelectorAll(".modal-backdrop")].filter(modal=>modal.style.display==="flex");
-    const top=visible.at(-1);if(top){event.preventDefault();requestCloseModal(top.id,"escape")}
-  });
 }
 
-Object.assign(globalThis,{dirtyTrackers,createDirtyTracker,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,resolveDiscardConfirmation,serializeForm,syncBeforeUnload});
+Object.assign(globalThis,{dirtyTrackers,createDirtyTracker,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,showDiscardConfirmation,resolveDiscardConfirmation,serializeForm,syncBeforeUnload});
 export {createDirtyTracker,normalizedEqual,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,resolveDiscardConfirmation,serializeForm,syncBeforeUnload};
