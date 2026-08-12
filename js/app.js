@@ -1,4 +1,5 @@
 import "./constants.js";
+import "./workspace-storage.js";
 import "./state.js";
 import "./dirty-state.js";
 import "./modal-manager.js";
@@ -514,7 +515,8 @@ document.getElementById("importInput").onchange=async e=>{
       const resolvable=report.errors.length===0&&report.conflicts.length>0&&report.conflicts.every(item=>item.type==="ambiguous-character-name"||item.resolution==="confirmation");
       if(resolvable){
         const raw=await file.text(),candidate=parseStorageCandidate(`Импорт: ${file.name}`,{getItem:()=>raw});
-        candidate.isImport=true;startupLoadInfo={ok:false,blocked:true,primary:parseStorageCandidate(STORAGE_KEY),candidates:[candidate],raw:localStorage.getItem(STORAGE_KEY)};
+        const activeKey=activeWorkspaceContext().storageKey;
+        candidate.isImport=true;startupLoadInfo={ok:false,blocked:true,primary:parseStorageCandidate(activeKey),candidates:[candidate],raw:localStorage.getItem(activeKey)};
         openRecoveryModal();showStorageMessage("Импорт требует ручного решения. Текущий проект не изменён.","warning");e.target.value="";return;
       }
       const details=[...report.errors,...report.conflicts].slice(0,5).map(x=>x.message||`${x.type}: ${x.id||x.name||x.path||""}`).join("\n");
@@ -522,7 +524,7 @@ document.getElementById("importInput").onchange=async e=>{
     }
     const summary=`Проверка завершена.\nВерсия: ${report.sourceVersion} → 11\nШагов миграции: ${report.performedSteps.length}\nПредупреждений: ${report.warnings.length}\nНеизвестные поля сохраняются.\n\nПрименить импорт и заменить текущий проект?`;
     if(!confirm(summary)){showStorageMessage("Импорт отменён. Текущий проект не изменён.","warning");return}
-    const saved=persistProject(report.migratedData);
+    const saved=persistProject(report.migratedData,{key:activeWorkspaceContext().storageKey});
     if(!saved.ok)throw new Error(saved.userMessage);
     data=report.migratedData;storageWriteEnabled=true;
     selectedSceneId=null;selectedSceneIndex=null;
@@ -538,7 +540,7 @@ document.getElementById("clearBtn").onclick=()=>{
   const answer=prompt(warning);
   if(answer!=="УДАЛИТЬ")return;
   const next=defaultData();
-  const saved=persistProject(next);
+  const saved=persistProject(next,{key:activeWorkspaceContext().storageKey});
   if(!saved.ok){showStorageMessage(saved.userMessage,"error");return}
   data=next;
   selectedSceneId=null;
@@ -559,3 +561,4 @@ document.getElementById("downloadProblemRaw").hidden=!startupLoadInfo?.blocked;
 document.getElementById("openRecovery").hidden=!startupLoadInfo?.blocked;
 document.getElementById("openRecovery").onclick=openRecoveryModal;
 initializeRecoveryUi();
+await import("./cloud-app.js");
