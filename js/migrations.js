@@ -1,4 +1,5 @@
 import {WRITING_STATUSES} from "./constants.js";
+import {validateDateString,validateTimeString} from "./dates.js";
 
 const FORBIDDEN_KEYS=new Set(["__proto__","prototype","constructor"]);
 const COLLECTIONS=["characters","profiles","chapters","locations","tags","scenes"];
@@ -66,29 +67,32 @@ function duplicateConflicts(value){
     for(const [index,item] of (value[collection]||[]).entries()){
       const id=item?.id;
       if(!id)continue;
-      if(seen.has(id))conflicts.push({type:"duplicate-id",collection,id,indexes:[seen.get(id),index],critical:true});
+      if(seen.has(id))conflicts.push({type:"duplicate-id",collection,id,indexes:[seen.get(id),index],critical:true,resolution:"unrecoverable",message:`В коллекции «${collection}» повторяется ID ${id}. Безопасное автоматическое исправление невозможно.`});
       else seen.set(id,index);
     }
   }
   const unassigned=(value.chapters||[]).filter(x=>x?.id==="chapter-unassigned");
-  if(unassigned.length!==1)conflicts.push({type:"system-chapter-count",id:"chapter-unassigned",count:unassigned.length,critical:true});
+  if(unassigned.length!==1)conflicts.push({type:"system-chapter-count",id:"chapter-unassigned",count:unassigned.length,critical:true,resolution:"unrecoverable",message:"Системная глава «Без главы» отсутствует или повторяется. Миграция заблокирована."});
   return conflicts;
 }
 
-function referenceConflicts(value){
+function referenceConflicts(value,{confirmations={},characterTargets={}}={}){
   const conflicts=[],damagedReferences=[];
   const ids=name=>new Set((value[name]||[]).map(x=>x?.id));
   const characterIds=ids("characters"),chapterIds=ids("chapters"),locationIds=ids("locations"),tagIds=ids("tags");
-  const add=(path,targetType,id)=>{
-    const item={type:"dangling-reference",path,targetType,id,critical:true};
+  const add=(path,targetType,id,resolution="unrecoverable")=>{
+    const labels={chapter:"Некоторые сцены ссылаются на удалённую главу",location:"Некоторые сцены ссылаются на удалённую локацию",tag:"Некоторые сцены содержат удалённый тег",character:"Найдена ссылка на неизвестного персонажа",scene:"Выбранная сцена больше не существует"};
+    const item={type:"dangling-reference",path,targetType,id,critical:true,resolution,message:`${labels[targetType]||"Найдена повреждённая ссылка"}: ${id}.`};
     conflicts.push(item);damagedReferences.push(item);
   };
   for(const [index,scene] of (value.scenes||[]).entries()){
-    if(scene.chapterId&&!chapterIds.has(scene.chapterId))add(`scenes[${index}].chapterId`,"chapter",scene.chapterId);
-    if(scene.locationId&&!locationIds.has(scene.locationId))add(`scenes[${index}].locationId`,"location",scene.locationId);
-    for(const id of (scene.tags||scene.tagIds||[]))if(!tagIds.has(id))add(`scenes[${index}].tags`,"tag",id);
+    const chapterPath=`scenes[${index}].chapterId`;
+    if(scene.chapterId&&!chapterIds.has(scene.chapterId)){if(confirmations[chapterPath]){scene.chapterId="chapter-unassigned"}else add(chapterPath,"chapter",scene.chapterId,"confirmation")}
+    const locationPath=`scenes[${index}].locationId`;
+    if(scene.locationId&&!locationIds.has(scene.locationId)){if(confirmations[locationPath]){scene.locationId=""}else add(locationPath,"location",scene.locationId,"confirmation")}
+    for(const id of [...(scene.tags||scene.tagIds||[])])if(!tagIds.has(id)){const path=`scenes[${index}].tags.${id}`;if(confirmations[path])scene.tags=(scene.tags||[]).filter(tag=>tag!==id);else add(path,"tag",id,"confirmation")}
     for(const [from,person] of Object.entries(scene.people||{})){
-      if(!characterIds.has(from)){add(`scenes[${index}].people.${from}`,"character",from);continue}
+      if(!characterIds.has(from)){add(`scenes[${index}].people.${from}`,"character",from,characterTargets[`scenes[${index}].people.${from}`]?"manual":"unrecoverable");continue}
       for(const to of Object.keys(person?.relationChanges||{}))if(!characterIds.has(to))add(`scenes[${index}].people.${from}.relationChanges.${to}`,"character",to);
       for(const to of (person?.visibleRelations||[]))if(!characterIds.has(to))add(`scenes[${index}].people.${from}.visibleRelations`,"character",to);
     }
@@ -101,7 +105,32 @@ function referenceConflicts(value){
   return {conflicts,damagedReferences};
 }
 
-function migrateProject(value,sourceVersion){
+function v10CharacterId(item,index,used){
+  const preferred=typeof item==="object"&&item&&typeof item.id==="string"&&item.id.trim()?item.id.trim():`character-v10-${index+1}`;
+  let id=preferred,n=2;while(used.has(id))id=`${preferred}-${n++}`;used.add(id);return id;
+}
+
+function collectAmbiguousReferences(project,names,candidatesByName){
+  const groups=new Map();
+  const add=(name,path,label)=>{
+    const key=String(name||"").toLocaleLowerCase("ru");
+    if((names.get(key)||[]).length<2)return;
+    if(!groups.has(key))groups.set(key,{type:"ambiguous-character-name",name:String(name),critical:true,resolution:"manual",candidates:candidatesByName.get(key),references:[]});
+    groups.get(key).references.push({path,label});
+  };
+  for(const [name,profile] of Object.entries(project.profiles||{})){
+    add(name,`profiles.${name}`,`Анкета «${name}»`);
+    Object.keys(profile?.initialRelations||{}).forEach(target=>add(target,`profiles.${name}.initialRelations.${target}`,`Анкета «${name}»: исходное отношение`));
+  }
+  (project.scenes||[]).forEach((scene,sceneIndex)=>Object.entries(scene.people||{}).forEach(([from,person])=>{
+    add(from,`scenes[${sceneIndex}].people.${from}`,`Сцена «${scene.title||sceneIndex+1}»: участие персонажа`);
+    Object.keys(person?.relationChanges||{}).forEach(to=>add(to,`scenes[${sceneIndex}].people.${from}.relationChanges.${to}`,`Сцена «${scene.title||sceneIndex+1}»: изменение отношения`));
+    (person?.visibleRelations||[]).forEach((to,index)=>add(to,`scenes[${sceneIndex}].people.${from}.visibleRelations[${index}]`,`Сцена «${scene.title||sceneIndex+1}»: видимое отношение`));
+  }));
+  return [...groups.values()];
+}
+
+function migrateProject(value,sourceVersion,{characterResolutions={}}={}){
   const migratedData=safeOwnCopy(value);
   const report={migratedData,warnings:[],errors:[],performedSteps:[],conflicts:[],damagedReferences:[],fixedReferences:[]};
   if(sourceVersion===11)return report;
@@ -115,45 +144,38 @@ function migrateProject(value,sourceVersion){
     const key=name.toLocaleLowerCase("ru");
     const list=names.get(key)||[];list.push(index);names.set(key,list);
   }
-  const referencedNames=new Set();
-  Object.keys(migratedData.profiles||{}).forEach(x=>referencedNames.add(x.toLocaleLowerCase("ru")));
-  for(const scene of migratedData.scenes){
-    Object.entries(scene.people||{}).forEach(([from,p])=>{
-      referencedNames.add(from.toLocaleLowerCase("ru"));
-      Object.keys(p?.relationChanges||{}).forEach(x=>referencedNames.add(x.toLocaleLowerCase("ru")));
-      (p?.visibleRelations||[]).forEach(x=>referencedNames.add(String(x).toLocaleLowerCase("ru")));
-    });
-  }
-  for(const [name,indexes] of names)if(indexes.length>1&&referencedNames.has(name)){
-    report.conflicts.push({type:"ambiguous-character-name",name,indexes,critical:true});
-  }
-  if(report.conflicts.length)return report;
-
-  const byName=new Map();
+  const usedIds=new Set(),candidatesByName=new Map();
   migratedData.characters=migratedData.characters.map((item,index)=>{
     const source=typeof item==="object"&&item?safeOwnCopy(item):{};
     const name=String(typeof item==="string"?item:item?.name||`Персонаж ${index+1}`);
-    const id=source.id||makeId("character");byName.set(name.toLocaleLowerCase("ru"),id);
+    const id=v10CharacterId(item,index,usedIds),key=name.toLocaleLowerCase("ru");
+    const list=candidatesByName.get(key)||[];list.push({id,name,surname:source.surname||migratedData.profiles?.[name]?.surname||"",description:source.description||migratedData.profiles?.[name]?.description||""});candidatesByName.set(key,list);
     return {...source,id,name};
   });
-  const resolve=value=>migratedData.characters.some(x=>x.id===value)?value:byName.get(String(value||"").toLocaleLowerCase("ru"));
+  const ambiguous=collectAmbiguousReferences(value,names,candidatesByName);
+  const unresolved=ambiguous.map(group=>({...group,references:group.references.filter(ref=>!group.candidates.some(c=>c.id===characterResolutions[ref.path]))})).filter(group=>group.references.length);
+  if(unresolved.length){report.conflicts.push(...unresolved);return report}
+  const byName=new Map([...candidatesByName].filter(([,items])=>items.length===1).map(([name,items])=>[name,items[0].id]));
+  const resolve=(value,path)=>migratedData.characters.some(x=>x.id===value)?value:(characterResolutions[path]||byName.get(String(value||"").toLocaleLowerCase("ru")));
   const profiles={};
   for(const character of migratedData.characters){
-    const source=migratedData.profiles?.[character.id]||migratedData.profiles?.[character.name]||{};
+    const namedProfile=migratedData.profiles?.[character.name],profileOwner=characterResolutions[`profiles.${character.name}`];
+    const source=migratedData.profiles?.[character.id]||(!profileOwner||profileOwner===character.id?namedProfile:null)||{};
     const initialRelations={};
     for(const [target,text] of Object.entries(source.initialRelations||{})){
-      const id=resolve(target);if(id&&id!==character.id)initialRelations[id]=text;
+      const id=resolve(target,`profiles.${character.name}.initialRelations.${target}`);if(id&&id!==character.id)initialRelations[id]=text;
     }
     profiles[character.id]={...safeOwnCopy(source),id:character.id,characterId:character.id,name:source.name||character.name,initialRelations};
   }
   migratedData.profiles=profiles;
   migratedData.scenes=migratedData.scenes.map(scene=>{
     const people={};
+    const sceneIndex=migratedData.scenes.indexOf(scene);
     for(const [from,p] of Object.entries(scene.people||{})){
-      const fromId=resolve(from);if(!fromId)continue;
+      const base=`scenes[${sceneIndex}].people.${from}`,fromId=resolve(from,base);if(!fromId)continue;
       const relationChanges={};
-      for(const [to,text] of Object.entries(p?.relationChanges||{})){const toId=resolve(to);if(toId&&toId!==fromId)relationChanges[toId]=text}
-      people[fromId]={...safeOwnCopy(p),relationChanges,visibleRelations:(p?.visibleRelations||[]).map(resolve).filter(Boolean)};
+      for(const [to,text] of Object.entries(p?.relationChanges||{})){const toId=resolve(to,`${base}.relationChanges.${to}`);if(toId&&toId!==fromId)relationChanges[toId]=text}
+      people[fromId]={...safeOwnCopy(p),relationChanges,visibleRelations:(p?.visibleRelations||[]).map((to,index)=>resolve(to,`${base}.visibleRelations[${index}]`)).filter(Boolean)};
     }
     return {...safeOwnCopy(scene),id:scene.id||makeId("scene"),people};
   });
@@ -193,20 +215,38 @@ function normalizeProject(value){
 }
 const normalizeData=normalizeProject;
 
-function prepareProject(value){
+function classifyReportConflicts(report){
+  report.autoConflicts=report.conflicts.filter(x=>x.resolution==="automatic");
+  report.confirmationConflicts=report.conflicts.filter(x=>x.resolution==="confirmation");
+  report.manualConflicts=report.conflicts.filter(x=>x.resolution==="manual"||x.type==="ambiguous-character-name");
+  report.unrecoverableConflicts=report.conflicts.filter(x=>x.resolution==="unrecoverable");
+  return report;
+}
+
+function prepareProject(value,options={}){
   const detected=detectProjectVersion(value);
   const validation=validateProjectStructure(value,{version:detected.version});
   const report={sourceVersion:detected.version,targetVersion:11,performedSteps:[],warnings:[...validation.warnings],errors:[...validation.errors],conflicts:[],nameConflicts:[],damagedReferences:[],fixedReferences:[],unknownFieldsPreserved:true,canApply:false,migratedData:null};
   if(!validation.valid)return report;
-  const migration=migrateProject(value,detected.version);
+  const migration=migrateProject(value,detected.version,options);
   Object.assign(report,{performedSteps:migration.performedSteps,warnings:[...report.warnings,...migration.warnings],errors:[...report.errors,...migration.errors],conflicts:[...migration.conflicts],migratedData:migration.migratedData});
   report.nameConflicts=report.conflicts.filter(x=>x.type==="ambiguous-character-name");
+  classifyReportConflicts(report);
   if(report.errors.length||report.conflicts.some(x=>x.critical))return report;
   report.conflicts.push(...duplicateConflicts(report.migratedData));
-  const references=referenceConflicts(report.migratedData);
+  const references=referenceConflicts(report.migratedData,options);
   report.conflicts.push(...references.conflicts);report.damagedReferences=references.damagedReferences;
+  classifyReportConflicts(report);
   if(report.conflicts.some(x=>x.critical))return report;
   report.migratedData=normalizeProject(report.migratedData);
+  report.migratedData.scenes.forEach((scene,index)=>{
+    if(scene.date&&!validateDateString(scene.date)){
+      scene.dateReview=true;report.warnings.push({code:"invalid-scene-date",path:`scenes[${index}].date`,message:`Сцена «${scene.title||index+1}»: дата требует ручной проверки.`});
+    }
+    if(scene.time&&!validateTimeString(scene.time)){
+      scene.dateReview=true;report.warnings.push({code:"invalid-scene-time",path:`scenes[${index}].time`,message:`Сцена «${scene.title||index+1}»: время требует ручной проверки.`});
+    }
+  });
   report.canApply=true;
   return report;
 }

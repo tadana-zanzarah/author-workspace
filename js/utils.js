@@ -6,21 +6,9 @@ function jsq(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'")}
 
 function cssEscape(s){return String(s).replace(/\\/g,"\\\\").replace(/"/g,'\\"')}
 
-function parseSceneMoment(scene){
-  if(!scene?.date)return null;
-  const dateParts=scene.date.split("-").map(Number);
-  if(dateParts.length!==3||dateParts.some(Number.isNaN))return null;
-  const [y,m,d]=dateParts;
-  let hh=0,mm=0,hasTime=false;
-  if(scene.time){
-    const parts=scene.time.split(":").map(Number);
-    if(parts.length>=2&&!parts.some(Number.isNaN)){
-      [hh,mm]=parts;
-      hasTime=true;
-    }
-  }
-  return {value:new Date(y,m-1,d,hh,mm).getTime(),date:scene.date,time:scene.time||"",hasTime};
-}
+import {parseStrictSceneMoment} from "./dates.js";
+
+const parseSceneMoment=parseStrictSceneMoment;
 
 function chronologicalWarning(index){
   const current=parseSceneMoment(data.scenes[index]);
