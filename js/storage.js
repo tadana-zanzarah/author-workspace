@@ -20,38 +20,58 @@ function parseStorageCandidate(key,storage=globalThis.localStorage){
   const parsed=parseProjectJson(raw);
   if(!parsed.ok)return {key,exists:true,valid:false,raw,error:parsed.error};
   const report=prepareProject(parsed.value);
-  return {key,exists:true,valid:report.canApply,raw,parsed:parsed.value,normalized:report.migratedData,report,version:report.sourceVersion,score:storageProjectScore(parsed.value),timestamp:projectTimestamp(parsed.value)};
+  const count=name=>Array.isArray(parsed.value?.[name])?parsed.value[name].length:0;
+  const onlyResolvable=report.errors.length===0&&report.conflicts.every(x=>x.type==="ambiguous-character-name"||x.resolution==="confirmation");
+  return {key,exists:true,valid:report.canApply,raw,parsed:parsed.value,normalized:report.migratedData,report,version:report.sourceVersion,score:storageProjectScore(parsed.value),timestamp:projectTimestamp(parsed.value),summary:{scenes:count("scenes"),characters:count("characters"),chapters:count("chapters"),locations:count("locations"),tags:count("tags"),criticalErrors:report.errors.length+report.conflicts.filter(x=>x.critical).length,warnings:report.warnings.length,canOpen:report.canApply&&report.sourceVersion===11,canMigrate:report.canApply||onlyResolvable}};
 }
 function blockedMemoryProject(){
   return {version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Данные заблокированы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[],readOnlyRecovery:true};
 }
 function loadProjectFromStorage({storage=globalThis.localStorage,key=STORAGE_KEY,oldKeys=OLD_KEYS}={}){
   const primary=parseStorageCandidate(key,storage);
-  const candidates=oldKeys.map(k=>parseStorageCandidate(k,storage)).filter(x=>x.exists&&x.valid)
+  const discovered=[];
+  try{for(let i=0;i<storage.length;i++){const candidateKey=storage.key(i);if(candidateKey&&candidateKey!==key&&/novel|author.?workspace|timeline/i.test(candidateKey))discovered.push(candidateKey)}}catch{}
+  const candidateKeys=[...new Set([...oldKeys,...discovered])];
+  const candidates=candidateKeys.map(k=>parseStorageCandidate(k,storage)).filter(x=>x.exists)
     .sort((a,b)=>(b.version-a.version)||(b.timestamp-a.timestamp)||(b.score-a.score));
   if(primary.exists){
     if(primary.valid)return {ok:true,data:primary.normalized,source:key,report:primary.report,candidates};
     return {ok:false,blocked:true,data:blockedMemoryProject(),source:key,primary,candidates,raw:primary.raw};
   }
-  if(candidates.length)return {ok:true,data:candidates[0].normalized,source:candidates[0].key,report:candidates[0].report,candidates,migrationNeedsConfirmation:true};
-  const anyStorageError=[primary,...oldKeys.map(k=>parseStorageCandidate(k,storage))].find(x=>x.storageError);
+  if(candidates.length)return {ok:false,blocked:true,data:blockedMemoryProject(),source:null,primary,candidates,recoveryRequired:true};
+  const anyStorageError=[primary,...candidateKeys.map(k=>parseStorageCandidate(k,storage))].find(x=>x.storageError);
   if(anyStorageError)return {ok:false,blocked:true,data:blockedMemoryProject(),primary:anyStorageError,candidates:[]};
   return {ok:true,data:defaultData(),source:null,fresh:true,candidates:[]};
 }
 function loadDataSafe(){
   const result=loadProjectFromStorage();
   startupLoadInfo=result;
-  if(result.ok&&result.migrationNeedsConfirmation){
-    const saved=persistProject(result.data);
-    if(saved.ok){
-      result.migrationNeedsConfirmation=false;
-      result.migrated=true;
-    }else{
-      result.saveError=saved;
-      storageWriteEnabled=false;
-    }
-  }else if(!result.ok)storageWriteEnabled=false;
+  if(!result.ok)storageWriteEnabled=false;
   return result.data;
+}
+
+function recoveryBackupKey(primaryKey=STORAGE_KEY,now=new Date()){
+  return `${primaryKey}-recovery-backup-${now.toISOString().replace(/[:.]/g,"-")}`;
+}
+
+function restoreProjectCandidate({storage=globalThis.localStorage,primaryKey=STORAGE_KEY,candidateKey,candidateRaw:rawOverride,candidateReport,characterResolutions={}}={}){
+  let original,candidateRaw;
+  try{original=storage.getItem(primaryKey);candidateRaw=rawOverride??storage.getItem(candidateKey)}catch(error){return {ok:false,error,userMessage:storageErrorMessage(error)}}
+  if(candidateRaw==null)return {ok:false,userMessage:"Выбранная резервная версия больше не найдена. Исходные данные не изменены."};
+  const parsed=parseProjectJson(candidateRaw);if(!parsed.ok)return {ok:false,userMessage:"Выбранная резервная версия повреждена. Исходные данные не изменены."};
+  const report=candidateReport?.canApply?candidateReport:prepareProject(parsed.value,{characterResolutions});
+  if(!report.canApply)return {ok:false,report,userMessage:"В выбранной версии остались нерешённые конфликты. Восстановление не выполнено."};
+  const backupKey=recoveryBackupKey(primaryKey);
+  try{
+    if(original!==null)storage.setItem(backupKey,original);
+    const serialized=JSON.stringify(report.migratedData);
+    storage.setItem(primaryKey,serialized);
+    if(storage.getItem(primaryKey)!==serialized)throw new Error("verification failed");
+    return {ok:true,data:report.migratedData,report,backupKey};
+  }catch(error){
+    try{if(original!==null&&storage.getItem(primaryKey)!==original)storage.setItem(primaryKey,original)}catch{}
+    return {ok:false,error,backupKey,userMessage:"Не удалось сохранить восстановленный проект. Исходные данные не изменены."};
+  }
 }
 function storageErrorMessage(error){
   if(error?.name==="QuotaExceededError")return "Память браузера переполнена. Изменение не сохранено; уменьшите размер фотографий или экспортируйте резервную копию.";
@@ -112,6 +132,61 @@ function downloadProblemRaw(){
   const blob=new Blob([raw],{type:"application/json"}),a=document.createElement("a");
   a.href=URL.createObjectURL(blob);a.download="author-workspace-problem-original.json";a.click();URL.revokeObjectURL(a.href);return true;
 }
+
+function downloadRecoveryText(text,filename){
+  const blob=new Blob([text],{type:"application/json"}),a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download=filename;a.click();URL.revokeObjectURL(a.href);
+}
+
+function recoveryCandidateByKey(key){return startupLoadInfo?.candidates?.find(item=>item.key===key)}
+
+function renderRecoveryPreview(candidate,options){
+  const root=document.getElementById("recoveryPreview"),apply=document.getElementById("applyRecovery"),download=document.getElementById("downloadMigratedRecovery");
+  if(!candidate){root.innerHTML="<p>Выберите резервную версию.</p>";apply.disabled=true;download.disabled=true;return}
+  options ||= candidate.recoveryOptions||{characterResolutions:{},confirmations:{}};candidate.recoveryOptions=options;
+  const report=prepareProject(candidate.parsed,options);candidate.previewReport=report;
+  const conflicts=report.manualConflicts||[];
+  let html=`<h3>Предварительная проверка: ${candidate.key}</h3>`;
+  if(conflicts.length)html+=conflicts.map(group=>`<section class="recovery-conflict"><strong>Найдены персонажи с одинаковым именем: ${esc(group.name)}</strong><p>Для каждой ссылки выберите нужного персонажа. Автоматического выбора не будет.</p>${group.references.map(ref=>`<label>${esc(ref.label)}<select data-recovery-path="${esc(ref.path)}"><option value="">Выберите персонажа</option>${group.candidates.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}${c.surname?` ${esc(c.surname)}`:""} — ID: ${esc(c.id)}${c.description?` · ${esc(c.description)}`:""}</option>`).join("")}</select></label>`).join("")}</section>`).join("");
+  if(report.confirmationConflicts?.length)html+=`<section class="recovery-conflict"><strong>Исправления, требующие подтверждения</strong>${report.confirmationConflicts.map(conflict=>`<label><input type="checkbox" data-recovery-confirm="${esc(conflict.path)}"> ${esc(conflict.message)} Разрешить безопасно убрать эту ссылку.</label>`).join("")}</section>`;
+  if(report.unrecoverableConflicts?.length)html+=`<section class="recovery-conflict"><strong>Восстановление этой версии заблокировано</strong>${report.unrecoverableConflicts.map(conflict=>`<p>${esc(conflict.message||conflict.type)}</p>`).join("")}</section>`;
+  const unresolved=report.conflicts.filter(x=>x.critical).length;
+  html+=`<p>Предупреждений: ${report.warnings.length}. Нерешённых конфликтов: ${unresolved}.</p><p>${report.canApply?"Предварительная версия готова. Применение возможно только после подтверждения.":"Применение заблокировано, пока конфликты не разрешены."}</p>`;
+  root.innerHTML=html;apply.disabled=!report.canApply;download.disabled=!report.canApply;
+  root.querySelectorAll("[data-recovery-path]").forEach(select=>{select.value=options.characterResolutions[select.dataset.recoveryPath]||"";select.onchange=()=>{if(select.value)options.characterResolutions[select.dataset.recoveryPath]=select.value;else delete options.characterResolutions[select.dataset.recoveryPath];renderRecoveryPreview(candidate,options)}});
+  root.querySelectorAll("[data-recovery-confirm]").forEach(input=>{input.checked=!!options.confirmations[input.dataset.recoveryConfirm];input.onchange=()=>{if(input.checked)options.confirmations[input.dataset.recoveryConfirm]=true;else delete options.confirmations[input.dataset.recoveryConfirm];renderRecoveryPreview(candidate,options)}});
+}
+
+function renderRecoveryCandidates(){
+  const root=document.getElementById("recoveryCandidates"),candidates=startupLoadInfo?.candidates||[];
+  root.innerHTML=candidates.map(candidate=>{const s=candidate.summary;return `<label class="recovery-candidate"><input type="radio" name="recoveryCandidate" value="${esc(candidate.key)}" ${s.canMigrate?"":"disabled"}><span><strong>${esc(candidate.key)}</strong> · версия ${candidate.version??"не распознана"}${candidate.timestamp?` · изменён ${new Date(candidate.timestamp).toLocaleString("ru-RU")}`:""}<br>Сцен: ${s.scenes}; персонажей: ${s.characters}; глав: ${s.chapters}; локаций: ${s.locations}; тегов: ${s.tags}.<br>Критических проблем: ${s.criticalErrors}; предупреждений: ${s.warnings}. Можно открыть: ${s.canOpen?"да":"нет"}; можно мигрировать: ${s.canMigrate?"да":"нет"}.</span><button type="button" data-download-raw="${esc(candidate.key)}">Скачать исходный JSON</button></label>`}).join("")||"<p>Подходящие резервные версии не найдены.</p>";
+  root.querySelectorAll('input[name="recoveryCandidate"]').forEach(radio=>radio.onchange=()=>renderRecoveryPreview(recoveryCandidateByKey(radio.value)));
+  root.querySelectorAll("[data-download-raw]").forEach(button=>button.onclick=()=>{const candidate=recoveryCandidateByKey(button.dataset.downloadRaw);downloadRecoveryText(candidate.raw,`${candidate.key}-original.json`)});
+}
+
+function openRecoveryModal(){
+  renderRecoveryCandidates();renderRecoveryPreview(null);showModal("recoveryModal");
+}
+
+function initializeRecoveryUi(){
+  const modal=document.getElementById("recoveryModal");if(!modal)return;
+  document.getElementById("downloadPrimaryRecovery").onclick=downloadProblemRaw;
+  document.getElementById("cancelRecovery").onclick=()=>hideModal("recoveryModal");
+  document.getElementById("downloadMigratedRecovery").onclick=()=>{const selected=document.querySelector('input[name="recoveryCandidate"]:checked'),candidate=selected&&recoveryCandidateByKey(selected.value);if(candidate?.previewReport?.canApply)downloadRecoveryText(JSON.stringify(candidate.previewReport.migratedData,null,2),`${candidate.key}-preview-v11.json`)};
+  document.getElementById("applyRecovery").onclick=()=>{
+    const selected=document.querySelector('input[name="recoveryCandidate"]:checked'),candidate=selected&&recoveryCandidateByKey(selected.value);if(!candidate?.previewReport?.canApply)return;
+    if(!confirm("Восстановить выбранную версию? Повреждённая основная база будет отдельно сохранена в браузере."))return;
+    const result=restoreProjectCandidate({candidateKey:candidate.key,candidateRaw:candidate.raw,candidateReport:candidate.previewReport});
+    if(!result.ok){showStorageMessage(result.userMessage,"error");return}
+    data=result.data;storageWriteEnabled=true;startupLoadInfo={ok:true,recovered:true,backupKey:result.backupKey,candidates:startupLoadInfo.candidates};hideModal("recoveryModal");render();showStorageMessage("Проект восстановлен. Исходная повреждённая база сохранена отдельно.","warning");
+  };
+  document.getElementById("newProjectRecovery").onclick=()=>{
+    if(prompt("Новый пустой проект заменит текущую повреждённую базу после создания резервной копии. Введите НОВЫЙ ПРОЕКТ:")!=="НОВЫЙ ПРОЕКТ")return;
+    const temporaryKey=`${STORAGE_KEY}-new-project-source`,empty=defaultData();
+    try{localStorage.setItem(temporaryKey,JSON.stringify(empty));const result=restoreProjectCandidate({candidateKey:temporaryKey});if(!result.ok){showStorageMessage(result.userMessage,"error");return}data=result.data;storageWriteEnabled=true;hideModal("recoveryModal");render();showStorageMessage("Создан новый пустой проект. Предыдущая база сохранена отдельно.","warning")}finally{try{localStorage.removeItem(temporaryKey)}catch{}}
+  };
+  if(startupLoadInfo?.blocked)openRecoveryModal();
+}
 function initializeStorageNotice(){
   if(startupLoadInfo?.blocked){
     showStorageMessage("Основная база повреждена или имеет опасные конфликты. Она не изменена, обычное сохранение заблокировано. Нажмите «Скачать проблемный JSON» перед восстановлением.","error");
@@ -127,5 +202,5 @@ function loadUiState(){
 }
 function saveUiState(){try{localStorage.setItem(UI_STORAGE_KEY,JSON.stringify({navigationVisible}))}catch{}}
 
-Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,initializeStorageNotice,loadUiState,saveUiState});
-export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,initializeStorageNotice,loadUiState,saveUiState};
+Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState});
+export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState};
