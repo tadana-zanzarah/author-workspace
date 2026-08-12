@@ -9,12 +9,13 @@ function writingStatusById(id){return WRITING_STATUSES.find(x=>x.id===id)||WRITI
 function openChaptersManager(){return requestEditorTransition(()=>{renderChaptersManager();showModal("chaptersModal");trackerFor("chaptersModal").captureInitialState()})}
 
 function renderChaptersManager(){
-  document.getElementById("chaptersList").innerHTML=data.chapters.map((c,i)=>`
+  const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
+  document.getElementById("chaptersList").innerHTML=userChapters.map((c,i)=>`
     <div class="manager-row">
       <input class="chapter-name-input" data-id="${esc(c.id)}" value="${esc(c.title)}" aria-label="Название главы ${esc(c.title)}">
       <button aria-label="Переместить главу ${esc(c.title)} выше" onclick="moveChapter('${jsq(c.id)}',-1)">↑</button><button aria-label="Переместить главу ${esc(c.title)} ниже" onclick="moveChapter('${jsq(c.id)}',1)">↓</button>
       <button class="danger" onclick="deleteChapter('${jsq(c.id)}')" ${c.id==="chapter-unassigned"?"disabled":""}>Удалить</button>
-    </div>`).join("");
+    </div>`).join("")||'<div class="empty-work">Глав пока нет. Сцены без выбранной главы останутся в системном разделе «Без главы».</div>';
 }
 
 function saveChapterNames(){
@@ -26,7 +27,7 @@ function saveChapterNames(){
 function moveChapter(chapterId,dir){
   const index=data.chapters.findIndex(chapter=>chapter.id===chapterId);
   const target=index+dir;
-  if(index<0||target<0||target>=data.chapters.length)return;
+  if(index<0||target<0||target>=data.chapters.length||data.chapters[target]?.id==="chapter-unassigned")return;
   const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
   const result=commitDataChange(next=>{
     next.chapters.forEach(c=>{if(names.get(c.id))c.title=names.get(c.id)});
@@ -57,7 +58,7 @@ function renderLocationsManager(){
       <input class="location-name-input" data-id="${esc(l.id)}" value="${esc(l.name)}" aria-label="Название локации" placeholder="Название">
       <input class="location-desc-input" data-id="${esc(l.id)}" value="${esc(l.description)}" aria-label="Описание локации ${esc(l.name)}" placeholder="Необязательное описание">
       <button class="danger" onclick="deleteLocation('${jsq(l.id)}')">Удалить</button>
-    </div>`).join("");
+    </div>`).join("")||'<div class="empty-work">Локаций пока нет.</div>';
 }
 
 function saveLocations(){
@@ -86,7 +87,7 @@ function openTagsManager(){return requestEditorTransition(()=>{renderTagsManager
 function renderTagsManager(){
   document.getElementById("tagsList").innerHTML=data.tags.map(t=>`
     <div class="manager-row tag-manager-row"><input class="tag-name-input" data-id="${esc(t.id)}" value="${esc(t.name)}" aria-label="Название тега">
-    <button class="danger" onclick="deleteTag('${jsq(t.id)}')">Удалить</button></div>`).join("");
+    <button class="danger" onclick="deleteTag('${jsq(t.id)}')">Удалить</button></div>`).join("")||'<div class="empty-work">Тегов пока нет.</div>';
 }
 
 function saveTags(){

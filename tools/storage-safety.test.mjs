@@ -9,6 +9,28 @@ const memoryStorage=entries=>({
 });
 
 {
+  const storage=memoryStorage({});
+  const loaded=loadProjectFromStorage({storage});
+  assert.equal(loaded.ok,true);
+  assert.equal(loaded.fresh,true);
+  assert.deepEqual(loaded.data.characters,[]);
+  assert.deepEqual(loaded.data.scenes,[]);
+}
+{
+  const storage=memoryStorage({novelTimelineV11:JSON.stringify(good)});
+  const loaded=loadProjectFromStorage({storage});
+  assert.equal(loaded.ok,true);
+  assert.equal(loaded.source,"novelTimelineV11");
+  assert.deepEqual(loaded.data.characters,good.characters);
+}
+{
+  const storage=memoryStorage({novelTimelineV10:JSON.stringify({...good,version:10,characters:["C"],profiles:{}})});
+  const loaded=loadProjectFromStorage({storage});
+  assert.equal(loaded.ok,false);
+  assert.equal(loaded.recoveryRequired,true);
+  assert.equal(loaded.candidates[0].version,10);
+}
+{
   const storage=memoryStorage({novelTimelineV11:"{}"});
   const before=storage.getItem("novelTimelineV11");
   const loaded=loadProjectFromStorage({storage});

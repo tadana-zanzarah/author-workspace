@@ -6,6 +6,48 @@ const browser = await chromium.launch({
   headless: true,
   executablePath: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
 });
+
+const freshContext = await browser.newContext();
+const freshPage = await freshContext.newPage();
+const freshErrors=[];
+freshPage.on("pageerror",error=>freshErrors.push(error.message));
+await freshPage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+await freshPage.waitForSelector(".workspace-empty-state");
+const freshProject=await freshPage.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
+if(freshProject.characters.length||freshProject.scenes.length||freshProject.locations.length||freshProject.tags.length)throw new Error("Fresh install не пуст");
+if(/Рене|Зейн|Реми|Арман/.test(JSON.stringify(freshProject)))throw new Error("Fresh install содержит персональные demo-данные");
+await freshPage.locator(".workspace-empty-state button",{hasText:"Создать персонажа"}).click();
+await freshPage.waitForSelector("#charsModal",{state:"visible"});
+await freshPage.click("#addChar");
+await freshPage.waitForSelector("#profileEditorModal",{state:"visible"});
+await freshPage.fill("#pf_name","Первый персонаж");
+await freshPage.click("#saveProfile");
+await freshPage.click("#closeChars");
+await freshPage.evaluate(()=>openChaptersManager());
+await freshPage.click("#addChapter");
+await freshPage.click("#closeChapters");
+await freshPage.click("#addFirst");
+await freshPage.fill("#sceneTitle","Первая сцена");
+await freshPage.selectOption("#sceneChapter",{label:"Глава 1"});
+await freshPage.fill(".p-action","Участвует в первой сцене");
+await freshPage.click("#saveScene");
+await freshPage.reload({waitUntil:"networkidle"});
+const freshPersisted=await freshPage.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
+if(freshPersisted.characters[0]?.name!=="Первый персонаж"||freshPersisted.scenes[0]?.title!=="Первая сцена"||freshPersisted.chapters[1]?.title!=="Глава 1")throw new Error("Первые сущности не сохранились");
+if(freshPersisted.scenes[0].chapterId!==freshPersisted.chapters[1].id||!freshPersisted.scenes[0].people[freshPersisted.characters[0].id])throw new Error("Глава или персонаж не назначены первой сцене");
+if(freshErrors.length)throw new Error(`Ошибки fresh UI: ${freshErrors.join(" | ")}`);
+await freshContext.close();
+
+const noCharacterContext=await browser.newContext();
+const noCharacterPage=await noCharacterContext.newPage();
+await noCharacterPage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+await noCharacterPage.locator(".workspace-empty-state button",{hasText:"Создать сцену"}).click();
+await noCharacterPage.fill("#sceneTitle","Сцена без персонажей");
+await noCharacterPage.click("#saveScene");
+const noCharacterProject=await noCharacterPage.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
+if(noCharacterProject.characters.length!==0||noCharacterProject.scenes.length!==1)throw new Error("Сцену нельзя создать без персонажей");
+await noCharacterContext.close();
+
 const context = await browser.newContext({acceptDownloads:true});
 const page = await context.newPage();
 const errors = [];

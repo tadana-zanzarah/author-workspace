@@ -3,3 +3,17 @@ backup/
 
 # Временные профили браузерных проверок.
 .edge-test-profile/
+
+# Локальные зависимости, отчёты и результаты сборки.
+node_modules/
+coverage/
+dist/
+
+# Локальные настройки ОС, редакторов и окружения.
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+.env
+.env.*
+!.env.example

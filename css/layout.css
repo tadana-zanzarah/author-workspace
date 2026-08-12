@@ -96,6 +96,16 @@
     grid-column:1/-1;padding:18px;text-align:center;color:var(--muted);
     border-bottom:1px solid var(--line);background:#fbfaf8;
   }
+  .workspace-empty-state,.section-empty-state{
+    width:min(620px,calc(100vw - 80px));margin:48px auto;padding:32px;
+    border:1px solid var(--line);border-radius:14px;background:#fbfaf8;text-align:center;
+  }
+  .workspace-empty-state h2{margin:0 0 10px;font-size:22px}
+  .workspace-empty-state p,.section-empty-state p{color:var(--muted);line-height:1.5}
+  .empty-state-actions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:18px}
+  .board.no-characters .board-grid,.board.no-characters .scene-row,.board.no-characters .insert-row{
+    grid-template-columns:var(--sticky-width);
+  }
   @media(max-width:1200px){
     .search-row{grid-template-columns:repeat(3,minmax(150px,1fr))}
   }

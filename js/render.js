@@ -66,8 +66,9 @@ function refreshControls(){
 
 function renderSidebar(){
   const countBy=predicate=>data.scenes.filter(predicate).length;
-  document.getElementById("sideChapters").innerHTML=data.chapters.map(c=>`<button class="sidebar-item ${filters.chapter===c.id?"active":""}" onclick="setFilter('chapter','${jsq(c.id)}')">${esc(c.title)}<span class="sidebar-count">${countBy(s=>s.chapterId===c.id)}</span></button>`).join("");
-  document.getElementById("sideCharacters").innerHTML=data.characters.map(c=>`<button class="sidebar-item ${filters.character===c.id?"active":""}" onclick="setFilter('character','${jsq(c.id)}')">${esc(c.name)}<span class="sidebar-count">${countBy(s=>personHasContent(s.people?.[c.id]))}</span></button>`).join("");
+  const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
+  document.getElementById("sideChapters").innerHTML=userChapters.map(c=>`<button class="sidebar-item ${filters.chapter===c.id?"active":""}" onclick="setFilter('chapter','${jsq(c.id)}')">${esc(c.title)}<span class="sidebar-count">${countBy(s=>s.chapterId===c.id)}</span></button>`).join("")||'<div class="profile-note">Глав пока нет</div>';
+  document.getElementById("sideCharacters").innerHTML=data.characters.map(c=>`<button class="sidebar-item ${filters.character===c.id?"active":""}" onclick="setFilter('character','${jsq(c.id)}')">${esc(c.name)}<span class="sidebar-count">${countBy(s=>personHasContent(s.people?.[c.id]))}</span></button>`).join("")||'<div class="profile-note">Персонажей пока нет</div>';
   document.getElementById("sideLocations").innerHTML=data.locations.map(l=>`<button class="sidebar-item ${filters.location===l.id?"active":""}" onclick="setFilter('location','${jsq(l.id)}')">${esc(l.name)}<span class="sidebar-count">${countBy(s=>s.locationId===l.id)}</span></button>`).join("")||'<div class="profile-note">Локаций пока нет</div>';
   document.getElementById("sideTags").innerHTML=data.tags.slice(0,80).map(t=>`<button class="sidebar-item ${filters.tag===t.id?"active":""}" onclick="setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}<span class="sidebar-count">${countBy(s=>s.tags.includes(t.id))}</span></button>`).join("")||'<div class="profile-note">Тегов пока нет</div>';
 }
@@ -96,7 +97,21 @@ function render(){
   renderSceneInfo();
   renderViewSwitch();
   const board=document.getElementById("board");
-  board.className="board view-"+currentView+(hasActiveFilters()?" drag-disabled":"");
+  board.className="board view-"+currentView+(hasActiveFilters()?" drag-disabled":"")+(data.characters.length?"":" no-characters");
+  const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
+  if(!hasActiveFilters()&&!data.scenes.length&&!data.characters.length&&!userChapters.length&&!data.locations.length&&!data.tags.length){
+    board.style.removeProperty("--cols");
+    board.innerHTML=`<section class="workspace-empty-state">
+      <h2>Начните работу над проектом</h2>
+      <p>Создайте персонажей и первую сцену, чтобы начать строить историю. Сцену можно создать и без персонажей.</p>
+      <div class="empty-state-actions">
+        <button class="primary" onclick="renderProfiles();showModal('charsModal')">Создать персонажа</button>
+        <button onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button>
+        <button onclick="openChaptersManager()">Создать главу</button>
+      </div>
+    </section>`;
+    return;
+  }
   if(currentView==="cards")renderCardsView(board);
   else if(currentView==="list")renderListView(board);
   else renderTableView(board);
@@ -212,7 +227,7 @@ function renderTableScene(scene,i,chapter){
 function renderCardsView(board){
   const entries=getVisibleSceneEntries();
   board.style.removeProperty("--cols");
-  board.innerHTML=entries.length?`<div class="scene-cards-grid">${entries.map(({scene,index})=>renderCompactCard(scene,index)).join("")}</div>`:emptySearchMessage();
+  board.innerHTML=entries.length?`<div class="scene-cards-grid">${entries.map(({scene,index})=>renderCompactCard(scene,index)).join("")}</div>`:emptySceneMessage();
 }
 
 function renderCompactCard(scene,index){
@@ -247,10 +262,11 @@ function renderListView(board){
       <td><span class="meta-chip writing-chip ${ws.id}">${esc(ws.label)}</span></td>
     </tr>`;
   }).join("");
-  board.innerHTML=`<div class="compact-list-wrap"><table class="compact-list"><thead><tr><th>Дата</th><th>Глава</th><th>Название</th><th>Персонажи</th><th>Локация</th><th>Статус</th></tr></thead><tbody>${rows||'<tr><td colspan="6">Ничего не найдено</td></tr>'}</tbody></table></div>`;
+  board.innerHTML=rows?`<div class="compact-list-wrap"><table class="compact-list"><thead><tr><th>Дата</th><th>Глава</th><th>Название</th><th>Персонажи</th><th>Локация</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table></div>`:emptySceneMessage();
 }
 
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
+function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,emptySearchMessage});
-export {projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,emptySearchMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,emptySearchMessage,emptySceneMessage});
+export {projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,emptySearchMessage,emptySceneMessage};

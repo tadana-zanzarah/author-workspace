@@ -34,7 +34,7 @@ function renderProfiles(){
         </div>
       </div>
     </article>`;
-  }).join("");
+  }).join("")||'<div class="empty-work">Персонажей пока нет. Создайте первого персонажа, когда будете готовы.</div>';
 }
 
 function characterSceneEntries(characterId){
@@ -119,7 +119,6 @@ function moveProfile(characterId,dir){
 function deleteProfile(characterId){
   const character=characterById(characterId);
   if(!character)return;
-  if(data.characters.length<=1)return alert("Нужен хотя бы один персонаж.");
   if(!confirm(`Удалить персонажа «${character.name}» из анкет и колонок? Данные этого персонажа в сценах также будут удалены.`))return;
   const result=commitDataChange(next=>{
     next.characters=next.characters.filter(c=>c.id!==characterId);

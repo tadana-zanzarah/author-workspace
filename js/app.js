@@ -497,7 +497,7 @@ document.getElementById("exportBtn").onclick=()=>{
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
-  a.download="author-workspace-backup-v11-stage3.json";
+  a.download="author-workspace-backup.json";
   a.click();
   URL.revokeObjectURL(a.href);
 };

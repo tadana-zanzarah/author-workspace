@@ -252,7 +252,7 @@ function prepareProject(value,options={}){
 }
 
 function defaultData(){
-  return {version:11,characters:[{id:makeId("character"),name:"Рене"},{id:makeId("character"),name:"Зейн"},{id:makeId("character"),name:"Реми"},{id:makeId("character"),name:"Арман"}],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[]};
+  return {version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[]};
 }
 
 Object.assign(globalThis,{makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,defaultData,emptyProfile,normalizeProfile,normalizeData});

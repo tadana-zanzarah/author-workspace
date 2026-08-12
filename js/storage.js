@@ -172,7 +172,7 @@ function initializeRecoveryUi(){
   const modal=document.getElementById("recoveryModal");if(!modal)return;
   document.getElementById("downloadPrimaryRecovery").onclick=downloadProblemRaw;
   document.getElementById("cancelRecovery").onclick=()=>requestCloseModal("recoveryModal","button");
-  document.getElementById("downloadMigratedRecovery").onclick=()=>{const selected=document.querySelector('input[name="recoveryCandidate"]:checked'),candidate=selected&&recoveryCandidateByKey(selected.value);if(candidate?.previewReport?.canApply)downloadRecoveryText(JSON.stringify(candidate.previewReport.migratedData,null,2),`${candidate.key}-preview-v11.json`)};
+  document.getElementById("downloadMigratedRecovery").onclick=()=>{const selected=document.querySelector('input[name="recoveryCandidate"]:checked'),candidate=selected&&recoveryCandidateByKey(selected.value);if(candidate?.previewReport?.canApply)downloadRecoveryText(JSON.stringify(candidate.previewReport.migratedData,null,2),`${candidate.key}-preview.json`)};
   document.getElementById("applyRecovery").onclick=()=>{
     const selected=document.querySelector('input[name="recoveryCandidate"]:checked'),candidate=selected&&recoveryCandidateByKey(selected.value);if(!candidate?.previewReport?.canApply)return;
     if(!confirm("Восстановить выбранную версию? Повреждённая основная база будет отдельно сохранена в браузере."))return;
@@ -191,9 +191,9 @@ function initializeStorageNotice(){
   if(startupLoadInfo?.blocked){
     showStorageMessage("Основная база повреждена или имеет опасные конфликты. Она не изменена, обычное сохранение заблокировано. Нажмите «Скачать проблемный JSON» перед восстановлением.","error");
   }else if(startupLoadInfo?.migrationNeedsConfirmation){
-    showStorageMessage(`Найдена резервная база ${startupLoadInfo.source}. Она открыта только для просмотра и не записана поверх V11.`,"warning");
+    showStorageMessage(`Найдена резервная база ${startupLoadInfo.source}. Она открыта только для просмотра и не записана поверх основной базы.`,"warning");
   }else if(startupLoadInfo?.migrated){
-    showStorageMessage(`Старая база ${startupLoadInfo.source} проверена и безопасно мигрирована в V11.`,"warning");
+    showStorageMessage(`Старая база ${startupLoadInfo.source} проверена и безопасно подготовлена для актуальной версии.`,"warning");
   }
 }
 function loadUiState(){

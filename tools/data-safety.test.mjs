@@ -4,7 +4,8 @@ import {
   detectProjectVersion,
   validateProjectStructure,
   prepareProject,
-  normalizeProject
+  normalizeProject,
+  defaultData
 } from "../js/migrations.js";
 import {persistProject} from "../js/storage.js";
 
@@ -18,6 +19,24 @@ const baseV11=()=>({
   future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},
   scenes:[{id:"scene-a",title:"Сцена",date:"",time:"",chapterId:"chapter-unassigned",locationId:"location-a",tags:["tag-a"],people:{"character-a":{action:"",relationChanges:{},visibleRelations:[]}}}]
 });
+
+{
+  const fresh=defaultData();
+  assert.deepEqual(fresh.characters,[]);
+  assert.deepEqual(fresh.scenes,[]);
+  assert.deepEqual(fresh.locations,[]);
+  assert.deepEqual(fresh.tags,[]);
+  assert.equal(JSON.stringify(fresh).match(/Рене|Зейн|Реми|Арман/),null);
+  assert.equal(fresh.chapters.length,1);
+  assert.equal(fresh.chapters[0].id,"chapter-unassigned");
+}
+{
+  const empty=baseV11();
+  empty.characters=[];empty.profiles={};empty.scenes=[];
+  const normalized=normalizeProject(empty);
+  assert.deepEqual(normalized.characters,[]);
+  assert.deepEqual(normalized.profiles,{});
+}
 
 const invalidRoots=["", "null", "[]", "{}", '"text"', "42"];
 for(const raw of invalidRoots){
