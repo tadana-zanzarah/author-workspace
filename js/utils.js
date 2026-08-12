@@ -54,7 +54,10 @@ function wordEscape(s=""){
 
 function showModal(id){document.getElementById(id).style.display="flex"}
 
-function hideModal(id){document.getElementById(id).style.display="none"}
+function hideModal(id){
+  if(globalThis.trackerFor?.(id))return globalThis.requestCloseModal(id,"legacy");
+  document.getElementById(id).style.display="none";
+}
 
 Object.assign(globalThis,{esc,jsq,cssEscape,parseSceneMoment,chronologicalWarning,countWords,readableDate,wordEscape,showModal,hideModal});
 export {esc,jsq,cssEscape,parseSceneMoment,chronologicalWarning,countWords,readableDate,wordEscape,showModal,hideModal};

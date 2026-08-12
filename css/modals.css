@@ -133,3 +133,4 @@
     .modal-grid{grid-template-columns:1fr}
     .relation-row{grid-template-columns:1fr}
   }
+  .discard-changes{z-index:1000}
