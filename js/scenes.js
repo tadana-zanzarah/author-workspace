@@ -281,14 +281,14 @@ function toggleIncluded(sceneId,checked){
 
 function confirmSceneDate(sceneId){
   if(!sceneById(sceneId))return;
-  commitDataChange(next=>{next.scenes.find(s=>s.id===sceneId).dateReview=false},{renderAfter:false});
-  scheduleRender();
+  const result=commitDataChange(next=>{next.scenes.find(s=>s.id===sceneId).dateReview=false},{renderAfter:false});
+  if(result.ok)scheduleRender();
 }
 
 function quickUpdate(sceneId,key,value){
-  if(!sceneById(sceneId))return;
-  commitDataChange(next=>{next.scenes.find(s=>s.id===sceneId)[key]=value},{renderAfter:false});
-  scheduleRender();
+  const current=sceneById(sceneId);if(!current||current[key]===value)return;
+  const result=commitDataChange(next=>{const scene=next.scenes.find(s=>s.id===sceneId);scene[key]=value;if(key==="date"||key==="time")scene.dateReview=true},{renderAfter:false});
+  if(result.ok)scheduleRender();else scheduleRender();
 }
 
 function deleteScene(sceneId){

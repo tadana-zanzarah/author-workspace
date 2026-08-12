@@ -39,7 +39,7 @@ function dropScene(event,targetSceneId){
     const [moved]=next.scenes.splice(movedIndex,1);
     moved.chapterId=targetScene.chapterId;
     let targetIndex=next.scenes.findIndex(s=>s.id===targetSceneId);if(after)targetIndex++;
-    if(moved.date)moved.dateReview=true;
+    moved.dateReview=true;
     next.scenes.splice(targetIndex,0,moved);
   },{renderAfter:false});
   if(result.ok){draggedSceneId=null;render()}
@@ -107,7 +107,7 @@ function sortDrop(event){
       if(movedIndex<0||!targetScene)throw new Error("scene missing");
       const [moved]=next.scenes.splice(movedIndex,1);moved.chapterId=targetScene.chapterId;
       let targetIndex=next.scenes.findIndex(s=>s.id===targetId);if(after)targetIndex++;
-      if(moved.date)moved.dateReview=true;next.scenes.splice(targetIndex,0,moved);
+      moved.dateReview=true;next.scenes.splice(targetIndex,0,moved);
     },{renderAfter:false});
     if(!result.ok)return;
   }

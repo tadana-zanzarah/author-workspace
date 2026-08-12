@@ -2,6 +2,7 @@ import "./constants.js";
 import "./state.js";
 import "./migrations.js";
 import "./storage.js";
+import "./dates.js";
 import "./utils.js";
 import "./relationships.js";
 import "./scenes.js";
@@ -49,8 +50,10 @@ document.getElementById("saveQuickField").onclick=()=>{
   const value=document.getElementById("quickFieldSelect").value;
   const result=commitDataChange(next=>{
     const scene=next.scenes.find(item=>item.id===sceneId);if(!scene)throw new Error("scene missing");
+    if(scene[field]===value)return;
     scene[field]=value;
     if(field==="chapterId"){
+      scene.dateReview=true;
       const order=new Map(next.chapters.map((c,i)=>[c.id,i]));
       next.scenes.sort((a,b)=>(order.get(a.chapterId)??9999)-(order.get(b.chapterId)??9999));
     }
@@ -208,10 +211,13 @@ document.getElementById("saveScene").onclick=()=>{
     :(insertBeforeSceneId?sceneIndexById(insertBeforeSceneId):data.scenes.length);
   const sceneIndex=targetIndex<0?data.scenes.length:targetIndex;
   const inherited=relationshipsBefore(sceneIndex);
+  const enteredDate=document.getElementById("sceneDate").value,enteredTime=document.getElementById("sceneTime").value;
+  const sceneDate=existingScene?.date&&!validateDateString(existingScene.date)&&enteredDate===""?existingScene.date:enteredDate;
+  const sceneTime=existingScene?.time&&!validateTimeString(existingScene.time)&&enteredTime===""?existingScene.time:enteredTime;
   const scene={
     id:existingScene?.id||makeId("scene"),
-    date:document.getElementById("sceneDate").value,
-    time:document.getElementById("sceneTime").value,
+    date:sceneDate,
+    time:sceneTime,
     title:document.getElementById("sceneTitle").value.trim(),
     chapterId:document.getElementById("sceneChapter").value||"chapter-unassigned",
     locationId:document.getElementById("sceneLocation").value||"",
@@ -220,7 +226,7 @@ document.getElementById("saveScene").onclick=()=>{
     sceneText:document.getElementById("sceneText").value,
     included:document.getElementById("sceneIncluded").checked,
     status:document.getElementById("sceneStatus").value,
-    dateReview:existingScene?.dateReview||false,
+    dateReview:existingScene?((existingScene.date||"")!==sceneDate||(existingScene.time||"")!==sceneTime||(existingScene.chapterId||"chapter-unassigned")!==(document.getElementById("sceneChapter").value||"chapter-unassigned")?true:!!existingScene.dateReview):!!(sceneDate||sceneTime),
     people:{}
   };
 
@@ -481,6 +487,12 @@ document.getElementById("importInput").onchange=async e=>{
     if(!parsed.ok)throw new Error(parsed.error.message);
     const report=prepareProject(parsed.value);
     if(!report.canApply){
+      const resolvable=report.errors.length===0&&report.conflicts.length>0&&report.conflicts.every(item=>item.type==="ambiguous-character-name"||item.resolution==="confirmation");
+      if(resolvable){
+        const raw=await file.text(),candidate=parseStorageCandidate(`Импорт: ${file.name}`,{getItem:()=>raw});
+        candidate.isImport=true;startupLoadInfo={ok:false,blocked:true,primary:parseStorageCandidate(STORAGE_KEY),candidates:[candidate],raw:localStorage.getItem(STORAGE_KEY)};
+        openRecoveryModal();showStorageMessage("Импорт требует ручного решения. Текущий проект не изменён.","warning");e.target.value="";return;
+      }
       const details=[...report.errors,...report.conflicts].slice(0,5).map(x=>x.message||`${x.type}: ${x.id||x.name||x.path||""}`).join("\n");
       throw new Error(`Импорт заблокирован проверкой целостности.\n${details}`);
     }
@@ -520,3 +532,6 @@ if(startupLoadInfo?.fresh){
 render();
 initializeStorageNotice();
 document.getElementById("downloadProblemRaw").hidden=!startupLoadInfo?.blocked;
+document.getElementById("openRecovery").hidden=!startupLoadInfo?.blocked;
+document.getElementById("openRecovery").onclick=openRecoveryModal;
+initializeRecoveryUi();
