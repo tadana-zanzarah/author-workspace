@@ -77,6 +77,8 @@ Publishable key (или старый `anon` key) разрешено исполь
 
 Без конфигурации приложение продолжает открывать прежний локальный workspace. Это безопасный fallback для разработки и восстановления данных, но Auth и «Мои проекты» в таком режиме недоступны.
 
+На `localhost` локальный workspace остаётся режимом по умолчанию для recovery и существующих browser-тестов. Для проверки реального Supabase Auth откройте `http://localhost:8000/?cloud=1`. На GitHub Pages облачный экран включается автоматически.
+
 ### Supabase schema
 
 Миграция находится в `supabase/migrations/20260812193655_cloud_foundation.sql`. Она создаёт `profiles`, `series`, `projects`, индексы, trigger профиля, RLS policies и атомарные RPC для перемещения/сортировки проектов и безопасного удаления цикла.

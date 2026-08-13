@@ -33,6 +33,7 @@ function clearCloudFailure(){byId("cloudFailure").hidden=true;byId("cloudFailure
 
 async function createClient(){
   if(globalThis.__AUTHOR_WORKSPACE_SUPABASE_CLIENT__)return globalThis.__AUTHOR_WORKSPACE_SUPABASE_CLIENT__;
+  if(["localhost","127.0.0.1"].includes(location.hostname)&&!new URLSearchParams(location.search).has("cloud"))return null;
   if(!SUPABASE_CONFIG.url||!SUPABASE_CONFIG.publishableKey)return null;
   const {createClient}=await import(SUPABASE_BROWSER_MODULE);
   return createClient(SUPABASE_CONFIG.url,SUPABASE_CONFIG.publishableKey,{
@@ -204,7 +205,7 @@ async function initializeCloudApp(){
     if(!client){
       setAppState("workspace");
       byId("workspaceCloudBar").hidden=true;
-      if(!startupLoadInfo?.blocked)showStorageMessage("Облачный аккаунт ещё не подключён. Локальное рабочее пространство продолжает работать; данные не изменены.","warning");
+      if(!startupLoadInfo?.blocked)showStorageMessage("Локальный режим: рабочее пространство доступно без облачного аккаунта. Для проверки Auth откройте адрес с ?cloud=1.","warning");
       return;
     }
     cloudState.api=createCloudApi(client);bindUi();
