@@ -32,8 +32,14 @@
   </section>
   <section id="projectsScreen" class="projects-screen" hidden>
     <div class="projects-head">
-      <div><h1>Мои проекты</h1><p id="accountName" class="account-note"></p></div>
-      <button id="dashboardLogout" type="button">Выйти</button>
+      <div><h1>Мои проекты</h1><p class="account-note">Облачные контейнеры и локальные рабочие пространства</p></div>
+      <details class="account-menu" id="dashboardAccountMenu">
+        <summary id="accountName">Аккаунт</summary>
+        <div class="account-menu-panel">
+          <button id="accountProjects" type="button">Мои проекты</button>
+          <button id="dashboardLogout" type="button">Выйти</button>
+        </div>
+      </details>
     </div>
     <div id="cloudFailure" class="storage-banner" role="alert" hidden></div>
     <aside id="legacyNotice" class="legacy-notice" hidden>
@@ -44,30 +50,56 @@
         <button id="dismissLegacyNotice" type="button">Не сейчас</button>
       </div>
     </aside>
-    <div class="create-grid">
-      <form id="newProjectForm" class="account-card compact-card">
-        <h2>Новый проект</h2>
-        <label><span>Название</span><input name="title" maxlength="200" required></label>
-        <label><span>Описание (необязательно)</span><textarea name="description" maxlength="10000"></textarea></label>
-        <label><span>Цикл</span><select name="seriesId"><option value="">Без цикла</option></select></label>
-        <button class="primary" type="submit">Создать проект</button>
-      </form>
-      <form id="newSeriesForm" class="account-card compact-card">
-        <h2>Новый цикл</h2>
-        <label><span>Название</span><input name="title" maxlength="200" required></label>
-        <label><span>Описание (необязательно)</span><textarea name="description" maxlength="10000"></textarea></label>
-        <button class="primary" type="submit">Создать цикл</button>
-      </form>
+    <div class="dashboard-actions">
+      <button class="primary" id="openNewProject" type="button">＋ Новый проект</button>
+      <button id="openNewSeries" type="button">＋ Новый цикл</button>
+    </div>
+    <p id="dashboardMessage" class="account-message" role="status" aria-live="polite"></p>
+    <div id="projectsEmptyState" class="cloud-empty-state" hidden>
+      <strong>Проектов пока нет.</strong>
+      <span>Создайте первый проект.</span>
+      <button class="primary" id="emptyNewProject" type="button">＋ Новый проект</button>
     </div>
     <section><h2>Циклы</h2><div id="seriesList" class="cloud-list"></div></section>
     <section><h2>Отдельные проекты</h2><div id="standaloneProjects" class="cloud-list"></div></section>
   </section>
   <div id="workspaceCloudBar" class="workspace-cloud-bar" hidden>
     <button id="backToProjects" type="button">← Мои проекты</button>
-    <span id="workspaceProjectTitle"></span>
+    <span>Текущий проект: <strong id="workspaceProjectTitle"></strong></span>
     <span class="local-only-indicator">Рабочие данные пока сохраняются локально на устройстве</span>
-    <button id="workspaceLogout" type="button">Выйти</button>
+    <details class="account-menu" id="workspaceAccountMenu">
+      <summary id="workspaceAccountName">Аккаунт</summary>
+      <div class="account-menu-panel">
+        <button id="workspaceProjects" type="button">Мои проекты</button>
+        <button id="workspaceLogout" type="button">Выйти</button>
+      </div>
+    </details>
   </div>
+</div>
+<div class="modal-backdrop" id="newProjectModal" role="dialog" aria-modal="true" aria-labelledby="newProjectTitle">
+  <form id="newProjectForm" class="modal cloud-form-modal">
+    <h2 id="newProjectTitle">Новый проект</h2>
+    <label><span class="field-caption">Название</span><input name="title" maxlength="200" required data-initial-focus></label>
+    <label><span class="field-caption">Описание (необязательно)</span><textarea name="description" maxlength="10000"></textarea></label>
+    <label><span class="field-caption">Цикл</span><select name="seriesId"><option value="">Без цикла</option></select></label>
+    <p id="newProjectError" class="account-message error" role="alert"></p>
+    <div class="modal-actions">
+      <button id="cancelNewProject" type="button">Отмена</button>
+      <button class="primary" type="submit">Создать проект</button>
+    </div>
+  </form>
+</div>
+<div class="modal-backdrop" id="newSeriesModal" role="dialog" aria-modal="true" aria-labelledby="newSeriesTitle">
+  <form id="newSeriesForm" class="modal cloud-form-modal">
+    <h2 id="newSeriesTitle">Новый цикл</h2>
+    <label><span class="field-caption">Название</span><input name="title" maxlength="200" required data-initial-focus></label>
+    <label><span class="field-caption">Описание (необязательно)</span><textarea name="description" maxlength="10000"></textarea></label>
+    <p id="newSeriesError" class="account-message error" role="alert"></p>
+    <div class="modal-actions">
+      <button id="cancelNewSeries" type="button">Отмена</button>
+      <button class="primary" type="submit">Создать цикл</button>
+    </div>
+  </form>
 </div>
 <header>
   <h1>Рабочее пространство автора</h1>

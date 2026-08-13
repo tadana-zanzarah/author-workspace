@@ -30,10 +30,13 @@ function showCloudFailure(error){
   const node=byId("cloudFailure");node.textContent=friendlyError(error);node.hidden=false;
 }
 function clearCloudFailure(){byId("cloudFailure").hidden=true;byId("cloudFailure").textContent=""}
+function showDashboardMessage(message,isError=false){
+  const node=byId("dashboardMessage");node.textContent=message;node.classList.toggle("error",isError);
+}
 
 async function createClient(){
   if(globalThis.__AUTHOR_WORKSPACE_SUPABASE_CLIENT__)return globalThis.__AUTHOR_WORKSPACE_SUPABASE_CLIENT__;
-  if(["localhost","127.0.0.1"].includes(location.hostname)&&!new URLSearchParams(location.search).has("cloud"))return null;
+  if(new URLSearchParams(location.search).has("local"))return null;
   if(!SUPABASE_CONFIG.url||!SUPABASE_CONFIG.publishableKey)return null;
   const {createClient}=await import(SUPABASE_BROWSER_MODULE);
   return createClient(SUPABASE_CONFIG.url,SUPABASE_CONFIG.publishableKey,{
@@ -74,15 +77,27 @@ function seriesSelect(selectedId=""){
 }
 function projectRow(project,seriesProjects=[]){
   const row=document.createElement("div");row.className="cloud-project";row.dataset.projectId=project.id;
-  const title=document.createElement("button");title.type="button";title.className="cloud-project-title";title.textContent=project.title;
-  title.onclick=()=>openCloudProject(project);
+  const identity=document.createElement("div");
+  const title=document.createElement("strong");title.className="cloud-project-title";title.textContent=project.title;
+  const description=document.createElement("div");description.className="account-note";description.textContent=project.description||"Без описания";
+  identity.append(title,description);
+  const seriesControl=document.createElement("label");seriesControl.className="project-series-control";
+  const seriesCaption=document.createElement("span");seriesCaption.textContent=project.series_id?"Переместить в другой цикл":"Переместить в цикл";
   const select=seriesSelect(project.series_id||"");select.setAttribute("aria-label",`Цикл проекта «${project.title}»`);
   select.onchange=async()=>{
     const seriesId=select.value||null;
     const position=seriesId?sortedSeriesProjects(seriesId).length+1:null;
-    await cloudOperation(()=>cloudState.api.setProjectSeries(project.id,seriesId,position));
+    const ok=await cloudOperation(()=>cloudState.api.setProjectSeries(project.id,seriesId,position),seriesId?"Проект перемещён в цикл.":"Проект убран из цикла.");
+    if(!ok)select.value=project.series_id||"";
   };
+  seriesControl.append(seriesCaption,select);
   const actions=document.createElement("div");actions.className="cloud-project-actions";
+  const open=document.createElement("button");open.type="button";open.className="primary";open.textContent="Открыть";open.onclick=()=>openCloudProject(project);actions.append(open);
+  if(project.series_id){
+    const detach=document.createElement("button");detach.type="button";detach.textContent="Убрать из цикла";
+    detach.onclick=()=>cloudOperation(()=>cloudState.api.setProjectSeries(project.id,null,null),"Проект убран из цикла.");
+    actions.append(detach);
+  }
   if(project.series_id){
     const index=seriesProjects.findIndex(item=>item.id===project.id);
     for(const [label,delta] of [["↑",-1],["↓",1]]){
@@ -92,12 +107,12 @@ function projectRow(project,seriesProjects=[]){
       button.onclick=async()=>{
         const ordered=seriesProjects.map(item=>item.id);
         [ordered[index],ordered[index+delta]]=[ordered[index+delta],ordered[index]];
-        await cloudOperation(()=>cloudState.api.reorderSeries(project.series_id,ordered));
+        await cloudOperation(()=>cloudState.api.reorderSeries(project.series_id,ordered),"Порядок проектов сохранён.");
       };
       actions.append(button);
     }
   }
-  row.append(title,select,actions);return row;
+  row.append(identity,seriesControl,actions);return row;
 }
 function seriesCard(series){
   const card=document.createElement("article");card.className="cloud-card";card.dataset.seriesId=series.id;
@@ -113,7 +128,7 @@ function seriesCard(series){
   const title=document.createElement("input");title.value=series.title;title.maxLength=200;title.required=true;title.setAttribute("aria-label","Название цикла");
   const description=document.createElement("input");description.value=series.description||"";description.maxLength=10000;description.setAttribute("aria-label","Описание цикла");
   const save=document.createElement("button");save.type="submit";save.textContent="Сохранить цикл";
-  editor.onsubmit=async event=>{event.preventDefault();await cloudOperation(()=>cloudState.api.updateSeries(series.id,{title:title.value.trim(),description:description.value.trim()}))};
+  editor.onsubmit=async event=>{event.preventDefault();await cloudOperation(()=>cloudState.api.updateSeries(series.id,{title:title.value.trim(),description:description.value.trim()}),"Цикл обновлён.")};
   editor.append(title,description,save);
   const projects=document.createElement("div");
   const ordered=sortedSeriesProjects(series.id);
@@ -122,7 +137,8 @@ function seriesCard(series){
   card.append(head,editor,projects);return card;
 }
 function renderDashboard(){
-  byId("accountName").textContent=cloudState.profile?.display_name||cloudState.session?.user?.email||"";
+  const accountLabel=cloudState.session?.user?.email||cloudState.profile?.display_name||"Аккаунт";
+  byId("accountName").textContent=`${accountLabel} ▾`;byId("workspaceAccountName").textContent=`${accountLabel} ▾`;
   const seriesList=byId("seriesList");seriesList.replaceChildren();
   if(cloudState.series.length)cloudState.series.forEach(series=>seriesList.append(seriesCard(series)));
   else{const empty=document.createElement("p");empty.className="account-note";empty.textContent="Циклов пока нет.";seriesList.append(empty)}
@@ -132,13 +148,14 @@ function renderDashboard(){
   else{const empty=document.createElement("p");empty.className="account-note";empty.textContent="Самостоятельных проектов пока нет.";standalone.append(empty)}
   const formSelect=byId("newProjectForm").elements.seriesId;formSelect.replaceChildren(option("","Без цикла"));
   cloudState.series.forEach(series=>formSelect.append(option(series.id,series.title)));
+  byId("projectsEmptyState").hidden=cloudState.projects.length!==0;
   byId("legacyNotice").hidden=!hasLegacyWorkspace()||sessionStorage.getItem("authorWorkspace:legacy-notice-dismissed")==="true";
 }
-async function cloudOperation(operation){
-  if(cloudState.busy)return;
+async function cloudOperation(operation,successMessage=""){
+  if(cloudState.busy)return false;
   cloudState.busy=true;clearCloudFailure();
-  try{await operation();await loadDashboard()}
-  catch(error){showCloudFailure(error)}
+  try{await operation();await loadDashboard();if(successMessage)showDashboardMessage(successMessage);return true}
+  catch(error){showCloudFailure(error);showDashboardMessage(friendlyError(error),true);return false}
   finally{cloudState.busy=false}
 }
 async function openCloudProject(project){
@@ -161,7 +178,11 @@ async function returnToProjects(){
 }
 async function logout(){
   if(!(await requestEditorTransition(()=>true)))return;
-  try{await cloudState.api.signOut()}catch(error){showCloudFailure(error)}
+  try{await cloudState.api.signOut()}
+  catch(error){
+    const message=friendlyError(error);
+    if(document.body.dataset.appState==="workspace")showStorageMessage(message,"error");else showCloudFailure(error);
+  }
 }
 function downloadLegacy(){
   const raw=localStorage.getItem(STORAGE_KEY);if(raw===null)return;
@@ -169,6 +190,11 @@ function downloadLegacy(){
   const link=document.createElement("a");link.href=url;link.download="author-workspace-legacy-backup.json";link.click();URL.revokeObjectURL(url);
 }
 function bindUi(){
+  const projectTracker=createDirtyTracker("newProjectModal",()=>serializeForm("newProjectForm"));
+  const seriesTracker=createDirtyTracker("newSeriesModal",()=>serializeForm("newSeriesForm"));
+  const openCreationModal=(modalId,tracker,errorId)=>{
+    byId(errorId).textContent="";openModal(modalId);tracker.captureInitialState();
+  };
   byId("authForm").onsubmit=async event=>{
     event.preventDefault();showAuthMessage("");
     try{
@@ -184,17 +210,31 @@ function bindUi(){
   };
   byId("newProjectForm").onsubmit=async event=>{
     event.preventDefault();const form=event.currentTarget;
-    const seriesId=form.seriesId.value||null,position=seriesId?sortedSeriesProjects(seriesId).length+1:null;
-    await cloudOperation(()=>cloudState.api.createProject({ownerId:cloudState.session.user.id,title:form.title.value.trim(),description:form.description.value.trim(),seriesId,position}));
-    form.reset();
+    const title=form.elements.namedItem("title").value.trim();
+    if(!title){form.elements.namedItem("title").focus();return}
+    const seriesId=form.elements.namedItem("seriesId").value||null,position=seriesId?sortedSeriesProjects(seriesId).length+1:null;
+    const ok=await cloudOperation(()=>cloudState.api.createProject({ownerId:cloudState.session.user.id,title,description:form.elements.namedItem("description").value.trim(),seriesId,position}),`Проект «${title}» создан.`);
+    if(!ok){byId("newProjectError").textContent="Не удалось создать проект. Проверьте данные и попробуйте снова.";return}
+    projectTracker.resetDirty();forceCloseModal("newProjectModal");form.reset();
   };
   byId("newSeriesForm").onsubmit=async event=>{
     event.preventDefault();const form=event.currentTarget;
-    await cloudOperation(()=>cloudState.api.createSeries({ownerId:cloudState.session.user.id,title:form.title.value.trim(),description:form.description.value.trim()}));
-    form.reset();
+    const title=form.elements.namedItem("title").value.trim();
+    if(!title){form.elements.namedItem("title").focus();return}
+    const ok=await cloudOperation(()=>cloudState.api.createSeries({ownerId:cloudState.session.user.id,title,description:form.elements.namedItem("description").value.trim()}),`Цикл «${title}» создан.`);
+    if(!ok){byId("newSeriesError").textContent="Не удалось создать цикл. Проверьте данные и попробуйте снова.";return}
+    seriesTracker.resetDirty();forceCloseModal("newSeriesModal");form.reset();
   };
+  byId("openNewProject").onclick=()=>openCreationModal("newProjectModal",projectTracker,"newProjectError");
+  byId("emptyNewProject").onclick=()=>openCreationModal("newProjectModal",projectTracker,"newProjectError");
+  byId("openNewSeries").onclick=()=>openCreationModal("newSeriesModal",seriesTracker,"newSeriesError");
+  byId("cancelNewProject").onclick=()=>requestCloseModal("newProjectModal","button");
+  byId("cancelNewSeries").onclick=()=>requestCloseModal("newSeriesModal","button");
+  byId("newProjectModal").onclick=event=>{if(event.target.id==="newProjectModal")requestCloseModal("newProjectModal","backdrop")};
+  byId("newSeriesModal").onclick=event=>{if(event.target.id==="newSeriesModal")requestCloseModal("newSeriesModal","backdrop")};
   byId("dashboardLogout").onclick=logout;byId("workspaceLogout").onclick=logout;
-  byId("backToProjects").onclick=returnToProjects;
+  byId("backToProjects").onclick=returnToProjects;byId("workspaceProjects").onclick=returnToProjects;
+  byId("accountProjects").onclick=()=>{byId("dashboardAccountMenu").open=false};
   byId("downloadLegacyBackup").onclick=downloadLegacy;
   byId("dismissLegacyNotice").onclick=()=>{sessionStorage.setItem("authorWorkspace:legacy-notice-dismissed","true");byId("legacyNotice").hidden=true};
 }
@@ -205,13 +245,13 @@ async function initializeCloudApp(){
     if(!client){
       setAppState("workspace");
       byId("workspaceCloudBar").hidden=true;
-      if(!startupLoadInfo?.blocked)showStorageMessage("Локальный режим: рабочее пространство доступно без облачного аккаунта. Для проверки Auth откройте адрес с ?cloud=1.","warning");
+      if(!startupLoadInfo?.blocked)showStorageMessage("Локальный режим: рабочее пространство доступно без облачного аккаунта. Уберите ?local=1, чтобы открыть облачный вход.","warning");
       return;
     }
     cloudState.api=createCloudApi(client);bindUi();
-    cloudState.api.onAuthStateChange(session=>{
+    cloudState.api.onAuthStateChange((session,event)=>{
       cloudState.session=session;
-      if(session&&document.body.dataset.appState!=="workspace")queueMicrotask(loadDashboard);
+      if(session&&event==="SIGNED_IN"&&document.body.dataset.appState==="unauthenticated")queueMicrotask(loadDashboard);
       else if(!session)setAppState("unauthenticated");
     });
     cloudState.session=await cloudState.api.getSession();

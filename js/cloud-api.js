@@ -7,7 +7,7 @@ function createCloudApi(client){
   if(!client)throw new TypeError("Supabase client is required");
   return {
     async getSession(){return throwIfError(await client.auth.getSession())?.session??null},
-    onAuthStateChange(callback){return client.auth.onAuthStateChange((_event,session)=>callback(session))},
+    onAuthStateChange(callback){return client.auth.onAuthStateChange((event,session)=>callback(session,event))},
     async signUp({email,password,displayName}){
       return throwIfError(await client.auth.signUp({email,password,options:{data:{display_name:displayName}}}));
     },

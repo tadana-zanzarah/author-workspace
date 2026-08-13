@@ -77,7 +77,7 @@ Publishable key (или старый `anon` key) разрешено исполь
 
 Без конфигурации приложение продолжает открывать прежний локальный workspace. Это безопасный fallback для разработки и восстановления данных, но Auth и «Мои проекты» в таком режиме недоступны.
 
-На `localhost` локальный workspace остаётся режимом по умолчанию для recovery и существующих browser-тестов. Для проверки реального Supabase Auth откройте `http://localhost:8000/?cloud=1`. На GitHub Pages облачный экран включается автоматически.
+При заполненной Supabase-конфигурации облачный Auth является обычным режимом и на localhost, и на GitHub Pages. Для ручной проверки откройте `http://localhost:8000/` — query parameter не нужен. Явный `?local=1` оставлен только как безопасный локальный recovery/legacy-режим и используется старыми editor regression tests.
 
 ### Supabase schema
 
