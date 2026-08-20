@@ -67,7 +67,7 @@ await page.click("#projectMenu > summary");await page.locator("#manageChars").fo
 const profileOpener=page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).first();await profileOpener.focus();await page.keyboard.press("Enter");
 if(!await activeInside("profileEditorModal"))throw new Error("Фокус не перешёл в редактор анкеты");
 await page.click("#cancelProfile");if(!await activeInside("charsModal"))throw new Error("Закрытие анкеты не вернуло фокус в characters modal");
-await page.click("#closeChars");if(await activeId()!==charsOpener)throw new Error("Закрытие characters modal не вернуло фокус к opener");
+await page.click("#closeChars");if(await activeId()!=="SUMMARY")throw new Error("Закрытие characters modal не вернуло фокус к Navigation summary");
 
 const modalReturnCases=[
   ["#manageChapters","chaptersModal","#closeChapters"],
@@ -78,7 +78,7 @@ const modalReturnCases=[
 for(const [openerSelector,modalId,closerSelector] of modalReturnCases){
   await page.evaluate(()=>document.getElementById("projectMenu").open=true);const openerElement=page.locator(openerSelector);await openerElement.focus();await page.keyboard.press("Enter");
   if(!await activeInside(modalId))throw new Error(`Фокус не вошёл в ${modalId}`);
-  await page.click(closerSelector);const expected=modalId==="sortScenesModal"?"SUMMARY":openerSelector.slice(1),actual=await activeId();if(actual!==expected)throw new Error(`Фокус не вернулся из ${modalId}: ${actual}`);
+  await page.click(closerSelector);const actual=await activeId();if(actual!=="SUMMARY")throw new Error(`Фокус не вернулся из ${modalId} к Navigation summary: ${actual}`);
 }
 
 await page.locator('[data-scene-id="scene-a"] button').filter({hasText:"Текст"}).focus();const textOpener=await activeId();await page.keyboard.press("Enter");

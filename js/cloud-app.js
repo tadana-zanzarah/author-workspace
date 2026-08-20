@@ -3,7 +3,7 @@ import {createCloudApi} from "./cloud-api.js";
 import {activateCloudWorkspace,hasLegacyWorkspace} from "./workspace-storage.js";
 
 const SUPABASE_BROWSER_MODULE="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm";
-const cloudState={api:null,session:null,profile:null,series:[],projects:[],busy:false};
+const cloudState={api:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle"};
 const byId=id=>document.getElementById(id);
 
 function setAppState(state){
@@ -30,8 +30,21 @@ function showCloudFailure(error){
   const node=byId("cloudFailure");node.textContent=friendlyError(error);node.hidden=false;
 }
 function clearCloudFailure(){byId("cloudFailure").hidden=true;byId("cloudFailure").textContent=""}
+function clearCloudMessages(){
+  clearCloudFailure();showDashboardMessage("");
+  const banner=byId("storageBanner");if(banner){banner.textContent="";banner.className="storage-banner"}
+}
 function showDashboardMessage(message,isError=false){
   const node=byId("dashboardMessage");node.textContent=message;node.classList.toggle("error",isError);
+}
+function renderDashboardStatus(status,error=null){
+  cloudState.dashboardStatus=status;
+  byId("projectsLoadingState").hidden=status!=="loading";
+  byId("projectsErrorState").hidden=status!=="error";
+  byId("projectsEmptyState").hidden=status!=="success"||cloudState.projects.length!==0;
+  byId("seriesList").closest("section").hidden=status!=="success";
+  byId("standaloneProjects").closest("section").hidden=status!=="success";
+  if(error)byId("projectsErrorMessage").textContent=friendlyError(error);
 }
 
 async function createClient(){
@@ -45,20 +58,30 @@ async function createClient(){
 }
 async function loadDashboard(){
   if(!cloudState.session)return;
+  const request=++cloudState.dashboardRequest;
   const previousState=document.body.dataset.appState;
-  clearCloudFailure();
+  clearCloudMessages();
+  if(previousState!=="workspace"){
+    setAppState("projects");
+    renderDashboardStatus("loading");
+  }
   try{
     const account=await cloudState.api.loadAccount();
+    if(request!==cloudState.dashboardRequest||!cloudState.session)return;
     Object.assign(cloudState,account);
     renderDashboard();
     setAppState("projects");
+    renderDashboardStatus("success");
+    clearCloudMessages();
   }catch(error){
+    if(request!==cloudState.dashboardRequest)return;
     if(previousState==="workspace"){
       showStorageMessage(friendlyError(error),"error");
       setAppState("workspace");
     }else{
       showCloudFailure(error);
       setAppState("projects");
+      renderDashboardStatus("error",error);
     }
   }
 }
@@ -148,7 +171,6 @@ function renderDashboard(){
   else{const empty=document.createElement("p");empty.className="account-note";empty.textContent="Самостоятельных проектов пока нет.";standalone.append(empty)}
   const formSelect=byId("newProjectForm").elements.seriesId;formSelect.replaceChildren(option("","Без цикла"));
   cloudState.series.forEach(series=>formSelect.append(option(series.id,series.title)));
-  byId("projectsEmptyState").hidden=cloudState.projects.length!==0;
   byId("legacyNotice").hidden=!hasLegacyWorkspace()||sessionStorage.getItem("authorWorkspace:legacy-notice-dismissed")==="true";
 }
 async function cloudOperation(operation,successMessage=""){
@@ -171,14 +193,31 @@ async function openCloudProject(project){
   byId("openRecovery").hidden=!startupLoadInfo?.blocked;
   byId("workspaceProjectTitle").textContent=project.title;
   setAppState("workspace");
+  clearCloudMessages();
 }
 async function returnToProjects(){
   if(!(await requestEditorTransition(()=>true)))return;
+  byId("workspaceAccountMenu").open=false;
+  cloudState.session=await cloudState.api.getSession();
+  if(!cloudState.session){setAppState("unauthenticated");return}
   await loadDashboard();
+}
+
+function clearConsumedAuthUrl(){
+  const url=new URL(location.href);
+  const authKeys=new Set(["access_token","refresh_token","expires_in","expires_at","token_type","type","code"]);
+  let changed=false;
+  for(const key of [...url.searchParams.keys()])if(authKeys.has(key)){url.searchParams.delete(key);changed=true}
+  const hash=new URLSearchParams(url.hash.replace(/^#/,""));
+  for(const key of [...hash.keys()])if(authKeys.has(key)){hash.delete(key);changed=true}
+  if(changed){url.hash=hash.toString()?`#${hash}`:"";history.replaceState(history.state,"",url)}
 }
 async function logout(){
   if(!(await requestEditorTransition(()=>true)))return;
-  try{await cloudState.api.signOut()}
+  try{
+    await cloudState.api.signOut();
+    byId("dashboardAccountMenu").open=false;byId("workspaceAccountMenu").open=false;
+  }
   catch(error){
     const message=friendlyError(error);
     if(document.body.dataset.appState==="workspace")showStorageMessage(message,"error");else showCloudFailure(error);
@@ -237,6 +276,7 @@ function bindUi(){
   byId("accountProjects").onclick=()=>{byId("dashboardAccountMenu").open=false};
   byId("downloadLegacyBackup").onclick=downloadLegacy;
   byId("dismissLegacyNotice").onclick=()=>{sessionStorage.setItem("authorWorkspace:legacy-notice-dismissed","true");byId("legacyNotice").hidden=true};
+  byId("retryDashboard").onclick=loadDashboard;
 }
 async function initializeCloudApp(){
   setAppState("loading");
@@ -250,12 +290,18 @@ async function initializeCloudApp(){
     }
     cloudState.api=createCloudApi(client);bindUi();
     cloudState.api.onAuthStateChange((session,event)=>{
+      cloudState.authRevision++;
       cloudState.session=session;
-      if(session&&event==="SIGNED_IN"&&document.body.dataset.appState==="unauthenticated")queueMicrotask(loadDashboard);
-      else if(!session)setAppState("unauthenticated");
+      if(session)clearConsumedAuthUrl();
+      if(session&&(event==="INITIAL_SESSION"||event==="SIGNED_IN"))queueMicrotask(loadDashboard);
+      else if(!session){cloudState.dashboardRequest++;setAppState("unauthenticated")}
     });
-    cloudState.session=await cloudState.api.getSession();
-    if(cloudState.session)await loadDashboard();else setAppState("unauthenticated");
+    const authRevision=cloudState.authRevision;
+    const initialSession=await cloudState.api.getSession();
+    if(authRevision===cloudState.authRevision)cloudState.session=initialSession;
+    if(cloudState.session)clearConsumedAuthUrl();
+    if(cloudState.session&&authRevision===cloudState.authRevision)await loadDashboard();
+    else if(!cloudState.session)setAppState("unauthenticated");
   }catch(error){
     setAppState("unauthenticated");showAuthMessage(friendlyError(error),true);
   }

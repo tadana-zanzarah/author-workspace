@@ -363,10 +363,17 @@ document.getElementById("cancelScene").onclick=()=>requestCloseModal("sceneModal
 document.getElementById("sceneModal").onclick=e=>{if(e.target.id==="sceneModal")requestCloseModal("sceneModal","backdrop")};
 
 
-document.getElementById("manageChars").onclick=()=>{
+function openCharactersManager(){
+  const menu=document.getElementById("projectMenu");menu.open=false;menu.querySelector("summary")?.focus();
   renderProfiles();
   showModal("charsModal");
-};
+}
+document.getElementById("manageChars").onclick=openCharactersManager;
+document.getElementById("sidebarManageChars").onclick=openCharactersManager;
+document.getElementById("projectMenu").addEventListener("click",event=>{
+  if(!event.target.closest("button,.file-label"))return;
+  const menu=document.getElementById("projectMenu");menu.open=false;menu.querySelector("summary")?.focus();
+},{capture:true});
 document.getElementById("closeChars").onclick=()=>hideModal("charsModal");
 document.getElementById("charsModal").onclick=e=>{if(e.target.id==="charsModal")hideModal("charsModal")};
 
@@ -386,9 +393,7 @@ document.getElementById("characterTimelineModal").onclick=e=>{if(e.target.id==="
 
 
 document.getElementById("addChar").onclick=()=>{
-  let base="Новый персонаж",name=base,n=2;
-  while(data.characters.some(c=>c.name===name))name=`${base} ${n++}`;
-  const character={id:makeId("character"),name};
+  const character={id:makeId("character"),name:""};
   profileDraftCharacter=character;
   editProfile(character.id);
 };
@@ -421,7 +426,10 @@ document.getElementById("profileEditorModal").onclick=e=>{
 document.getElementById("saveProfile").onclick=()=>{
   const character=characterById(profileEditingId)||profileDraftCharacter;
   if(!character)return;
-  const newName=document.getElementById("pf_name").value.trim()||character.name;
+  const nameInput=document.getElementById("pf_name");
+  const newName=nameInput.value.trim();
+  if(!newName){nameInput.setCustomValidity("Введите имя персонажа.");nameInput.reportValidity();nameInput.focus();return}
+  nameInput.setCustomValidity("");
   if(data.characters.some(c=>c.id!==character.id&&c.name.toLocaleLowerCase("ru")===newName.toLocaleLowerCase("ru"))){
     alert("Персонаж с таким именем уже существует.");
     return;

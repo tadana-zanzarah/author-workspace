@@ -181,11 +181,11 @@ function renderTableScene(scene,i,chapter){
   const loc=locationById(scene.locationId);
   const ws=writingStatusById(scene.writingStatus);
   let html=insertBar(scene.id,chapter.id);
-  html+=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" draggable="true" aria-description="Строку можно перетаскивать мышью для изменения порядка" data-scene-id="${esc(scene.id)}"
-    onclick="selectScene('${jsq(scene.id)}')" ondragstart="dragStart(event,'${jsq(scene.id)}')" ondragover="dragOver(event,'${jsq(scene.id)}')"
+  html+=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" data-scene-id="${esc(scene.id)}"
+    onclick="selectScene('${jsq(scene.id)}')" ondragover="dragOver(event,'${jsq(scene.id)}')"
     ondragleave="dragLeave(event)" ondrop="dropScene(event,'${jsq(scene.id)}')" ondragend="dragEnd(event)">`;
   html+=`<div class="cell time-cell sticky-cell">
-    <div class="drag-handle">↕ Перетащить сцену</div>
+    <div class="drag-handle" draggable="true" aria-label="Перетащить сцену ${esc(scene.title||"Без названия")}" ondragstart="dragStart(event,'${jsq(scene.id)}')">↕ Перетащить сцену</div>
     <div class="scene-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(scene.title||"Без названия")}</div>
     ${sceneMetadataHtml(scene,chapter,loc,ws)}
     <div class="scene-meta"><span class="meta-chip">👥 ${sceneCharacters(scene).map(esc).join(", ")||"нет участников"}</span></div>

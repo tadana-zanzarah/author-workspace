@@ -6,7 +6,9 @@ function tagById(id){return data.tags.find(t=>t.id===id)}
 
 function writingStatusById(id){return WRITING_STATUSES.find(x=>x.id===id)||WRITING_STATUSES[0]}
 
-function openChaptersManager(){return requestEditorTransition(()=>{renderChaptersManager();showModal("chaptersModal");trackerFor("chaptersModal").captureInitialState()})}
+function closeProjectMenu(){const menu=document.getElementById("projectMenu");if(menu){menu.open=false;menu.querySelector("summary")?.focus()}}
+
+function openChaptersManager(){closeProjectMenu();return requestEditorTransition(()=>{renderChaptersManager();showModal("chaptersModal");trackerFor("chaptersModal").captureInitialState()})}
 
 function renderChaptersManager(){
   const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
@@ -50,7 +52,7 @@ function deleteChapter(id){
   if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState();render()}
 }
 
-function openLocationsManager(){return requestEditorTransition(()=>{renderLocationsManager();showModal("locationsModal");trackerFor("locationsModal").captureInitialState()})}
+function openLocationsManager(){closeProjectMenu();return requestEditorTransition(()=>{renderLocationsManager();showModal("locationsModal");trackerFor("locationsModal").captureInitialState()})}
 
 function renderLocationsManager(){
   document.getElementById("locationsList").innerHTML=data.locations.map(l=>`
@@ -82,7 +84,7 @@ function deleteLocation(id){
   if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState();render()}
 }
 
-function openTagsManager(){return requestEditorTransition(()=>{renderTagsManager();showModal("tagsModal");trackerFor("tagsModal").captureInitialState()})}
+function openTagsManager(){closeProjectMenu();return requestEditorTransition(()=>{renderTagsManager();showModal("tagsModal");trackerFor("tagsModal").captureInitialState()})}
 
 function renderTagsManager(){
   document.getElementById("tagsList").innerHTML=data.tags.map(t=>`

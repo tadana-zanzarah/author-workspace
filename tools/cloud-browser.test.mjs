@@ -136,16 +136,27 @@ await page.waitForFunction(()=>JSON.parse(localStorage.getItem("mockCloud")).pro
 await projectRow("Project A").getByRole("button",{name:"Открыть"}).click();
 await page.waitForSelector('body[data-app-state="workspace"]');
 if(!await page.getByText("Текущий проект:",{exact:false}).isVisible()||await page.locator("#workspaceProjectTitle").innerText()!=="Project A")throw new Error("Workspace does not identify Project A");
+await page.click("#projectMenu > summary");await page.click("#manageChars");
+if(await page.locator("#projectMenu").getAttribute("open")!==null)throw new Error("Navigation menu stayed open after Characters");
+await page.click("#closeChars");
+await page.click("#sidebarManageChars");if(!await page.locator("#charsModal").isVisible())throw new Error("Sidebar Characters manager did not open");
+await page.click("#addChar");
+if(await page.inputValue("#pf_name")!==""||await page.getAttribute("#pf_name","placeholder")!=="Имя")throw new Error("New character name is not empty with Имя placeholder");
+await page.click("#cancelProfile");await page.waitForSelector("#profileEditorModal",{state:"hidden"});await page.click("#closeChars");
 await page.click("#addFirst");await page.waitForSelector("#sceneModal",{state:"visible"});
 await page.fill("#sceneTitle","Scene only in A");await page.click("#saveScene");
 await page.getByText("Scene only in A",{exact:true}).waitFor();
 
+await page.evaluate(()=>{const node=document.getElementById("cloudFailure");node.hidden=false;node.textContent="old failure";document.getElementById("storageBanner").className="storage-banner error"});
 await page.click("#backToProjects");await page.waitForSelector("#projectsScreen:not([hidden])");
+if(await page.locator("#cloudFailure").isVisible()||await page.locator("#storageBanner").isVisible())throw new Error("Successful top-left navigation kept stale cloud error");
 await projectRow("Project B").getByRole("button",{name:"Открыть"}).click();
 await page.waitForSelector('body[data-app-state="workspace"]');
 if(await page.getByText("Scene only in A",{exact:true}).count())throw new Error("Project A scene leaked into Project B DOM");
 
-await page.click("#backToProjects");await projectRow("Project A").getByRole("button",{name:"Открыть"}).click();
+await page.locator("#workspaceAccountMenu > summary").click();await page.click("#workspaceProjects");await page.waitForSelector("#projectsScreen:not([hidden])");
+if(await page.locator("#cloudFailure").isVisible())throw new Error("Account-menu navigation kept cloud error");
+await projectRow("Project A").getByRole("button",{name:"Открыть"}).click();
 await page.getByText("Scene only in A",{exact:true}).waitFor();
 const namespacesBeforeLogout=await page.evaluate(()=>Array.from({length:localStorage.length},(_,index)=>localStorage.key(index)).filter(key=>key.startsWith("authorWorkspace:project:")));
 

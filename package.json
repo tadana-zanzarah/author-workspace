@@ -7,6 +7,7 @@
     "test:dirty-browser": "node tools/dirty-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",
     "test:cloud-browser": "node tools/cloud-browser.test.mjs",
+    "test:blocking-browser": "node tools/blocking-regressions-browser.test.mjs",
     "test": "npm run test:unit"
   }
 }

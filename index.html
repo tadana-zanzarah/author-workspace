@@ -55,6 +55,14 @@
       <button id="openNewSeries" type="button">＋ Новый цикл</button>
     </div>
     <p id="dashboardMessage" class="account-message" role="status" aria-live="polite"></p>
+    <div id="projectsLoadingState" class="cloud-empty-state" role="status" aria-live="polite" hidden>
+      <strong>Загрузка проектов…</strong>
+    </div>
+    <div id="projectsErrorState" class="cloud-empty-state" role="alert" hidden>
+      <strong>Не удалось загрузить проекты.</strong>
+      <span id="projectsErrorMessage">Облачный сервис сейчас недоступен.</span>
+      <button id="retryDashboard" type="button">Повторить</button>
+    </div>
     <div id="projectsEmptyState" class="cloud-empty-state" hidden>
       <strong>Проектов пока нет.</strong>
       <span>Создайте первый проект.</span>
@@ -138,7 +146,7 @@
       <div id="sideChapters" class="sidebar-list"></div>
     </div>
     <div class="sidebar-section">
-      <div class="sidebar-title">Персонажи</div>
+      <div class="sidebar-title">Персонажи <button class="nav-manage" id="sidebarManageChars" type="button">настроить</button></div>
       <div id="sideCharacters" class="sidebar-list"></div>
     </div>
     <div class="sidebar-section">

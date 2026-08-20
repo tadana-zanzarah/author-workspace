@@ -29,12 +29,19 @@ await freshPage.click("#closeChapters");
 await freshPage.click("#addFirst");
 await freshPage.fill("#sceneTitle","Первая сцена");
 await freshPage.selectOption("#sceneChapter",{label:"Глава 1"});
+await freshPage.selectOption("#sceneWritingStatus","draft");
 await freshPage.fill(".p-action","Участвует в первой сцене");
 await freshPage.click("#saveScene");
+const freshBeforeReload=await freshPage.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
+if(freshBeforeReload.scenes[0].chapterId!==freshBeforeReload.chapters[1].id||freshBeforeReload.scenes[0].writingStatus!=="draft")throw new Error("Fresh create lost chapter or writing status before reload");
+await freshPage.evaluate(id=>editScene(id),freshBeforeReload.scenes[0].id);
+if(await freshPage.inputValue("#sceneChapter")!==freshBeforeReload.chapters[1].id||await freshPage.inputValue("#sceneWritingStatus")!=="draft")throw new Error("Scene re-edit did not preserve chapter/status");
+await freshPage.click("#cancelScene");
 await freshPage.reload({waitUntil:"networkidle"});
 const freshPersisted=await freshPage.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
 if(freshPersisted.characters[0]?.name!=="Первый персонаж"||freshPersisted.scenes[0]?.title!=="Первая сцена"||freshPersisted.chapters[1]?.title!=="Глава 1")throw new Error("Первые сущности не сохранились");
 if(freshPersisted.scenes[0].chapterId!==freshPersisted.chapters[1].id||!freshPersisted.scenes[0].people[freshPersisted.characters[0].id])throw new Error("Глава или персонаж не назначены первой сцене");
+if(freshPersisted.scenes[0].writingStatus!=="draft")throw new Error("Статус Черновик не сохранился после reload");
 if(freshErrors.length)throw new Error(`Ошибки fresh UI: ${freshErrors.join(" | ")}`);
 await freshContext.close();
 
@@ -116,6 +123,28 @@ await page.waitForFunction(()=>JSON.parse(localStorage.getItem("novelTimelineV11
 await page.selectOption("#filterChapter","chapter-one");
 await page.dispatchEvent("#filterChapter","change");
 if(await page.inputValue("#filterChapter")!=="chapter-one") throw new Error("Быстрый выбор главы не сохранил выбранное значение");
+await page.click("#clearFilters");
+
+const dndResult=await page.evaluate(()=>{
+  commitDataChange(next=>{
+    while(next.scenes.length<32){const n=next.scenes.length+1;next.scenes.push({id:`long-scene-${n}`,title:`Long ${n}`,date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"idea",sceneText:"",included:true,status:"floating",people:{}})}
+  });
+  const viewport=document.querySelector(".workspace-viewport");viewport.scrollTop=0;
+  const first=data.scenes[0],handle=document.querySelector(`[data-scene-id="${first.id}"] .drag-handle`);
+  dragStart({currentTarget:handle,preventDefault(){},dataTransfer:{effectAllowed:"",setData(){}}},first.id);
+  const rect=viewport.getBoundingClientRect();
+  for(let i=0;i<20;i++)autoscrollSceneViewport(rect.bottom-2);
+  const down=viewport.scrollTop;
+  viewport.scrollTop=viewport.scrollHeight;
+  for(let i=0;i<20;i++)autoscrollSceneViewport(rect.top+2);
+  const up=viewport.scrollTop<viewport.scrollHeight-viewport.clientHeight;
+  const target=data.scenes[data.scenes.length-1],row=document.querySelector(`[data-scene-id="${target.id}"]`);
+  dropScene({preventDefault(){},currentTarget:row,clientY:row.getBoundingClientRect().bottom},target.id);
+  const persisted=JSON.parse(localStorage.getItem("novelTimelineV11"));
+  return {down,up,last:data.scenes.at(-1)?.id,persistedLast:persisted.scenes.at(-1)?.id,controlsDraggable:[...document.querySelectorAll(".scene-row input,.scene-row button")].some(node=>node.draggable)};
+});
+if(dndResult.down<=0||!dndResult.up)throw new Error(`Timeline edge autoscroll failed: ${JSON.stringify(dndResult)}`);
+if(dndResult.last!==dndResult.persistedLast||dndResult.controlsDraggable)throw new Error(`Timeline DnD persistence/controls failed: ${JSON.stringify(dndResult)}`);
 
 await page.click("#projectMenu > summary");
 await page.click("#openSortScenes");

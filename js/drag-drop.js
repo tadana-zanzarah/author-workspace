@@ -5,21 +5,33 @@ function dragStart(event,sceneId){
     return;
   }
   draggedSceneId=sceneId;
-  event.currentTarget.classList.add("dragging");
+  const row=event.currentTarget.closest(".scene-row");
+  row?.classList.add("dragging");
   event.dataTransfer.effectAllowed="move";
   event.dataTransfer.setData("text/plain",sceneId);
 }
 
 function dragOver(event,targetSceneId){
   event.preventDefault();
-  const edge=70;
-  if(event.clientY<edge)window.scrollBy({top:-18,behavior:"auto"});
-  else if(window.innerHeight-event.clientY<edge)window.scrollBy({top:18,behavior:"auto"});
+  autoscrollSceneViewport(event.clientY);
   const row=event.currentTarget;
   const rect=row.getBoundingClientRect();
   const after=event.clientY>rect.top+rect.height/2;
   row.classList.toggle("drop-before",!after);
   row.classList.toggle("drop-after",after);
+}
+
+function autoscrollSceneViewport(clientY){
+  const viewport=document.querySelector(".workspace-viewport");
+  if(!viewport||!draggedSceneId)return 0;
+  const rect=viewport.getBoundingClientRect();
+  if(clientY<rect.top||clientY>rect.bottom)return 0;
+  const edge=Math.min(90,rect.height/3);
+  let delta=0;
+  if(clientY<rect.top+edge)delta=-Math.ceil(4+24*(1-(clientY-rect.top)/edge));
+  else if(clientY>rect.bottom-edge)delta=Math.ceil(4+24*(1-(rect.bottom-clientY)/edge));
+  if(delta)viewport.scrollTop+=delta;
+  return delta;
 }
 
 function dragLeave(event){event.currentTarget.classList.remove("drop-before","drop-after")}
@@ -50,6 +62,10 @@ function dragEnd(){
   document.querySelectorAll(".scene-row").forEach(r=>r.classList.remove("dragging","drop-before","drop-after"));
 }
 
+document.addEventListener("dragstart",event=>{
+  if(event.target.closest?.(".scene-row")&&!event.target.closest(".drag-handle"))event.preventDefault();
+});
+
 function renderSortScenes(){
   const root=document.getElementById("sortScenesList");
   root.innerHTML=data.scenes.map(scene=>{
@@ -65,7 +81,7 @@ function renderSortScenes(){
 }
 
 function openSortScenes(){
-  document.getElementById("projectMenu").open=false;
+  const menu=document.getElementById("projectMenu");menu.open=false;menu.querySelector("summary")?.focus();
   renderSortScenes();
   showModal("sortScenesModal");
 }
@@ -121,5 +137,5 @@ function sortDragEnd(){
   document.querySelectorAll(".sort-scene-row").forEach(row=>row.classList.remove("dragging","drop-before","drop-after"));
 }
 
-Object.assign(globalThis,{dragStart,dragOver,dragLeave,dropScene,dragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd});
-export {dragStart,dragOver,dragLeave,dropScene,dragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd};
+Object.assign(globalThis,{dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd});
+export {dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd};
