@@ -9,6 +9,7 @@
     "test:cloud-browser": "node tools/cloud-browser.test.mjs",
     "test:blocking-browser": "node tools/blocking-regressions-browser.test.mjs",
     "test:compact-dnd-browser": "node tools/compact-list-dnd-browser.test.mjs",
+    "test:multi-value-browser": "node tools/multi-value-profile-browser.test.mjs",
     "test": "npm run test:unit"
   }
 }

@@ -4,6 +4,7 @@ import "./state.js";
 import "./dirty-state.js";
 import "./modal-manager.js";
 import "./migrations.js";
+import "./multi-value-input.js";
 import "./storage.js";
 import "./dates.js";
 import "./utils.js";
@@ -23,7 +24,7 @@ const editorTrackers={
   sceneModal:createDirtyTracker("sceneModal",()=>serializeForm("sceneModal",{tags:[...sceneTagDraft],newTags:{...sceneNewTagDraft}})),
   textModal:createDirtyTracker("textModal",()=>serializeForm("textModal")),
   allScenesModal:createDirtyTracker("allScenesModal",()=>serializeForm("allScenesModal")),
-  profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:[...profileDraftPhotos]})),
+  profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:[...profileDraftPhotos],favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
   chaptersModal:createDirtyTracker("chaptersModal",()=>serializeForm("chaptersModal")),
   locationsModal:createDirtyTracker("locationsModal",()=>serializeForm("locationsModal")),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
@@ -466,8 +467,8 @@ document.getElementById("saveProfile").onclick=()=>{
     build:document.getElementById("pf_build").value.trim(),
     profession:document.getElementById("pf_profession").value.trim(),
     orientation:document.getElementById("pf_orientation").value.trim(),
-    favorites:document.getElementById("pf_favorites").value.trim(),
-    hobbies:document.getElementById("pf_hobbies").value.trim(),
+    favorites:multiValueInputs.favorites.getValues(),
+    hobbies:multiValueInputs.hobbies.getValues(),
     character:document.getElementById("pf_character").value.trim(),
     features:document.getElementById("pf_features").value.trim(),
     description:document.getElementById("pf_description").value.trim(),

@@ -82,6 +82,8 @@ function handleKeydown(event){
   const modal=getTopModal();if(!modal||event.defaultPrevented)return;
   if(event.key==="Escape"){
     if(event.target instanceof HTMLSelectElement)return;
+    const expanded=modal.querySelector('[role="combobox"][aria-expanded="true"]');
+    if(expanded){event.preventDefault();event.stopImmediatePropagation();expanded.dispatchEvent(new CustomEvent("multi-value-close"));return}
     event.preventDefault();event.stopImmediatePropagation();
     if(modal.id==="discardChangesModal")globalThis.resolveDiscardConfirmation?.(false);else requestCloseModal(modal.id,"escape");
     return;

@@ -17,4 +17,5 @@ const server = http.createServer((request,response)=>{
     response.end(content);
   });
 });
-server.listen(8000,"127.0.0.1",()=>console.log("Открывайте http://127.0.0.1:8000/"));
+const port=Number(process.env.PORT||8000);
+server.listen(port,"127.0.0.1",()=>console.log(`Открывайте http://127.0.0.1:${port}/`));

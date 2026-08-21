@@ -53,6 +53,18 @@
     color:var(--muted);font-size:11px;white-space:nowrap;
   }
   .hide-field input{width:auto}
+  .multi-value-host{position:relative;min-width:0}
+  .multi-value-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+  .multi-value-chips:empty{display:none}
+  .multi-value-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 5px 3px 8px;border:1px solid var(--line);border-radius:999px;background:#f2eee9;font-size:12px}
+  .multi-value-chip span{overflow-wrap:anywhere}
+  .multi-value-chip button{padding:0 4px;min-width:24px;border:0;background:transparent}
+  .multi-value-control{display:flex;position:relative}
+  .multi-value-control input{padding-right:34px}
+  .multi-value-toggle{position:absolute;right:2px;top:2px;bottom:2px;width:30px;padding:0;border:0;background:transparent}
+  .multi-value-list{position:absolute;z-index:20;left:0;right:0;top:100%;max-height:min(240px,40vh);overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:0 8px 20px rgba(0,0,0,.12)}
+  .multi-value-list [role=option]{padding:8px 10px;cursor:pointer;overflow-wrap:anywhere}
+  .multi-value-list [role=option]:hover,.multi-value-list [role=option].active{background:#f2eee9}
   .birthday-grid{
     display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;
   }

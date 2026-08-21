@@ -5,6 +5,7 @@ import {
   validateProjectStructure,
   prepareProject,
   normalizeProject,
+  normalizeMultiValue,
   defaultData
 } from "../js/migrations.js";
 import {persistProject} from "../js/storage.js";
@@ -19,6 +20,21 @@ const baseV11=()=>({
   future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},
   scenes:[{id:"scene-a",title:"Сцена",date:"",time:"",chapterId:"chapter-unassigned",locationId:"location-a",tags:["tag-a"],people:{"character-a":{action:"",relationChanges:{},visibleRelations:[]}}}]
 });
+
+{
+  assert.deepEqual(normalizeMultiValue("Чтение, музыка"),["Чтение","музыка"]);
+  assert.deepEqual(normalizeMultiValue("  Кофе,  дождь, старые фильмы  "),["Кофе","дождь","старые фильмы"]);
+  assert.deepEqual(normalizeMultiValue([" Музыка ","","музыка"," Фотография "]),["Музыка","Фотография"]);
+  assert.deepEqual(normalizeMultiValue("Длинное свободное описание без признаков перечисления"),["Длинное свободное описание без признаков перечисления"]);
+  const value=baseV11();
+  value.profiles["character-a"]={...value.profiles["character-a"],hobbies:"Чтение, музыка",favorites:" Кофе, дождь ",pluginProfile:{keep:true}};
+  const normalized=normalizeProject(value);
+  assert.deepEqual(normalized.profiles["character-a"].hobbies,["Чтение","музыка"]);
+  assert.deepEqual(normalized.profiles["character-a"].favorites,["Кофе","дождь"]);
+  assert.deepEqual(normalized.profiles["character-a"].pluginProfile,{keep:true});
+  const roundTrip=JSON.parse(JSON.stringify(normalized));
+  assert.deepEqual(normalizeProject(roundTrip).profiles["character-a"].hobbies,["Чтение","музыка"]);
+}
 
 {
   const fresh=defaultData();

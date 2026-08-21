@@ -182,13 +182,17 @@ function editProfileNow(characterId){
   const values={
     name:p.name||character.name,surname:p.surname,race:p.race,sex:p.sex,secondarySex:p.secondarySex,
     age:p.age,height:p.height,build:p.build,profession:p.profession,orientation:p.orientation,
-    favorites:p.favorites,hobbies:p.hobbies,character:p.character,features:p.features,
+    character:p.character,features:p.features,
     description:p.description
   };
   for(const [key,value] of Object.entries(values)){
     const el=document.getElementById("pf_"+key);
     if(el)el.value=value??"";
   }
+  multiValueInputs.favorites ||= createMultiValueCombobox({host:document.getElementById("pf_favorites"),suggestions:[...document.querySelectorAll("#foodOptions option")].map(x=>x.value),placeholder:"Добавить любимое значение…",label:"Любимая еда и напитки",onChange:syncBeforeUnload});
+  multiValueInputs.hobbies ||= createMultiValueCombobox({host:document.getElementById("pf_hobbies"),suggestions:[...document.querySelectorAll("#hobbyOptions option")].map(x=>x.value),placeholder:"Добавить хобби…",label:"Хобби и увлечения",onChange:syncBeforeUnload});
+  multiValueInputs.favorites.setValues(p.favorites);
+  multiValueInputs.hobbies.setValues(p.hobbies);
   document.getElementById("pf_birthYear").value=p.birthday?.year||"";
   document.getElementById("pf_birthMonth").value=p.birthday?.month||"";
   document.getElementById("pf_birthDay").value=p.birthday?.day||"";
@@ -242,7 +246,7 @@ async function compressImage(file){
 function profileDisplayValue(profile,key){
   if(profile.hidden?.[key])return null;
   const value=profile[key];
-  return String(value??"").trim()||"Не указано";
+  return (Array.isArray(value)?value.join(", "):String(value??"").trim())||"Не указано";
 }
 
 function birthdayDisplay(profile){

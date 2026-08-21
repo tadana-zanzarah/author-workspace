@@ -189,6 +189,16 @@ function migrateProject(value,sourceVersion,{characterResolutions={}}={}){
 }
 
 function canonicalTagName(name){return String(name||"").trim().replace(/^#+/,"").replace(/\s+/g," ")}
+function normalizeMultiValue(value){
+  const source=Array.isArray(value)?value:(typeof value==="string"?(value.includes(",")?value.split(","):[value]):[]);
+  const seen=new Set(),result=[];
+  for(const item of source){
+    const text=String(item??"").trim();if(!text)continue;
+    const key=text.toLocaleLowerCase("ru");if(seen.has(key))continue;
+    seen.add(key);result.push(text);
+  }
+  return result;
+}
 function normalizeChapters(chapters){
   return chapters.map((c,i)=>({...safeOwnCopy(c),id:String(c.id),title:String(c.title||`Глава ${i+1}`),collapsed:!!c.collapsed}));
 }
@@ -199,11 +209,11 @@ function normalizeTags(tags){
   return tags.map(t=>({...safeOwnCopy(t),id:String(t.id),name:canonicalTagName(t.name)}));
 }
 function emptyProfile(characterId="",name=""){
-  return {id:characterId,characterId,name,surname:"",photos:[],race:"",sex:"",secondarySex:"",age:"",birthday:{year:"",month:"",day:""},zodiac:"",height:"",build:"",profession:"",orientation:"",favorites:"",hobbies:"",character:"",features:"",description:"",hidden:{},initialRelations:{}};
+  return {id:characterId,characterId,name,surname:"",photos:[],race:"",sex:"",secondarySex:"",age:"",birthday:{year:"",month:"",day:""},zodiac:"",height:"",build:"",profession:"",orientation:"",favorites:[],hobbies:[],character:"",features:"",description:"",hidden:{},initialRelations:{}};
 }
 function normalizeProfile(profile,character){
   const p=safeOwnCopy(profile||{}),base=emptyProfile(character.id,character.name);
-  return {...base,...p,id:p.id||character.id,characterId:character.id,name:p.name||character.name,photos:Array.isArray(p.photos)?p.photos:[],birthday:{...base.birthday,...safeOwnCopy(p.birthday||{})},hidden:safeOwnCopy(p.hidden||{}),initialRelations:safeOwnCopy(p.initialRelations||{})};
+  return {...base,...p,id:p.id||character.id,characterId:character.id,name:p.name||character.name,photos:Array.isArray(p.photos)?p.photos:[],favorites:normalizeMultiValue(p.favorites),hobbies:normalizeMultiValue(p.hobbies),birthday:{...base.birthday,...safeOwnCopy(p.birthday||{})},hidden:safeOwnCopy(p.hidden||{}),initialRelations:safeOwnCopy(p.initialRelations||{})};
 }
 function normalizeProject(value){
   const src=safeOwnCopy(value);
@@ -255,5 +265,5 @@ function defaultData(){
   return {version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[]};
 }
 
-Object.assign(globalThis,{makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,defaultData,emptyProfile,normalizeProfile,normalizeData});
-export {makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,defaultData,emptyProfile,normalizeProfile,normalizeData};
+Object.assign(globalThis,{makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,defaultData,emptyProfile,normalizeProfile,normalizeData});
+export {makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,defaultData,emptyProfile,normalizeProfile,normalizeData};
