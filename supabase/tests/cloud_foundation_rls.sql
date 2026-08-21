@@ -51,11 +51,11 @@ select set_config('request.jwt.claim.sub','',true);
 
 do $$
 begin
-  if exists (select 1 from public.projects) then
-    raise exception 'RLS failure: anon can see projects';
+  if has_table_privilege('anon','public.projects','select') then
+    if exists (select 1 from public.projects) then raise exception 'RLS failure: anon can see projects'; end if;
   end if;
-  if exists (select 1 from public.series) then
-    raise exception 'RLS failure: anon can see series';
+  if has_table_privilege('anon','public.series','select') then
+    if exists (select 1 from public.series) then raise exception 'RLS failure: anon can see series'; end if;
   end if;
 end
 $$;
