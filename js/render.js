@@ -249,24 +249,41 @@ function renderCompactCard(scene,index){
 }
 
 function renderListView(board){
-  const entries=getVisibleSceneEntries();
   board.style.removeProperty("--cols");
-  const rows=entries.map(({scene,index})=>{
-    const chapter=chapterById(scene.chapterId),loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
-    return `<tr data-scene-id="${esc(scene.id)}" class="${selectedSceneIndex===index?"selected-scene":""}" onclick="selectScene('${jsq(scene.id)}')" ondblclick="editScene('${jsq(scene.id)}')">
+  const disabled=hasActiveFilters();
+  const row=(scene,index)=>{
+    const loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
+    return `<tr data-scene-id="${esc(scene.id)}" class="compact-scene-row ${selectedSceneIndex===index?"selected-scene":""}" onclick="selectScene('${jsq(scene.id)}')" ondblclick="editScene('${jsq(scene.id)}')">
+      <td class="compact-handle-cell"><button type="button" class="compact-drag-handle" draggable="${disabled?"false":"true"}" ${disabled?"disabled":""} aria-label="Перетащить сцену ${esc(scene.title||"Без названия")}" title="${disabled?"Чтобы менять порядок сцен, сбросьте фильтры.":"Перетащить сцену"}" ondragstart="compactDragStart(event,'${jsq(scene.id)}')" ondragend="compactDragEnd()">↕</button></td>
       <td>${esc(readableDate(scene)||"—")}</td>
-      <td><button class="entity-link" onclick="event.stopPropagation();setFilter('chapter','${jsq(chapter?.id||"")}')">${esc(chapter?.title||"Без главы")}</button></td>
       <td class="title-cell quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(scene.title||"Без названия")}</td>
       <td>${sceneCharacterIds(scene).map(id=>`<button class="entity-link" onclick="event.stopPropagation();setFilter('character','${jsq(id)}')">${esc(characterName(id))}</button>`).join(", ")||"—"}</td>
       <td>${loc?`<button class="entity-link" onclick="event.stopPropagation();setFilter('location','${jsq(loc.id)}')">${esc(loc.name)}</button>`:"—"}</td>
       <td><span class="meta-chip writing-chip ${ws.id}">${esc(ws.label)}</span></td>
     </tr>`;
+  };
+  const groups=data.chapters.map(chapter=>{
+    const entries=data.scenes.map((scene,index)=>({scene,index})).filter(({scene})=>scene.chapterId===chapter.id&&sceneMatches(scene));
+    const positions=entries.map(({scene,index})=>`${compactDropPosition(chapter.id,scene.id)}${row(scene,index)}`).join("");
+    return `<section class="compact-chapter-group" data-chapter-id="${esc(chapter.id)}">
+      <h3 class="compact-chapter-title">${esc(chapter.title)}</h3>
+      <div class="compact-chapter-drop-area">
+        <table class="compact-list"><thead><tr><th aria-label="Перетаскивание"></th><th>Дата</th><th>Название</th><th>Персонажи</th><th>Локация</th><th>Статус</th></tr></thead><tbody>
+          ${positions}${compactDropPosition(chapter.id,null,!entries.length)}
+        </tbody></table>
+      </div>
+    </section>`;
   }).join("");
-  board.innerHTML=rows?`<div class="compact-list-wrap"><table class="compact-list"><thead><tr><th>Дата</th><th>Глава</th><th>Название</th><th>Персонажи</th><th>Локация</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table></div>`:emptySceneMessage();
+  const notice=disabled?'<p class="compact-dnd-notice">Чтобы менять порядок сцен, сбросьте фильтры.</p>':"";
+  board.innerHTML=`${notice}<div class="compact-list-wrap">${groups}</div>`;
+}
+
+function compactDropPosition(chapterId,beforeSceneId=null,empty=false){
+  return `<tr class="compact-drop-position ${empty?"compact-empty-drop":""}" data-compact-drop-chapter-id="${esc(chapterId)}" data-before-scene-id="${esc(beforeSceneId||"")}" ondragover="compactDragOver(event)" ondragleave="compactDragLeave(event)" ondrop="compactDropScene(event,{chapterId:'${jsq(chapterId)}',beforeSceneId:${beforeSceneId?`'${jsq(beforeSceneId)}'`:"null"}})"><td colspan="6"><span>${empty?"Сцен пока нет · Вставить сюда":"Вставить сюда"}</span></td></tr>`;
 }
 
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,emptySearchMessage,emptySceneMessage});
-export {projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,emptySearchMessage,emptySceneMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,emptySearchMessage,emptySceneMessage});
+export {projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,emptySearchMessage,emptySceneMessage};
