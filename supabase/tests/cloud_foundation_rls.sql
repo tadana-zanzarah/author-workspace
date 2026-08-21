@@ -11,17 +11,27 @@ insert into public.projects (id,owner_id,title) values
   ('aaaaaaaa-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','Project A'),
   ('bbbbbbbb-0000-4000-8000-000000000001','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','Project B');
 
+insert into public.series (id,owner_id,title) values
+  ('aaaaaaaa-1000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','Series A'),
+  ('bbbbbbbb-1000-4000-8000-000000000001','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','Series B');
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true);
 
 do $$
 declare
   visible_ids uuid[];
+  visible_series_ids uuid[];
   affected integer;
 begin
   select array_agg(id order by id) into visible_ids from public.projects;
   if visible_ids is distinct from array['aaaaaaaa-0000-4000-8000-000000000001'::uuid] then
     raise exception 'RLS failure: User A project visibility = %', visible_ids;
+  end if;
+
+  select array_agg(id order by id) into visible_series_ids from public.series;
+  if visible_series_ids is distinct from array['aaaaaaaa-1000-4000-8000-000000000001'::uuid] then
+    raise exception 'RLS failure: User A series visibility = %', visible_series_ids;
   end if;
 
   update public.projects set title='forbidden' where id='bbbbbbbb-0000-4000-8000-000000000001';
@@ -31,6 +41,22 @@ begin
   update public.projects set title='allowed' where id='aaaaaaaa-0000-4000-8000-000000000001';
   get diagnostics affected = row_count;
   if affected <> 1 then raise exception 'RLS failure: User A cannot update Project A'; end if;
+end
+$$;
+
+reset role;
+
+set local role anon;
+select set_config('request.jwt.claim.sub','',true);
+
+do $$
+begin
+  if exists (select 1 from public.projects) then
+    raise exception 'RLS failure: anon can see projects';
+  end if;
+  if exists (select 1 from public.series) then
+    raise exception 'RLS failure: anon can see series';
+  end if;
 end
 $$;
 

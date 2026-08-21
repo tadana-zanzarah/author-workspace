@@ -56,6 +56,7 @@ await page.addInitScript(()=>{
   globalThis.__AUTHOR_WORKSPACE_SUPABASE_CLIENT__={
     auth:{
       async getSession(){return {data:{session:localStorage.getItem("mockBlockingSession")?{user}:null},error:null}},
+      async getUser(){return {data:{user:localStorage.getItem("mockBlockingSession")?user:null},error:null}},
       onAuthStateChange(callback){listeners.push(callback);queueMicrotask(()=>callback("INITIAL_SESSION",localStorage.getItem("mockBlockingSession")?{user}:null));return {data:{subscription:{unsubscribe(){}}}}},
       async signInWithPassword(){
         const session={user};localStorage.setItem("mockBlockingSession","yes");listeners.forEach(callback=>callback("SIGNED_IN",session));
