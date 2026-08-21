@@ -112,7 +112,7 @@ All UUID PKs use generated UUIDs for newly created rows but accept validated leg
 
 - Purpose: private authoring workspace; standalone when `series_id IS NULL`.
 - PK/FKs: `id`; `owner_id` -> `auth.users`; nullable `series_id` -> `series.id` (`SET NULL`). Same-owner series is enforced.
-- Columns: existing title, description, position, status, settings, revision, timestamps, deleted timestamp; add `archived_at`, `schema_version`, and `content_version bigint` (or evolve existing `revision` into the authoritative content revision without a silent semantic change).
+- Columns: existing title, description, position, status, settings, `revision`, timestamps, deleted timestamp; add `archived_at` and `schema_version`. The existing nonnegative `revision` is the single authoritative project-content version and should become `bigint` before content writes can approach the integer range. Do not add a parallel `content_version`.
 - Constraints/indexes: position null without series; allowed status; `(owner_id, created_at desc) WHERE deleted_at IS NULL`; `(series_id, position_in_series)` partial active index. Do not add `series_projects` while a project belongs to at most one series.
 - Delete: soft-delete/trash; purge later cascades project-only content. Never cascades to global `characters`.
 - RLS: owner now; later centralize authorization behind a stable helper such as `private.can_access_project(project_id, minimum_role)` backed by `project_members`.
@@ -139,7 +139,8 @@ All UUID PKs use generated UUIDs for newly created rows but accept validated leg
 - Columns: `overrides jsonb`, `role`, `sort_order numeric`, `metadata jsonb`, timestamps, optional `archived_at`/`removed_at` for reversible removal.
 - Constraints: `UNIQUE (project_id, character_id)`; JSON objects; same owner between project and character; nonnegative/valid sort ordering as chosen by UI.
 - Indexes: `(project_id, sort_order, id) WHERE removed_at IS NULL`; `(character_id, project_id) WHERE removed_at IS NULL`.
-- Effective profile: calculate `base_profile` merged with `overrides` in the service layer (or a security-invoker view later). Do not persist a duplicated effective profile. Explicit null/remove semantics for override keys must be specified before implementation (recommended JSON Merge Patch semantics, with a small tested merge function).
+- Effective profile: calculate `characters.base_profile` plus explicitly present keys from `project_characters.overrides` in the service layer (or a security-invoker view later). Do not persist a duplicated effective profile. An absent override key inherits the base value. A present non-null key replaces it for this project. A present key with JSON `null` is an explicit blank/none only for fields whose domain allows the user to clear or hide a base value; it is never inheritance.
+- Override normalization/serialization: both profiles are JSON objects; reject dangerous prototype-pollution keys and preserve unknown safe keys. Normalize field values by the field contract (`favorites`/`hobbies` remain arrays). Remove an override key only for the UI action “use/restore shared value.” Preserve allowed explicit `null` keys through import, save, load, and export. Reject or surface a validation conflict for `null` on fields that do not support explicit blanking; never silently delete that key or reinterpret it as inheritance. Serialize sparse `overrides` exactly as explicit project choices rather than materializing inherited base keys.
 - Delete: removal from a project must be an atomic guarded operation. Prefer `removed_at` if recovery is required; otherwise delete only after preview confirms the dependent participation and relation effects. It never deletes `characters`.
 - RLS: through `project_id -> projects`; insert/update additionally proves the referenced character is owned by the project owner.
 
@@ -165,7 +166,7 @@ Birthday can remain in base profile while `age` may be a project override. A fut
 - Delete: project-scoped edges cascade only with project purge; global edges survive project deletion. Identity deletion is restricted while linked.
 - RLS: direct owner plus, for future collaborators, project authorization only for scoped links. Global canon stays owner-private unless explicitly shared.
 
-This optional-scope model is recommended over “global edge + project overrides.” It maps the current contract without inventing complex suppression/override rules, supports alternate universes, and lets a user promote/copy an edge explicitly. Its cost is possible intentional duplication across scopes; the UI must label scope and provide an explicit promote action. A future temporal validity interval can be added without changing endpoints.
+This single-table nullable-scope model is the MVP contract; no structural-link override engine is required. A global biological/family identity link may be inherited for presentation in projects that contain both endpoints. A project-scoped link may add contextual semantics or intentionally supersede how that pair is presented in that project, with conflicts resolved explicitly rather than by an implicit merge algorithm. Project-only legal, marriage, guardianship, or alternate-universe state must never be promoted to global scope or copied into other projects automatically. The UI must label “shared link” versus “this project only” and make any copy/promotion explicit and conflict-checked. A future temporal validity interval can be added without changing endpoints.
 
 ### 5.3 Project structure
 
@@ -200,7 +201,7 @@ This optional-scope model is recommended over “global edge + project overrides
 
 - Purpose: atomic unit of chronology and manuscript text.
 - PK/FKs: `id`; `project_id` -> projects (`CASCADE`); nullable `chapter_id` -> chapters (`SET NULL`); nullable `location_id` -> locations (`SET NULL`). Cross-project references are prohibited.
-- Columns: `title`, `scene_text`, `scene_date date`, `scene_time time`, `placement_status`, `writing_status`, `included boolean`, `date_review boolean`, `position numeric`, `metadata jsonb`, timestamps, `deleted_at`.
+- Columns: `title`, `scene_text`, `scene_date date`, `scene_time time`, `placement_status`, `writing_status`, `included boolean`, `date_review boolean`, canonical `position numeric(20,10)`, `metadata jsonb`, timestamps, `deleted_at`.
 - Strict date rule: invalid legacy date/time strings never normalize silently. Migration must block or retain them in migration staging/metadata with `date_review = true` until manual resolution; only valid calendar values enter typed columns. `date_review = true` always means user confirmation remains required.
 - Constraints/indexes: status checks; `(project_id, position, id) WHERE deleted_at IS NULL`; `(project_id, chapter_id, position, id)`; `(project_id, scene_date, scene_time)` partial chronology index; full-text indexing is deferred.
 - Delete: trash with `deleted_at`; dependent join/change rows remain until final purge or are hidden via parent visibility. Final purge cascades.
@@ -229,19 +230,19 @@ This optional-scope model is recommended over “global edge + project overrides
 
 - Purpose: explicit directed relation at project start. A -> B and B -> A are distinct.
 - PK/FKs: `id`; `project_id` -> projects (`CASCADE`); `from_project_character_id`, `to_project_character_id` -> project characters (`CASCADE`).
-- Columns: `value text`, optional `visible_by_default boolean`, `metadata jsonb`, timestamps.
+- Columns: nullable `value_operation` (`set`/`clear`), nullable `value text`, nullable `visible boolean`, `metadata jsonb`, timestamps. `value_operation` makes field presence explicit: `set` requires a value, `clear` requires null value, and null means no explicit initial value. Nullable `visible` is the same presence contract for visibility. Require at least one of `value_operation` or `visible` to be non-null; absence of a row means neither field has explicit initial state.
 - Constraints/indexes: no self-relation; `UNIQUE (project_id, from_project_character_id, to_project_character_id)`; both endpoints belong to project; indexes on both endpoint directions.
 - Delete/RLS: cascade with project/project-character removal; RLS through project.
 
 #### `scene_relation_changes`
 
-- Purpose: explicit directed change at one scene; absence means inherit. It must distinguish “set text” from “clear relation.”
+- Purpose: explicit directed change at one scene; absence means inherit. Visibility is metadata on the same directed A -> B emotional relation, never a separate relation type. A row may change value only, visibility only, or both, and must distinguish “set text” from “clear relation.”
 - PK/FKs: `id`; `scene_id` -> scenes (`CASCADE`); `project_relation_id` -> project-character relation (`CASCADE`), or direct endpoints. Recommended: store direct `from_project_character_id` and `to_project_character_id` rather than require an initial row, because a relation may first appear mid-story; optionally expose a derived relation key.
-- Columns: `from_project_character_id`, `to_project_character_id`, `operation` (`set`/`clear`), nullable `value`, `visible boolean`, `metadata jsonb`, timestamps.
+- Columns: `from_project_character_id`, `to_project_character_id`, nullable `value_operation` (`set`/`clear`), nullable `value`, nullable `visible boolean`, `metadata jsonb`, timestamps. `value_operation IS NULL` means the value field is absent/inherited for this change; non-null `visible` explicitly replaces visibility, while null means visibility is absent/inherited. Require at least one of `value_operation` or `visible` to be non-null; `set` requires a value and `clear` requires null value.
 - Constraints/indexes: no self; one change per scene/direction; endpoints and scene share a project; `(scene_id, from_project_character_id, to_project_character_id)` unique; `(from_project_character_id, to_project_character_id, scene_id)` for history.
 - Delete/RLS: cascade with scene/project-character final deletion; through scene -> project. Changes are applied in scene `position` order, never array order or date order.
 
-`visibleRelations` is presentation state, not relation content. During migration, preserve it as `scene_relation_changes.visible` when an explicit change exists; if visibility is meaningful without a change, either add a small `scene_relation_visibility` table or document a visibility row with `operation = inherit`. Recommended MVP is the latter only if UI parity tests prove it necessary; do not discard it silently.
+Replay follows canonical scene `(position, id)` order. For each direction, every explicitly present field replaces its prior state and every absent field inherits it: a value-only row leaves visibility unchanged, a visibility-only row leaves value unchanged, and a combined row changes both. A visibility-only change does not create a fictitious relation value. Migration preserves `visibleRelations` as explicit visibility metadata even when no value changes in that scene.
 
 ## 6. Character identity vs project state
 
@@ -252,7 +253,7 @@ An identity answers “who is this across the account?” A project character an
 - Book 2 overrides: age 22, student;
 - Book 3 overrides: age 35, married, different profession.
 
-The identity is not owned by a series. Linking projects to and from a series does not alter character ownership. The effective profile is computed as base plus overrides and is not duplicated. Project role/order are relational columns; images and relations have dedicated tables.
+The identity is not owned by a series. Linking projects to and from a series does not alter character ownership. `characters.base_profile` holds identity defaults; `project_characters.overrides` is sparse and holds only explicitly overridden keys. The effective profile is computed as base plus overrides and is not duplicated. The future UI must distinguish “uses shared value,” “overridden for this book,” and “restore shared value”; the last action removes the override key rather than writing null. Project role/order are relational columns; images and relations have dedicated tables.
 
 Hybrid JSONB is intentional. Flexible questionnaire data, hidden/custom fields, and plugin metadata evolve frequently and round-trip well in JSONB. IDs, ownership, project membership, ordering, links, relations, tags, and scenes require relational constraints and indexes. The final architecture must not store the entire project as one authoritative JSONB blob; a snapshot blob is acceptable only as import staging, backup, or cache.
 
@@ -270,11 +271,15 @@ Uniqueness is per scope (`global` or a specific project). A transaction validate
 
 ## 8. Emotional relations
 
-Initial directed states belong to the project. Explicit scene changes are replayed by scene position to obtain inherited state. Empty legacy change values map to `operation = clear`, not a missing row. This preserves current behavior when scenes move: the explicit change travels with its scene, while inherited results recompute.
+Initial directed states belong to the project. Explicit scene changes are replayed by scene position to obtain inherited state. Empty legacy change values map to `value_operation = clear`, not a missing row. This preserves current behavior when scenes move: the explicit change travels with its scene, while inherited results recompute.
+
+Initial state and scene changes use one directed A -> B relation contract containing independently optional value and visibility fields. Visibility is not a relation type. During replay, only fields explicitly supplied by a row replace prior fields; omitted fields inherit. This permits value-only, visibility-only, and combined changes without fabricating content.
 
 The API should expose `getRelationsBefore(sceneId)`/`getRelationsAt(sceneId)` as a repository query or RPC only after profiling. Do not persist every computed state per scene in MVP; it duplicates derived values and makes reorder invalidation expensive.
 
 ## 9. Scene ordering
+
+The project has exactly one canonical scene order. It is stored in `scenes.position` and read as `(position, scene.id)` so the stable scene ID is the deterministic tie-breaker. `chapter_id` is a grouping attribute, not an independent ordering system. Moving a scene within or between chapters updates its canonical position; a cross-chapter move updates `chapter_id` and `position` atomically.
 
 Options considered:
 
@@ -283,7 +288,7 @@ Options considered:
 - Lexicographic rank keys scale well but add a ranking algorithm and collation/validation concerns.
 - Any sparse strategy still needs periodic normalization.
 
-MVP recommendation: `numeric(20,10)` fractional positions, ordered by `(position, id)`, with initial gaps (for example 1024). A move transaction locks/validates neighboring rows and assigns a midpoint. When no safe midpoint remains or a batch reorder occurs, an RPC renumbers only the affected chapter/project in one transaction. Moving between chapters updates `chapter_id` and position together. The canonical overall manuscript order remains scene `position`; chapter-scoped UI may use `(chapter.position, scene.position)` only if chapter grouping is explicitly the canonical mode. This choice must be finalized before schema migration to avoid two competing orders.
+MVP uses fractional `numeric(20,10)` positions with initial gaps (for example 1024). A move transaction locks/validates canonical neighbors and assigns a midpoint. Do not add `global_position` and `position_in_chapter`: two writable orders could diverge. When no safe midpoint remains or a batch reorder requires it, a dedicated transactional normalization RPC renumbers the project's active scenes while preserving `(position, id)` order and bumps the project revision once. Normalization is a separate operation, never an incidental partial rewrite.
 
 ## 10. Images and Storage
 
@@ -350,8 +355,8 @@ Queries and uniqueness rules must consistently define whether deleted rows parti
 4. Build a preview: counts, invalid references, manual conflicts, proposed identity mapping, dates requiring review, image bytes, and whether cloud is empty/divergent.
 5. If cloud contains content, require an explicit choice (cancel, import into empty only, or a later merge workflow); never overwrite automatically.
 6. Ask the user to confirm the complete mapping/import.
-7. Submit one idempotent import manifest to a transaction/RPC or trusted backend transaction. Use an `import_id`/idempotency key and expected project content version.
-8. Insert/validate all rows; increment project content version only on commit.
+7. Submit one idempotent import manifest to a transaction/RPC or trusted backend transaction. Use an `import_id`/idempotency key and expected project revision.
+8. Insert/validate all rows; increment project revision only on commit.
 9. Read back a manifest/checksums/counts and compare with the preview.
 10. Mark the local namespace as a synchronized recovery/cache copy with sync metadata. Do not delete or rewrite the original payload destructively.
 
@@ -388,16 +393,22 @@ If scope must be reduced for initial delivery, default-create identities and pro
 
 Cloud DB is authoritative. `authorWorkspace:project:<projectId>` remains a recoverable cache; its companion metadata should include:
 
-- `schemaVersion`, `cloudContentVersion`, `lastSyncedAt`, and a server snapshot hash/ETag;
+- `schemaVersion`, `cloudRevision`, `lastSyncedAt`, and a server snapshot hash/ETag;
 - `dirty` plus a durable queue of explicit pending operations (not merely a boolean) once offline editing is enabled;
 - last known server `updated_at`/version and client/device ID;
 - a preserved last-synced snapshot for three-way manual comparison.
 
 MVP cloud rollout may be online-only writes with read cache/recovery fallback. Do not advertise offline edits until durable replay and conflict UI exist. Retry operations with idempotency keys and exponential backoff; never retry validation/authorization conflicts blindly.
 
-Optimistic concurrency uses project `content_version` (monotonic bigint) as the coarse guard and row `updated_at`/optional row version for precise edits. A transaction accepts `expected_content_version`; mismatch returns a conflict without writes. Laptop/phone divergence shows server, local pending changes, and last common snapshot for manual choice. Do not implement CRDT now. Scene text conflicts require explicit keep-local/keep-cloud/copy-both resolution; metadata fields may later support field-level merges.
+Optimistic concurrency uses project `revision` (monotonic bigint target type) as the coarse guard and row `updated_at`/optional row version for precise edits. A content transaction accepts `expected_revision`; mismatch returns a conflict without writes. Every successfully committed transaction that changes project content increments `revision` exactly once and returns the new value; rejected or rolled-back writes do not increment it. Laptop/phone divergence shows server, local pending changes, and last common snapshot for manual choice. Do not implement CRDT now. Scene text conflicts require explicit keep-local/keep-cloud/copy-both resolution; metadata fields may later support field-level merges.
 
-`schema_version` describes data shape, while `content_version` changes on committed content mutations. `updated_at` is informative, not a sufficient concurrency token because clocks and multi-row operations differ. Keep the existing `projects.revision` only if its meaning is migrated explicitly to `content_version`; otherwise add a separately named value.
+`schema_version` describes data shape, while `revision` is the content version and changes on committed content mutations. `updated_at` is informative, not a sufficient concurrency token because clocks and multi-row operations differ. Container-only updates must be classified before implementation: content-affecting project metadata participates in the same revision protocol; purely operational fields such as a maintenance timestamp do not. There must not be a second independent `content_version` counter.
+
+### Existing `projects.revision` audit and decision
+
+The cloud-foundation migration `20260812193655_cloud_foundation.sql` creates `projects.revision integer NOT NULL DEFAULT 0` with a nonnegative check, so the column exists in the production schema represented by repository migrations. The browser cloud API fetches it only incidentally through `projects.select("*")`; neither application code nor tests explicitly consume its value. Project creation relies on the default. The existing project RPCs (`set_project_series`, `reorder_series_projects`, and the project-detaching part of `archive_series_keep_projects`) update project rows without incrementing revision. There is no compare-and-swap predicate, `expected_revision` argument, stale-write rejection, or other working optimistic-concurrency flow. The earlier foundation document describes revision only as a reserved future revision/conflict contract, with no second meaning.
+
+Decision: retain the existing column name `revision` and formally define it as the sole project-content concurrency counter. The first content SQL phase may widen it from `integer` to `bigint` and must add transactional increment/expected-revision behavior, but must not add `content_version`. Existing container RPCs must be classified and updated consistently when this protocol is implemented; this documentation stage does not alter them.
 
 ### Atomic operation boundaries
 
@@ -405,7 +416,7 @@ Optimistic concurrency uses project `content_version` (monotonic bigint) as the 
 - Save character base and/or project overrides, including primary-image invariants.
 - Remove character from project with all project-only dependents.
 - Whole-project import with expected version and idempotency key.
-- Reorder/move scenes (all affected positions plus content-version bump).
+- Reorder/move scenes (all affected positions plus one revision bump).
 - Create/edit/move-scope structural link with duplicate validation.
 
 Use narrow Supabase RPCs/Postgres transactions for these multi-row operations. Simple single-row reads may use the Data API. Functions should be security invoker where RLS suffices, validate expected versions, and return the new version plus affected IDs.
@@ -423,7 +434,9 @@ Keep validation, version detection, migration, normalization, persistence, and s
 
 ## 15. Future publication platform
 
-A private `project` is an authoring workspace; a `publication` is an explicit public product. Publishing creates a curated revision/snapshot and selected assets. It never exposes private notes, hidden profile fields, relationships, timelines, drafts, or internal metadata through project tables.
+A private `project` is an authoring workspace and can never become public directly. A `publication` is a separate explicit public product, and each release is an immutable/curated publication revision snapshot with deliberately copied fields and selected assets. No public policy, view, or API may expose authoring project tables as a shortcut.
+
+Private-only by default includes internal notes, character hidden fields, structural/internal relationship notes, emotional relations, timeline metadata, `dateReview`, internal tags, and draft scene states. These fields are excluded unless a future publication workflow defines an explicit safe public projection for a particular field; merely publishing scene prose does not publish adjacent authoring metadata.
 
 Future model (not MVP migration):
 
@@ -446,7 +459,7 @@ Each phase is a separate small task, migration, review, and commit. Every schema
 
 ### Phase 1 — schema and security foundation
 
-Add version semantics, shared authorization helper design, common timestamp/metadata conventions, and content tables that later phases need, initially unused by production UI. Finalize canonical scene/chapter ordering and structural-link scope constraints first.
+Add the decided revision semantics, shared authorization helper design, common timestamp/metadata conventions, and content tables that later phases need, initially unused by production UI. Implement canonical scene ordering and nullable structural-link scope constraints as specified above.
 
 Tests: migration lint/unit assertions, local DB migration up/down-on-fresh checks, owner and cross-user RLS matrix, FK cross-owner attacks, grants/advisors.
 
@@ -496,16 +509,15 @@ Every phase runs unit tests, local Supabase integration tests, all applicable RL
 
 ## 17. Open decisions
 
-1. Canonical manuscript order: one project-wide scene position versus chapter position plus chapter-local scene position. Recommendation: one project-wide position for parity with current relation inheritance; chapter is grouping.
-2. Override merge semantics: JSON Merge Patch/null deletion versus an explicit `{set, unset}` envelope. Recommendation: tested explicit semantics before data import.
-3. Whether project-character removal is soft (`removed_at`) in MVP or handled by project/import snapshots plus hard join deletion.
-4. Visibility-only emotional relation rows: dedicated table versus `operation = inherit` change rows, after UI parity audit.
-5. Legacy-ID mapping retention: permanent import provenance table versus scoped metadata. A provenance table is preferable if exports/diagnostics need reliable lookup.
-6. Structural-link import default: project scope is safest; preview may offer bulk promote for clearly canonical biological links.
-7. Existing `projects.revision`: rename/migrate to authoritative `content_version` or retain and document it. Avoid two counters with overlapping meaning.
-8. Image upload transaction coordinator: browser orchestration with staged objects versus an Edge Function. Decide from file-size/auth/retry requirements; never use a frontend service-role key.
-9. Retention periods and account-deletion/legal requirements for trash and Storage objects.
-10. Collaboration timing and whether identity-library sharing needs an explicit per-identity grant model.
+1. Whether project-character removal is soft (`removed_at`) in MVP or handled by project/import snapshots plus hard join deletion.
+2. Legacy-ID mapping retention: permanent import provenance table versus scoped metadata. A provenance table is preferable if exports/diagnostics need reliable lookup.
+3. Structural-link import default and mapping UX: project scope remains the safe default; decide whether preview offers bulk promotion for clearly canonical biological links.
+4. Image upload transaction coordinator: browser orchestration with staged objects versus an Edge Function. Decide from file-size/auth/retry requirements; never use a frontend service-role key.
+5. Retention periods and account-deletion/legal requirements for trash and Storage objects.
+6. Detailed offline merge behavior beyond stale-revision rejection and manual conflict handling.
+7. Collaboration roles, timing, and whether identity-library sharing needs an explicit per-identity grant model.
+8. Publication moderation, takedown, and review policy for the later public platform.
+9. Whether automatic family inference is ever offered, and its explicit preview/confirmation rules; it is not part of the MVP structural-link model.
 
 ## 18. Risks
 
@@ -523,4 +535,4 @@ Every phase runs unit tests, local Supabase integration tests, all applicable RL
 
 ## 19. Architectural acceptance criteria
 
-The next SQL-schema task should be able to derive every table, FK direction, ownership route, delete rule, and core index without deciding the domain model anew. Before that task begins, resolve open decisions 1, 2, 4, and 7 because they affect irreversible schema/API semantics. No implementation phase starts automatically from this document.
+The next SQL-schema task should be able to derive every table, FK direction, ownership route, delete rule, and core index without deciding the domain model anew. Canonical scene order, sparse override/null semantics, emotional visibility changes, the authoritative `revision`, nullable character-link scope, and the publication boundary are closed decisions. Remaining open questions are scoped to their later implementation phases. No implementation phase starts automatically from this document.
