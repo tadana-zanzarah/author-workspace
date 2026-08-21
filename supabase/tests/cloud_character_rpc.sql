@@ -7,6 +7,7 @@ insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_co
 insert into public.projects(id,owner_id,title) values
 ('a2000000-0000-4000-8000-000000000001','a1000000-0000-4000-8000-000000000001','Characters A'),
 ('b2000000-0000-4000-8000-000000000001','b1000000-0000-4000-8000-000000000001','Characters B');
+insert into public.characters(id,owner_id,name) values('b3000000-0000-4000-8000-000000000001','b1000000-0000-4000-8000-000000000001','Foreign');
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-000000000001',true);
@@ -68,12 +69,9 @@ begin
 end $$;
 
 -- Cross-owner reads/mutations are indistinguishable from missing resources.
-do $$ declare r jsonb; foreign_character uuid; begin
-  reset role; set local role postgres;
-  insert into public.characters(owner_id,name) values('b1000000-0000-4000-8000-000000000001','Foreign') returning id into foreign_character;
-  set local role authenticated; perform set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-000000000001',true);
-  r:=public.update_character(foreign_character,0,'Attack','','{}'); if r->>'code'<>'NOT_FOUND' then raise exception 'foreign update %',r; end if;
-  r:=public.attach_project_character('a2000000-0000-4000-8000-000000000001',foreign_character,7,null,0,'{}'); if r->>'code'<>'NOT_FOUND' then raise exception 'foreign attach %',r; end if;
+do $$ declare r jsonb; begin
+  r:=public.update_character('b3000000-0000-4000-8000-000000000001',0,'Attack','','{}'); if r->>'code'<>'NOT_FOUND' then raise exception 'foreign update %',r; end if;
+  r:=public.attach_project_character('a2000000-0000-4000-8000-000000000001','b3000000-0000-4000-8000-000000000001',7,null,0,'{}'); if r->>'code'<>'NOT_FOUND' then raise exception 'foreign attach %',r; end if;
 end $$;
 
 reset role; set local role anon;
