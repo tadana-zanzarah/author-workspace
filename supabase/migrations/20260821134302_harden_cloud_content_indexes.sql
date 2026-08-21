@@ -1,0 +1,15 @@
+alter table public.scene_characters drop constraint scene_characters_scene_character_key;
+alter table public.scene_characters add constraint scene_characters_pkey primary key (scene_id, project_character_id);
+
+create index scene_tags_project_scene_idx on public.scene_tags(project_id,scene_id);
+create index scene_tags_project_tag_idx on public.scene_tags(project_id,tag_id);
+create index scene_characters_project_scene_idx on public.scene_characters(project_id,scene_id);
+create index scene_characters_project_character_composite_idx on public.scene_characters(project_id,project_character_id);
+create index scene_relation_changes_project_scene_idx on public.scene_relation_changes(project_id,scene_id);
+create index scene_relation_changes_project_from_idx on public.scene_relation_changes(project_id,from_project_character_id);
+create index scene_relation_changes_project_to_idx on public.scene_relation_changes(project_id,to_project_character_id);
+create index character_links_owner_idx on public.character_links(owner_id);
+create index character_links_owner_project_idx on public.character_links(owner_id,project_id);
+create index character_links_owner_from_idx on public.character_links(owner_id,from_character_id);
+create index character_links_owner_to_idx on public.character_links(owner_id,to_character_id);
+create index character_images_character_context_idx on public.character_images(character_id,project_character_id);
