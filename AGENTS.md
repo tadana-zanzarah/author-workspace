@@ -48,3 +48,8 @@
 - `REVISION_CONFLICT` нельзя автоматически повторять: caller обязан reload/resolve конфликт.
 - Семантический no-op не изменяет content rows, `projects.updated_at` или `projects.revision`.
 - Cloud mutation обязана сначала получить row lock проекта и проверить ownership/revision; обход этого concurrency contract запрещён.
+- Глобальная mutation character identity обязана блокировать character row и проверять её собственный concurrency token; project revision для неё использовать запрещено.
+- Project-scoped character, participation, relation и structural-link mutations используют `expected_revision` проекта; изменившая операция увеличивает project revision ровно один раз, semantic no-op не увеличивает её.
+- Semantic no-op глобального character или global structural link не увеличивает его глобальную revision.
+- Derived/effective emotional relation state по сценам не сохраняется: persistence содержит только initial relation и явные scene changes.
+- При подключении cloud UI запрещено обходить transactional character/relationship RPC прямыми записями content tables.

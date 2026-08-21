@@ -114,4 +114,16 @@ Scene order remains one canonical project-wide `(position,id)` order using `nume
 
 Scene deletion is soft (`deleted_at`); joins remain stored and are omitted from the active snapshot through the scene list. Chapter and location deletion use the existing composite foreign keys' `SET NULL` behavior. Tag deletion cascades scene-tag joins. Tag normalized names are computed server-side by trimming, folding whitespace, and lowercasing. `set_scene_tags` validates same-project membership, deduplicates input IDs, replaces the set atomically, and is a no-op when the set is identical.
 
-Only `authenticated` receives execute permission on public RPC entrypoints; `PUBLIC` and `anon` are revoked. Functions use `auth.uid()` and never accept an owner ID. They remain RLS-bound `SECURITY INVOKER` functions. Character participation and emotional relation-change mutation RPCs are intentionally deferred until cloud character population is introduced.
+Only `authenticated` receives execute permission on public RPC entrypoints; `PUBLIC` and `anon` are revoked. Functions use `auth.uid()` and never accept an owner ID. They remain RLS-bound `SECURITY INVOKER` functions.
+
+## Character concurrency boundaries
+
+Global identity and project state deliberately use separate tokens. `characters.revision bigint` protects `name`, `surname`, `base_profile`, and archive state. Every changed identity mutation locks that character and increments its revision once; semantic no-ops do not. Creation starts at revision `0`. A stale token returns `CHARACTER_REVISION_CONFLICT` with the entity ID and expected/actual values.
+
+Each global (`project_id is null`) structural link has its own `character_links.revision`. This avoids coupling unrelated characters through an account-wide counter. Global link writes lock the link and return `GLOBAL_LINK_REVISION_CONFLICT` when stale. Project-scoped links, membership, overrides, participants, initial relations, and scene relation changes instead lock the owning project and use `projects.revision`; one changed logical operation increments it exactly once and a no-op does not.
+
+`base_profile` stays an object. Unknown safe fields and explicit JSON nulls survive replacement, while `favorites` and `hobbies`, when present, must remain arrays. Project `overrides` is a full object replacement: absent means inherit, a present value overrides, an allowed null is an explicit blank, and removing a key restores inheritance. Effective merged profiles are never persisted.
+
+Project-character removal never deletes the global identity. The default operation reports `DEPENDENCIES_EXIST` with counts for scene participation, emotional relations/changes, project images, and project links. Destructive cleanup requires `cleanup_dependencies=true` and occurs in the same project transaction.
+
+Emotional storage remains event-based: `project_character_relations` contains directed initial state and `scene_relation_changes` contains only explicit changes. Reverse directions are independent, and effective replay state is derived by the read/application layer rather than denormalized per scene.
