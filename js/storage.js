@@ -1,4 +1,5 @@
 import {STORAGE_KEY,UI_STORAGE_KEY,OLD_KEYS} from "./constants.js";
+import {activeWorkspaceContext} from "./workspace-storage.js";
 import {parseProjectJson,prepareProject,defaultData,safeOwnCopy} from "./migrations.js";
 
 function storageProjectScore(project){
@@ -27,10 +28,10 @@ function parseStorageCandidate(key,storage=globalThis.localStorage){
 function blockedMemoryProject(){
   return {version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Данные заблокированы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[],readOnlyRecovery:true};
 }
-function loadProjectFromStorage({storage=globalThis.localStorage,key=STORAGE_KEY,oldKeys=OLD_KEYS}={}){
+function loadProjectFromStorage({storage=globalThis.localStorage,key=STORAGE_KEY,oldKeys=OLD_KEYS,discover=true}={}){
   const primary=parseStorageCandidate(key,storage);
   const discovered=[];
-  try{for(let i=0;i<storage.length;i++){const candidateKey=storage.key(i);if(candidateKey&&candidateKey!==key&&/novel|author.?workspace|timeline/i.test(candidateKey))discovered.push(candidateKey)}}catch{}
+  if(discover)try{for(let i=0;i<storage.length;i++){const candidateKey=storage.key(i);if(candidateKey&&candidateKey!==key&&/novel|author.?workspace|timeline/i.test(candidateKey))discovered.push(candidateKey)}}catch{}
   const candidateKeys=[...new Set([...oldKeys,...discovered])];
   const candidates=candidateKeys.map(k=>parseStorageCandidate(k,storage)).filter(x=>x.exists)
     .sort((a,b)=>(b.version-a.version)||(b.timestamp-a.timestamp)||(b.score-a.score));
@@ -43,18 +44,19 @@ function loadProjectFromStorage({storage=globalThis.localStorage,key=STORAGE_KEY
   if(anyStorageError)return {ok:false,blocked:true,data:blockedMemoryProject(),primary:anyStorageError,candidates:[]};
   return {ok:true,data:defaultData(),source:null,fresh:true,candidates:[]};
 }
-function loadDataSafe(){
-  const result=loadProjectFromStorage();
+function loadDataSafe(options={}){
+  const context=activeWorkspaceContext();
+  const result=loadProjectFromStorage({key:context.storageKey,oldKeys:context.legacy?OLD_KEYS:[],discover:context.legacy,...options});
   startupLoadInfo=result;
   if(!result.ok)storageWriteEnabled=false;
   return result.data;
 }
 
-function recoveryBackupKey(primaryKey=STORAGE_KEY,now=new Date()){
+function recoveryBackupKey(primaryKey=activeWorkspaceContext().storageKey,now=new Date()){
   return `${primaryKey}-recovery-backup-${now.toISOString().replace(/[:.]/g,"-")}`;
 }
 
-function restoreProjectCandidate({storage=globalThis.localStorage,primaryKey=STORAGE_KEY,candidateKey,candidateRaw:rawOverride,candidateReport,characterResolutions={}}={}){
+function restoreProjectCandidate({storage=globalThis.localStorage,primaryKey=activeWorkspaceContext().storageKey,candidateKey,candidateRaw:rawOverride,candidateReport,characterResolutions={}}={}){
   let original,candidateRaw;
   try{original=storage.getItem(primaryKey);candidateRaw=rawOverride??storage.getItem(candidateKey)}catch(error){return {ok:false,error,userMessage:storageErrorMessage(error)}}
   if(candidateRaw==null)return {ok:false,userMessage:"Выбранная резервная версия больше не найдена. Исходные данные не изменены."};
@@ -108,7 +110,7 @@ function commitDataChange(mutator,{renderAfter=true,onSuccess,onError}={}){
     const result={ok:false,userMessage:"Автосохранение заблокировано: сначала сохраните проблемные исходные данные."};
     showStorageMessage(result.userMessage,"error");onError?.(result);return result;
   }
-  const result=commitProjectChange(data,mutator);
+  const result=commitProjectChange(data,mutator,{key:activeWorkspaceContext().storageKey});
   if(!result.ok){showStorageMessage(result.userMessage,"error");onError?.(result);return result}
   data=result.data;
   const status=document.getElementById("saveStatus");
@@ -121,7 +123,7 @@ function showStorageMessage(message,type="warning"){
 }
 function saveData(){
   if(!storageWriteEnabled){showStorageMessage("Автосохранение отключено: проблемная база защищена от перезаписи.","error");return false}
-  const result=persistProject(data);
+  const result=persistProject(data,{key:activeWorkspaceContext().storageKey});
   if(!result.ok){showStorageMessage(result.userMessage,"error");return false}
   const status=document.getElementById("saveStatus");
   if(status)status.textContent=`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
@@ -182,7 +184,7 @@ function initializeRecoveryUi(){
   };
   document.getElementById("newProjectRecovery").onclick=()=>{
     if(prompt("Новый пустой проект заменит текущую повреждённую базу после создания резервной копии. Введите НОВЫЙ ПРОЕКТ:")!=="НОВЫЙ ПРОЕКТ")return;
-    const temporaryKey=`${STORAGE_KEY}-new-project-source`,empty=defaultData();
+    const temporaryKey=`${activeWorkspaceContext().storageKey}-new-project-source`,empty=defaultData();
     try{localStorage.setItem(temporaryKey,JSON.stringify(empty));const result=restoreProjectCandidate({candidateKey:temporaryKey});if(!result.ok){showStorageMessage(result.userMessage,"error");return}data=result.data;storageWriteEnabled=true;forceHideModal("recoveryModal");render();showStorageMessage("Создан новый пустой проект. Предыдущая база сохранена отдельно.","warning")}finally{try{localStorage.removeItem(temporaryKey)}catch{}}
   };
   if(startupLoadInfo?.blocked)openRecoveryModal();
@@ -197,10 +199,10 @@ function initializeStorageNotice(){
   }
 }
 function loadUiState(){
-  try{const ui=JSON.parse(localStorage.getItem(UI_STORAGE_KEY)||"{}");navigationVisible=ui.navigationVisible!==false}catch{navigationVisible=true}
+  try{const ui=JSON.parse(localStorage.getItem(activeWorkspaceContext().uiStorageKey)||"{}");navigationVisible=ui.navigationVisible!==false}catch{navigationVisible=true}
   document.querySelector(".app-shell").classList.toggle("navigation-hidden",!navigationVisible);
 }
-function saveUiState(){try{localStorage.setItem(UI_STORAGE_KEY,JSON.stringify({navigationVisible}))}catch{}}
+function saveUiState(){try{localStorage.setItem(activeWorkspaceContext().uiStorageKey,JSON.stringify({navigationVisible}))}catch{}}
 
 Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState});
 export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState};

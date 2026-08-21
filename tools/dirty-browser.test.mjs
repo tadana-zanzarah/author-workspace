@@ -8,7 +8,7 @@ page.setDefaultTimeout(5000);
 const errors=[];page.on("pageerror",error=>errors.push(error.message));page.on("console",message=>{if(message.type()==="error")errors.push(message.text())});
 const project={version:11,characters:[{id:"character-a",name:"Анна"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"Анна",photos:[],hidden:{},initialRelations:{}}},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false},{id:"chapter-two",title:"Глава 2",collapsed:false}],locations:[{id:"location-a",name:"Дом",description:""},{id:"location-b",name:"Парк",description:""}],tags:[{id:"tag-a",name:"тест"},{id:"tag-b",name:"другой"}],future:{},scenes:[{id:"scene-a",title:"Исходная",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"location-a",tags:["tag-a"],writingStatus:"draft",sceneText:"Сохранённый текст",included:true,status:"fixed",people:{"character-a":{action:"Входит",relationChanges:{},visibleRelations:[]}}},{id:"scene-b",title:"Вторая",date:"",time:"",dateReview:false,chapterId:"chapter-two",locationId:"",tags:[],writingStatus:"idea",sceneText:"Второй текст",included:true,status:"floating",people:{}}]};
 await page.addInitScript(value=>localStorage.setItem("novelTimelineV11",JSON.stringify(value)),project);
-await page.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+await page.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
 const visible=id=>page.locator(`#${id}`).isVisible();
 
 await page.evaluate(()=>editScene("scene-a"));

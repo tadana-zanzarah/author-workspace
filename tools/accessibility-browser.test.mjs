@@ -12,7 +12,7 @@ page.on("console",message=>{if(message.type()==="error")errors.push(message.text
 
 const project={version:11,characters:[{id:"character-a",name:"Анна"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"Анна",photos:[],hidden:{},initialRelations:{}}},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],scenes:[{id:"scene-a",title:"Исходная сцена",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],writingStatus:"draft",sceneText:"Текст",included:true,status:"fixed",people:{}}]};
 await page.addInitScript(value=>localStorage.setItem("novelTimelineV11",JSON.stringify(value)),project);
-await page.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});
+await page.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
 
 const activeInside=id=>page.evaluate(modalId=>document.getElementById(modalId).contains(document.activeElement),id);
 const activeId=()=>page.evaluate(()=>document.activeElement?.id||document.activeElement?.getAttribute("data-action")||document.activeElement?.tagName);
@@ -67,7 +67,7 @@ await page.click("#projectMenu > summary");await page.locator("#manageChars").fo
 const profileOpener=page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).first();await profileOpener.focus();await page.keyboard.press("Enter");
 if(!await activeInside("profileEditorModal"))throw new Error("Фокус не перешёл в редактор анкеты");
 await page.click("#cancelProfile");if(!await activeInside("charsModal"))throw new Error("Закрытие анкеты не вернуло фокус в characters modal");
-await page.click("#closeChars");if(await activeId()!==charsOpener)throw new Error("Закрытие characters modal не вернуло фокус к opener");
+await page.click("#closeChars");if(await activeId()!=="SUMMARY")throw new Error("Закрытие characters modal не вернуло фокус к Navigation summary");
 
 const modalReturnCases=[
   ["#manageChapters","chaptersModal","#closeChapters"],
@@ -78,7 +78,7 @@ const modalReturnCases=[
 for(const [openerSelector,modalId,closerSelector] of modalReturnCases){
   await page.evaluate(()=>document.getElementById("projectMenu").open=true);const openerElement=page.locator(openerSelector);await openerElement.focus();await page.keyboard.press("Enter");
   if(!await activeInside(modalId))throw new Error(`Фокус не вошёл в ${modalId}`);
-  await page.click(closerSelector);const expected=modalId==="sortScenesModal"?"SUMMARY":openerSelector.slice(1),actual=await activeId();if(actual!==expected)throw new Error(`Фокус не вернулся из ${modalId}: ${actual}`);
+  await page.click(closerSelector);const actual=await activeId();if(actual!=="SUMMARY")throw new Error(`Фокус не вернулся из ${modalId} к Navigation summary: ${actual}`);
 }
 
 await page.locator('[data-scene-id="scene-a"] button').filter({hasText:"Текст"}).focus();const textOpener=await activeId();await page.keyboard.press("Enter");
@@ -87,7 +87,7 @@ await page.evaluate(()=>quickEditChapter("scene-a"));if(!await activeInside("qui
 
 const recoveryContext=await browser.newContext(),recoveryPage=await recoveryContext.newPage();
 await recoveryPage.addInitScript(()=>{localStorage.setItem("novelTimelineV11","{broken");localStorage.setItem("novelTimelineV10",JSON.stringify({version:10,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы"}],locations:[],tags:[],scenes:[]}))});
-await recoveryPage.goto("http://127.0.0.1:8000/",{waitUntil:"networkidle"});await recoveryPage.waitForSelector("#recoveryModal",{state:"visible"});
+await recoveryPage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});await recoveryPage.waitForSelector("#recoveryModal",{state:"visible"});
 if(!await recoveryPage.evaluate(()=>document.getElementById("recoveryModal").contains(document.activeElement)&&document.querySelector("header").inert))throw new Error("Recovery modal не управляет focus/background");
 await recoveryContext.close();
 

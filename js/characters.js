@@ -178,7 +178,7 @@ function editProfileNow(characterId){
   const character=characterById(characterId)||profileDraftCharacter;if(!character||character.id!==characterId)return;
   const p=normalizeProfile(data.profiles?.[characterId],character);
   profileDraftPhotos=[...(p.photos||[])];
-  document.getElementById("profileEditorTitle").textContent=`Анкета: ${p.name||character.name}`;
+  document.getElementById("profileEditorTitle").textContent=p.name||character.name?`Анкета: ${p.name||character.name}`:"Новый персонаж";
   const values={
     name:p.name||character.name,surname:p.surname,race:p.race,sex:p.sex,secondarySex:p.secondarySex,
     age:p.age,height:p.height,build:p.build,profession:p.profession,orientation:p.orientation,

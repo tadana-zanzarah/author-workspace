@@ -12,6 +12,103 @@
 <link rel="stylesheet" href="css/layout.css">
 </head>
 <body>
+<div id="cloudShell">
+  <section id="sessionLoading" class="state-screen" aria-live="polite">
+    <div class="account-card"><h1>Рабочее пространство автора</h1><p>Проверяем сессию…</p></div>
+  </section>
+  <section id="authScreen" class="state-screen" hidden>
+    <form id="authForm" class="account-card">
+      <h1>Вход</h1>
+      <p class="account-note">Войдите, чтобы открыть облачные контейнеры проектов. Сцены и персонажи пока сохраняются только на этом устройстве.</p>
+      <label><span>Email</span><input id="authEmail" name="email" type="email" autocomplete="email" required></label>
+      <label><span>Пароль</span><input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="6" required></label>
+      <label><span>Отображаемое имя</span><input id="authDisplayName" name="displayName" autocomplete="name" maxlength="120"></label>
+      <div class="account-actions">
+        <button class="primary" id="signInButton" type="submit">Войти</button>
+        <button id="signUpButton" type="button">Создать аккаунт</button>
+      </div>
+      <p id="authMessage" class="account-message" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+  <section id="projectsScreen" class="projects-screen" hidden>
+    <div class="projects-head">
+      <div><h1>Мои проекты</h1><p class="account-note">Облачные контейнеры и локальные рабочие пространства</p></div>
+      <details class="account-menu" id="dashboardAccountMenu">
+        <summary id="accountName">Аккаунт</summary>
+        <div class="account-menu-panel">
+          <button id="accountProjects" type="button">Мои проекты</button>
+          <button id="dashboardLogout" type="button">Выйти</button>
+        </div>
+      </details>
+    </div>
+    <div id="cloudFailure" class="storage-banner" role="alert" hidden></div>
+    <aside id="legacyNotice" class="legacy-notice" hidden>
+      <strong>На этом устройстве найден локальный проект из предыдущей версии.</strong>
+      <p>Он не перенесён и не будет удалён автоматически.</p>
+      <div class="account-actions">
+        <button id="downloadLegacyBackup" type="button">Сохранить резервную копию</button>
+        <button id="dismissLegacyNotice" type="button">Не сейчас</button>
+      </div>
+    </aside>
+    <div class="dashboard-actions">
+      <button class="primary" id="openNewProject" type="button">＋ Новый проект</button>
+      <button id="openNewSeries" type="button">＋ Новый цикл</button>
+    </div>
+    <p id="dashboardMessage" class="account-message" role="status" aria-live="polite"></p>
+    <div id="projectsLoadingState" class="cloud-empty-state" role="status" aria-live="polite" hidden>
+      <strong>Загрузка проектов…</strong>
+    </div>
+    <div id="projectsErrorState" class="cloud-empty-state" role="alert" hidden>
+      <strong>Не удалось загрузить проекты.</strong>
+      <span id="projectsErrorMessage">Облачный сервис сейчас недоступен.</span>
+      <button id="retryDashboard" type="button">Повторить</button>
+    </div>
+    <div id="projectsEmptyState" class="cloud-empty-state" hidden>
+      <strong>Проектов пока нет.</strong>
+      <span>Создайте первый проект.</span>
+      <button class="primary" id="emptyNewProject" type="button">＋ Новый проект</button>
+    </div>
+    <section><h2>Циклы</h2><div id="seriesList" class="cloud-list"></div></section>
+    <section><h2>Отдельные проекты</h2><div id="standaloneProjects" class="cloud-list"></div></section>
+  </section>
+  <div id="workspaceCloudBar" class="workspace-cloud-bar" hidden>
+    <button id="backToProjects" type="button">← Мои проекты</button>
+    <span>Текущий проект: <strong id="workspaceProjectTitle"></strong></span>
+    <span class="local-only-indicator">Рабочие данные пока сохраняются локально на устройстве</span>
+    <details class="account-menu" id="workspaceAccountMenu">
+      <summary id="workspaceAccountName">Аккаунт</summary>
+      <div class="account-menu-panel">
+        <button id="workspaceProjects" type="button">Мои проекты</button>
+        <button id="workspaceLogout" type="button">Выйти</button>
+      </div>
+    </details>
+  </div>
+</div>
+<div class="modal-backdrop" id="newProjectModal" role="dialog" aria-modal="true" aria-labelledby="newProjectTitle">
+  <form id="newProjectForm" class="modal cloud-form-modal">
+    <h2 id="newProjectTitle">Новый проект</h2>
+    <label><span class="field-caption">Название</span><input name="title" maxlength="200" required data-initial-focus></label>
+    <label><span class="field-caption">Описание (необязательно)</span><textarea name="description" maxlength="10000"></textarea></label>
+    <label><span class="field-caption">Цикл</span><select name="seriesId"><option value="">Без цикла</option></select></label>
+    <p id="newProjectError" class="account-message error" role="alert"></p>
+    <div class="modal-actions">
+      <button id="cancelNewProject" type="button">Отмена</button>
+      <button class="primary" type="submit">Создать проект</button>
+    </div>
+  </form>
+</div>
+<div class="modal-backdrop" id="newSeriesModal" role="dialog" aria-modal="true" aria-labelledby="newSeriesTitle">
+  <form id="newSeriesForm" class="modal cloud-form-modal">
+    <h2 id="newSeriesTitle">Новый цикл</h2>
+    <label><span class="field-caption">Название</span><input name="title" maxlength="200" required data-initial-focus></label>
+    <label><span class="field-caption">Описание (необязательно)</span><textarea name="description" maxlength="10000"></textarea></label>
+    <p id="newSeriesError" class="account-message error" role="alert"></p>
+    <div class="modal-actions">
+      <button id="cancelNewSeries" type="button">Отмена</button>
+      <button class="primary" type="submit">Создать цикл</button>
+    </div>
+  </form>
+</div>
 <header>
   <h1>Рабочее пространство автора</h1>
   <button class="primary" id="addFirst">＋ Новая сцена</button>
@@ -49,7 +146,7 @@
       <div id="sideChapters" class="sidebar-list"></div>
     </div>
     <div class="sidebar-section">
-      <div class="sidebar-title">Персонажи</div>
+      <div class="sidebar-title">Персонажи <button class="nav-manage" id="sidebarManageChars" type="button">настроить</button></div>
       <div id="sideCharacters" class="sidebar-list"></div>
     </div>
     <div class="sidebar-section">

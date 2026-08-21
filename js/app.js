@@ -1,4 +1,5 @@
 import "./constants.js";
+import "./workspace-storage.js";
 import "./state.js";
 import "./dirty-state.js";
 import "./modal-manager.js";
@@ -362,10 +363,17 @@ document.getElementById("cancelScene").onclick=()=>requestCloseModal("sceneModal
 document.getElementById("sceneModal").onclick=e=>{if(e.target.id==="sceneModal")requestCloseModal("sceneModal","backdrop")};
 
 
-document.getElementById("manageChars").onclick=()=>{
+function openCharactersManager(){
+  const menu=document.getElementById("projectMenu");menu.open=false;menu.querySelector("summary")?.focus();
   renderProfiles();
   showModal("charsModal");
-};
+}
+document.getElementById("manageChars").onclick=openCharactersManager;
+document.getElementById("sidebarManageChars").onclick=openCharactersManager;
+document.getElementById("projectMenu").addEventListener("click",event=>{
+  if(!event.target.closest("button,.file-label"))return;
+  const menu=document.getElementById("projectMenu");menu.open=false;menu.querySelector("summary")?.focus();
+},{capture:true});
 document.getElementById("closeChars").onclick=()=>hideModal("charsModal");
 document.getElementById("charsModal").onclick=e=>{if(e.target.id==="charsModal")hideModal("charsModal")};
 
@@ -385,9 +393,7 @@ document.getElementById("characterTimelineModal").onclick=e=>{if(e.target.id==="
 
 
 document.getElementById("addChar").onclick=()=>{
-  let base="Новый персонаж",name=base,n=2;
-  while(data.characters.some(c=>c.name===name))name=`${base} ${n++}`;
-  const character={id:makeId("character"),name};
+  const character={id:makeId("character"),name:""};
   profileDraftCharacter=character;
   editProfile(character.id);
 };
@@ -420,7 +426,10 @@ document.getElementById("profileEditorModal").onclick=e=>{
 document.getElementById("saveProfile").onclick=()=>{
   const character=characterById(profileEditingId)||profileDraftCharacter;
   if(!character)return;
-  const newName=document.getElementById("pf_name").value.trim()||character.name;
+  const nameInput=document.getElementById("pf_name");
+  const newName=nameInput.value.trim();
+  if(!newName){nameInput.setCustomValidity("Введите имя персонажа.");nameInput.reportValidity();nameInput.focus();return}
+  nameInput.setCustomValidity("");
   if(data.characters.some(c=>c.id!==character.id&&c.name.toLocaleLowerCase("ru")===newName.toLocaleLowerCase("ru"))){
     alert("Персонаж с таким именем уже существует.");
     return;
@@ -514,7 +523,8 @@ document.getElementById("importInput").onchange=async e=>{
       const resolvable=report.errors.length===0&&report.conflicts.length>0&&report.conflicts.every(item=>item.type==="ambiguous-character-name"||item.resolution==="confirmation");
       if(resolvable){
         const raw=await file.text(),candidate=parseStorageCandidate(`Импорт: ${file.name}`,{getItem:()=>raw});
-        candidate.isImport=true;startupLoadInfo={ok:false,blocked:true,primary:parseStorageCandidate(STORAGE_KEY),candidates:[candidate],raw:localStorage.getItem(STORAGE_KEY)};
+        const activeKey=activeWorkspaceContext().storageKey;
+        candidate.isImport=true;startupLoadInfo={ok:false,blocked:true,primary:parseStorageCandidate(activeKey),candidates:[candidate],raw:localStorage.getItem(activeKey)};
         openRecoveryModal();showStorageMessage("Импорт требует ручного решения. Текущий проект не изменён.","warning");e.target.value="";return;
       }
       const details=[...report.errors,...report.conflicts].slice(0,5).map(x=>x.message||`${x.type}: ${x.id||x.name||x.path||""}`).join("\n");
@@ -522,7 +532,7 @@ document.getElementById("importInput").onchange=async e=>{
     }
     const summary=`Проверка завершена.\nВерсия: ${report.sourceVersion} → 11\nШагов миграции: ${report.performedSteps.length}\nПредупреждений: ${report.warnings.length}\nНеизвестные поля сохраняются.\n\nПрименить импорт и заменить текущий проект?`;
     if(!confirm(summary)){showStorageMessage("Импорт отменён. Текущий проект не изменён.","warning");return}
-    const saved=persistProject(report.migratedData);
+    const saved=persistProject(report.migratedData,{key:activeWorkspaceContext().storageKey});
     if(!saved.ok)throw new Error(saved.userMessage);
     data=report.migratedData;storageWriteEnabled=true;
     selectedSceneId=null;selectedSceneIndex=null;
@@ -538,7 +548,7 @@ document.getElementById("clearBtn").onclick=()=>{
   const answer=prompt(warning);
   if(answer!=="УДАЛИТЬ")return;
   const next=defaultData();
-  const saved=persistProject(next);
+  const saved=persistProject(next,{key:activeWorkspaceContext().storageKey});
   if(!saved.ok){showStorageMessage(saved.userMessage,"error");return}
   data=next;
   selectedSceneId=null;
@@ -559,3 +569,4 @@ document.getElementById("downloadProblemRaw").hidden=!startupLoadInfo?.blocked;
 document.getElementById("openRecovery").hidden=!startupLoadInfo?.blocked;
 document.getElementById("openRecovery").onclick=openRecoveryModal;
 initializeRecoveryUi();
+await import("./cloud-app.js");

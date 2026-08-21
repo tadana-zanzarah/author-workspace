@@ -98,6 +98,8 @@
     font-size:12px;cursor:grab;user-select:none;
     border:1px dashed var(--line);border-radius:7px;padding:5px 7px;
   }
+  .scene-row:not(.dragging) .drag-handle{-webkit-user-drag:element}
+  .scene-row img,.scene-row a{-webkit-user-drag:none}
   .drag-handle:active{cursor:grabbing}
   .card{
     height:100%;border:1px solid #cabeb2;background:#fffaf5;
