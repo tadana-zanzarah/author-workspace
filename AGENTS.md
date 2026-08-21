@@ -43,3 +43,8 @@
 - Family tree является presentation layer и не должен дублировать business data structural links.
 - Неизвестные безопасные metadata-поля structural links должны сохраняться при import → save → load → export.
 - Перед cloud persistence нужно отдельно решить, какие structural links принадлежат global character identity, а какие являются project-level overrides.
+- Если для cloud content operation существует transactional RPC, прямые записи соответствующих content tables из UI запрещены.
+- Каждая cloud content mutation обязана передавать `expected_revision`; успешная логическая операция увеличивает `projects.revision` ровно один раз.
+- `REVISION_CONFLICT` нельзя автоматически повторять: caller обязан reload/resolve конфликт.
+- Семантический no-op не изменяет content rows, `projects.updated_at` или `projects.revision`.
+- Cloud mutation обязана сначала получить row lock проекта и проверить ownership/revision; обход этого concurrency contract запрещён.

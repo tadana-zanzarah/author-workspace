@@ -95,7 +95,23 @@ Indexes cover owner lookup, project/character lookup, canonical chapter/scene
 ordering, chapter/location access, join directions, relation endpoints, link
 scope/endpoints, image contexts, and every composite FK reported by advisors.
 
-Deferred intentionally: content API/RPCs, revision increments, import/sync,
-position normalization, removal preview UX, semantic reversed-link duplicate
-detection, collaboration, Storage buckets/uploads, and all frontend integration.
-LocalStorage remains the content source of truth in this phase.
+Deferred intentionally: import/sync, removal preview UX, semantic reversed-link
+duplicate detection, collaboration, Storage buckets/uploads, character/relation
+mutation RPCs, and workspace integration. LocalStorage remains the content source
+of truth in this phase.
+
+## Transactional content API
+
+The public content API is implemented as small `SECURITY INVOKER` database functions. A mutation locks the active owner-visible `projects` row with `SELECT ... FOR UPDATE`, compares `expected_revision`, validates every referenced descendant, performs the logical change, and only then updates `projects.revision` and `projects.updated_at`. A successful changed operation consumes exactly one revision. Validation failures, stale writers, and semantic no-ops consume none.
+
+`projects.revision bigint` is the only authoritative content concurrency counter. There is no entity-level or parallel content version. A stale request returns `REVISION_CONFLICT` with `expectedRevision` and `actualRevision`; clients must reload or resolve it and must not blind-retry.
+
+Public RPCs are `get_project_content`, chapter create/update/delete/reorder, location create/update/delete, tag create/update/delete, scene create/update/delete/move, and `set_scene_tags`. They return JSON objects with `ok`, `code`, `message`, `changed`, and, when applicable, `revision`, `data`, and conflict revisions. Domain codes are `REVISION_CONFLICT`, `NOT_FOUND`, `FORBIDDEN`, `VALIDATION_ERROR`, `DUPLICATE`, and `POSITION_ERROR`. Unexpected client-side transport/database errors normalize to `UNKNOWN` without exposing SQL details.
+
+`get_project_content(project_id)` is the consistent read contract. One database statement/snapshot returns the project revision together with deterministically ordered chapters, locations, tags, active scenes, and scene-tag joins. It excludes soft-deleted projects/scenes and cannot see another owner's project through RLS.
+
+Scene order remains one canonical project-wide `(position,id)` order using `numeric(20,10)`. `move_scene` accepts the semantic destination `{target_chapter_id,before_scene_id}`. It uses the midpoint between canonical neighbors, a spaced boundary value before the first/after the last, and atomically renormalizes active scenes to 1000-point spacing when scale-10 precision is exhausted. Renormalization is part of the move transaction and never bumps revision separately. A scene already at the same semantic destination is a no-op. Every actual move, including a chapter-only move, sets `date_review=true`.
+
+Scene deletion is soft (`deleted_at`); joins remain stored and are omitted from the active snapshot through the scene list. Chapter and location deletion use the existing composite foreign keys' `SET NULL` behavior. Tag deletion cascades scene-tag joins. Tag normalized names are computed server-side by trimming, folding whitespace, and lowercasing. `set_scene_tags` validates same-project membership, deduplicates input IDs, replaces the set atomically, and is a no-op when the set is identical.
+
+Only `authenticated` receives execute permission on public RPC entrypoints; `PUBLIC` and `anon` are revoked. Functions use `auth.uid()` and never accept an owner ID. They remain RLS-bound `SECURITY INVOKER` functions. Character participation and emotional relation-change mutation RPCs are intentionally deferred until cloud character population is introduced.
