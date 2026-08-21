@@ -19,6 +19,8 @@
     color:var(--muted);
   }
   .profile-cover img{width:100%;height:100%;object-fit:cover}
+  .profile-cover-button{width:100%;height:100%;padding:0;border:0;border-radius:0;overflow:hidden;background:transparent}
+  .profile-cover-button img{transition:transform .15s ease}
   .profile-body{padding:13px}
   .profile-name{font-size:19px;font-weight:750;margin-bottom:8px}
   .profile-facts{display:grid;gap:5px;font-size:13px}
@@ -74,13 +76,19 @@
   }
   .photo-item{
     position:relative;border:1px solid var(--line);border-radius:9px;overflow:hidden;
-    height:145px;background:#eee;
+    min-height:210px;background:#eee;
   }
-  .photo-item img{width:100%;height:100%;object-fit:cover}
-  .photo-item button{
-    position:absolute;right:5px;top:5px;padding:3px 7px;
-    background:rgba(255,255,255,.9);
-  }
+  .photo-item img{width:100%;height:145px;object-fit:cover;display:block}
+  .photo-actions{display:flex;gap:5px;flex-wrap:wrap;padding:7px;background:#fbfaf8;position:relative}
+  .photo-actions button{padding:5px 7px;font-size:11px}
+  .photo-primary{position:absolute;left:6px;top:6px;z-index:2;padding:3px 6px;border-radius:999px;background:rgba(255,255,255,.92);font-size:11px;font-weight:700}
+  .photo-crop-modal{width:min(680px,100%);max-height:94vh}
+  .photo-crop-viewport{width:min(100%,520px);aspect-ratio:260/210;margin:10px auto;overflow:hidden;border:2px solid var(--accent);border-radius:var(--radius);background:#222;touch-action:none;cursor:grab}
+  .photo-crop-viewport img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;transform-origin:center}
+  .photo-nudges{display:flex;justify-content:center;gap:7px;margin-top:8px}
+  .photo-nudges button{min-width:42px}
+  .photo-lightbox-modal{width:min(1000px,100%);max-height:94vh;text-align:center}
+  .photo-lightbox-modal img{display:block;max-width:100%;max-height:72vh;width:auto;height:auto;margin:auto;object-fit:contain}
   .initial-relations{
     display:grid;gap:8px;
   }
@@ -94,4 +102,5 @@
     .profile-editor-grid{grid-template-columns:1fr}
     .profile-field.full{grid-column:auto}
     .initial-relation-row{grid-template-columns:1fr}
+    .photo-crop-modal{padding:14px}.photo-crop-viewport{width:100%}.photo-actions button{flex:1 1 auto}
   }

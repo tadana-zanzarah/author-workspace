@@ -199,6 +199,26 @@ function normalizeMultiValue(value){
   }
   return result;
 }
+function stablePhotoId(characterId,index,value){
+  const text=`${characterId}|${index}|${value||""}`;let hash=2166136261;
+  for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619)}
+  return `photo-${(hash>>>0).toString(36)}`;
+}
+function normalizeCrop(value){
+  const crop=value&&typeof value==="object"?value:{};
+  const finite=(candidate,fallback)=>Number.isFinite(Number(candidate))?Number(candidate):fallback;
+  return {x:Math.max(0,Math.min(1,finite(crop.x,.5))),y:Math.max(0,Math.min(1,finite(crop.y,.5))),zoom:Math.max(1,Math.min(4,finite(crop.zoom,1)))};
+}
+function normalizePhoto(value,characterId="",index=0){
+  const legacy=typeof value==="string",photo=legacy?{}:safeOwnCopy(value&&typeof value==="object"?value:{});
+  let source;
+  if(legacy)source={kind:"data-url",value};
+  else if(photo.source&&typeof photo.source==="object")source={...safeOwnCopy(photo.source),kind:String(photo.source.kind||"data-url"),value:String(photo.source.value||"")};
+  else source={kind:"data-url",value:String(photo.src||photo.value||"")};
+  const id=typeof photo.id==="string"&&photo.id.trim()?photo.id:stablePhotoId(characterId,index,source.value);
+  const result={...photo,id,source,crop:normalizeCrop(photo.crop),alt:String(photo.alt||""),caption:String(photo.caption||"")};
+  return result;
+}
 function normalizeChapters(chapters){
   return chapters.map((c,i)=>({...safeOwnCopy(c),id:String(c.id),title:String(c.title||`Глава ${i+1}`),collapsed:!!c.collapsed}));
 }
@@ -213,7 +233,9 @@ function emptyProfile(characterId="",name=""){
 }
 function normalizeProfile(profile,character){
   const p=safeOwnCopy(profile||{}),base=emptyProfile(character.id,character.name);
-  return {...base,...p,id:p.id||character.id,characterId:character.id,name:p.name||character.name,photos:Array.isArray(p.photos)?p.photos:[],favorites:normalizeMultiValue(p.favorites),hobbies:normalizeMultiValue(p.hobbies),birthday:{...base.birthday,...safeOwnCopy(p.birthday||{})},hidden:safeOwnCopy(p.hidden||{}),initialRelations:safeOwnCopy(p.initialRelations||{})};
+  const photos=(Array.isArray(p.photos)?p.photos:[]).map((photo,index)=>normalizePhoto(photo,character.id,index)).filter(photo=>photo.source.value);
+  const primaryPhotoId=photos.some(photo=>photo.id===p.primaryPhotoId)?p.primaryPhotoId:(photos[0]?.id||"");
+  return {...base,...p,id:p.id||character.id,characterId:character.id,name:p.name||character.name,photos,primaryPhotoId,favorites:normalizeMultiValue(p.favorites),hobbies:normalizeMultiValue(p.hobbies),birthday:{...base.birthday,...safeOwnCopy(p.birthday||{})},hidden:safeOwnCopy(p.hidden||{}),initialRelations:safeOwnCopy(p.initialRelations||{})};
 }
 function normalizeProject(value){
   const src=safeOwnCopy(value);
@@ -265,5 +287,5 @@ function defaultData(){
   return {version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[]};
 }
 
-Object.assign(globalThis,{makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,defaultData,emptyProfile,normalizeProfile,normalizeData});
-export {makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,defaultData,emptyProfile,normalizeProfile,normalizeData};
+Object.assign(globalThis,{makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,normalizeCrop,normalizePhoto,defaultData,emptyProfile,normalizeProfile,normalizeData});
+export {makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,normalizeCrop,normalizePhoto,defaultData,emptyProfile,normalizeProfile,normalizeData};

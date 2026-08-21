@@ -34,3 +34,6 @@
 - Новые icon-only кнопки обязаны иметь понятное accessible name, а поля форм — native label или эквивалентную программную связь с видимой подписью.
 - Каждый новый modal flow должен сопровождаться accessibility regression tests для initial focus, focus trap, Escape, вложенности и возврата фокуса.
 - `favorites` и `hobbies` — multi-value поля анкеты и канонически хранятся как массивы строк; UI не должен сохранять их обратно как comma-separated строки.
+- Оригинальное изображение персонажа нельзя уничтожать или заменять результатом crop; crop хранится отдельно как metadata.
+- Нормализация и persistence изображений обязаны сохранять неизвестные безопасные metadata-поля.
+- При будущем переходе в облако binary изображения переносится в Supabase Storage, а photo ID, storage path, crop, порядок, primary state и caption остаются в базе данных.

@@ -512,6 +512,32 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="photoCropModal" role="dialog" aria-modal="true" aria-labelledby="photoCropTitle" aria-describedby="photoCropHelp">
+  <div class="modal photo-crop-modal">
+    <h2 id="photoCropTitle">Кадрирование для карточки</h2>
+    <p id="photoCropHelp" class="profile-note">Перетащите изображение или используйте кнопки направления. Масштаб меняется ползунком.</p>
+    <div class="photo-crop-viewport" id="photoCropViewport"><img id="photoCropImage" alt="Предпросмотр кадрирования"></div>
+    <label for="photoCropZoom">Масштаб</label>
+    <input id="photoCropZoom" type="range" min="1" max="4" step="0.05" value="1">
+    <div class="photo-nudges" aria-label="Смещение изображения">
+      <button type="button" aria-label="Сместить вверх" onclick="nudgePhotoCrop(0,-.03)">↑</button>
+      <button type="button" aria-label="Сместить влево" onclick="nudgePhotoCrop(-.03,0)">←</button>
+      <button type="button" aria-label="Сместить вниз" onclick="nudgePhotoCrop(0,.03)">↓</button>
+      <button type="button" aria-label="Сместить вправо" onclick="nudgePhotoCrop(.03,0)">→</button>
+    </div>
+    <div class="modal-actions"><button id="cancelPhotoCrop" type="button">Отмена</button><button id="savePhotoCrop" class="primary" type="button">Сохранить кадрирование</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="photoLightboxModal" role="dialog" aria-modal="true" aria-labelledby="photoLightboxTitle" aria-describedby="photoLightboxCaption">
+  <div class="modal photo-lightbox-modal">
+    <h2 id="photoLightboxTitle">Просмотр оригинала</h2>
+    <img id="photoLightboxImage" alt="Оригинальное изображение персонажа">
+    <p id="photoLightboxCaption" class="profile-note"></p>
+    <div class="modal-actions"><button id="closePhotoLightbox" type="button">Закрыть</button></div>
+  </div>
+</div>
+
 <datalist id="raceOptions">
   <option value="Человек"><option value="Эльф"><option value="Полуэльф"><option value="Гном"><option value="Дворф">
   <option value="Орк"><option value="Полуорк"><option value="Гоблин"><option value="Тролль"><option value="Огр">

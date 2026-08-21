@@ -24,7 +24,7 @@ const editorTrackers={
   sceneModal:createDirtyTracker("sceneModal",()=>serializeForm("sceneModal",{tags:[...sceneTagDraft],newTags:{...sceneNewTagDraft}})),
   textModal:createDirtyTracker("textModal",()=>serializeForm("textModal")),
   allScenesModal:createDirtyTracker("allScenesModal",()=>serializeForm("allScenesModal")),
-  profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:[...profileDraftPhotos],favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
+  profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:safeOwnCopy(profileDraftPhotos),primaryPhotoId:profileDraftPrimaryPhotoId,favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
   chaptersModal:createDirtyTracker("chaptersModal",()=>serializeForm("chaptersModal")),
   locationsModal:createDirtyTracker("locationsModal",()=>serializeForm("locationsModal")),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
@@ -412,13 +412,25 @@ document.getElementById("pf_birthDay").onchange=updateZodiac;
 document.getElementById("profilePhotosInput").onchange=async e=>{
   const files=[...e.target.files];
   for(const file of files){
-    try{profileDraftPhotos.push(await compressImage(file))}
-    catch(err){alert(`Не удалось добавить изображение ${file.name}`)}
+    try{const photo=await readOriginalImage(file);profileDraftPhotos.push(photo);profileDraftPrimaryPhotoId ||= photo.id}
+    catch(err){alert(`Не удалось добавить изображение ${file.name}: ${err.message||"ошибка чтения"}`)}
   }
   renderProfilePhotos();
   syncBeforeUnload();
   e.target.value="";
 };
+document.getElementById("photoCropZoom").oninput=e=>{if(photoCropState){photoCropState.draft.zoom=Number(e.target.value);syncCropPreview()}};
+document.getElementById("savePhotoCrop").onclick=savePhotoCrop;
+document.getElementById("cancelPhotoCrop").onclick=cancelPhotoCrop;
+document.getElementById("photoCropModal").onclick=e=>{if(e.target.id==="photoCropModal")cancelPhotoCrop()};
+document.getElementById("closePhotoLightbox").onclick=()=>forceHideModal("photoLightboxModal");
+document.getElementById("photoLightboxModal").onclick=e=>{if(e.target.id==="photoLightboxModal")forceHideModal("photoLightboxModal")};
+{
+  const viewport=document.getElementById("photoCropViewport");let pointer=null;
+  viewport.onpointerdown=e=>{pointer={id:e.pointerId,x:e.clientX,y:e.clientY};viewport.setPointerCapture(e.pointerId)};
+  viewport.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId||!photoCropState)return;const rect=viewport.getBoundingClientRect();nudgePhotoCrop((e.clientX-pointer.x)/rect.width,(e.clientY-pointer.y)/rect.height);pointer.x=e.clientX;pointer.y=e.clientY};
+  viewport.onpointerup=viewport.onpointercancel=()=>{pointer=null};
+}
 
 document.getElementById("cancelProfile").onclick=()=>requestCloseModal("profileEditorModal","button");
 document.getElementById("profileEditorModal").onclick=e=>{
@@ -453,6 +465,7 @@ document.getElementById("saveProfile").onclick=()=>{
     name:newName,
     surname:document.getElementById("pf_surname").value.trim(),
     photos:[...profileDraftPhotos],
+    primaryPhotoId:profileDraftPrimaryPhotoId,
     race:document.getElementById("pf_race").value.trim(),
     sex:document.getElementById("pf_sex").value,
     secondarySex:document.getElementById("pf_secondarySex").value.trim(),

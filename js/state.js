@@ -1,7 +1,7 @@
 const initialState={
   storageWriteEnabled:true,startupLoadInfo:null,data:null,editingSceneId:null,
   insertBeforeSceneId:null,insertChapterId:null,draggedSceneId:null,
-  textEditingSceneId:null,profileEditingId:null,profileDraftCharacter:null,profileDraftPhotos:[],
+  textEditingSceneId:null,profileEditingId:null,profileDraftCharacter:null,profileDraftPhotos:[],profileDraftPrimaryPhotoId:"",photoCropState:null,
   sceneTagDraft:[],sceneNewTagDraft:{},selectedSceneIndex:null,selectedSceneId:null,
   filters:{search:"",chapter:"",character:"",location:"",tag:"",writing:"",placement:""},
   currentView:"table",infoPanelCollapsed:true,navigationVisible:true,

@@ -17,7 +17,8 @@ function renderProfiles(){
       ["Рост",profileDisplayValue(p,"height")],["Телосложение",profileDisplayValue(p,"build")],
       ["Занятость",profileDisplayValue(p,"profession")],["Ориентация",profileDisplayValue(p,"orientation")]
     ].filter(([,v])=>v!==null);
-    const cover=p.photos?.[0]?`<img src="${p.photos[0]}" alt="">`:`Нет изображения`;
+    const primary=p.photos.find(photo=>photo.id===p.primaryPhotoId)||p.photos[0];
+    const cover=primary?`<button type="button" class="profile-cover-button" aria-label="Открыть оригинальное изображение персонажа ${esc(full||character.name)}" onclick="openPhotoLightboxByCharacter('${jsq(character.id)}','${jsq(primary.id)}')"><img src="${esc(primary.source.value)}" alt="${esc(primary.alt||"")}" style="object-position:${primary.crop.x*100}% ${primary.crop.y*100}%;transform:scale(${primary.crop.zoom})"></button>`:`Нет изображения`;
     return `<article class="profile-card">
       <div class="profile-cover">${cover}</div>
       <div class="profile-body">
@@ -177,7 +178,7 @@ function editProfileNow(characterId){
   profileEditingId=characterId;
   const character=characterById(characterId)||profileDraftCharacter;if(!character||character.id!==characterId)return;
   const p=normalizeProfile(data.profiles?.[characterId],character);
-  profileDraftPhotos=[...(p.photos||[])];
+  profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";
   document.getElementById("profileEditorTitle").textContent=p.name||character.name?`Анкета: ${p.name||character.name}`:"Новый персонаж";
   const values={
     name:p.name||character.name,surname:p.surname,race:p.race,sex:p.sex,secondarySex:p.secondarySex,
@@ -208,40 +209,52 @@ function editProfileNow(characterId){
 }
 
 function renderProfilePhotos(){
-  document.getElementById("profilePhotosGrid").innerHTML=profileDraftPhotos.map((src,i)=>`
-    <div class="photo-item">
-      <img src="${src}" alt="">
-      <button type="button" class="danger" aria-label="Удалить фотографию ${i+1}" onclick="removeProfilePhoto(${i})">×</button>
+  document.getElementById("profilePhotosGrid").innerHTML=profileDraftPhotos.map((photo,i)=>`
+    <div class="photo-item" data-photo-id="${esc(photo.id)}">
+      <img src="${esc(photo.source.value)}" alt="${esc(photo.alt||"")}" style="object-position:${photo.crop.x*100}% ${photo.crop.y*100}%;transform:scale(${photo.crop.zoom})">
+      ${photo.id===profileDraftPrimaryPhotoId?'<span class="photo-primary">Главное</span>':""}
+      <div class="photo-actions">
+        <button type="button" data-action="view-photo" onclick="openPhotoLightbox('${jsq(photo.id)}')">Просмотреть</button>
+        <button type="button" data-action="crop-photo" onclick="openPhotoCrop('${jsq(photo.id)}')">Кадрировать</button>
+        ${photo.id!==profileDraftPrimaryPhotoId?`<button type="button" onclick="setPrimaryPhoto('${jsq(photo.id)}')">Сделать главным</button>`:""}
+        <button type="button" class="danger" aria-label="Удалить фотографию ${i+1}" onclick="removeProfilePhoto(${i})">Удалить</button>
+      </div>
     </div>`).join("");
 }
 
 function removeProfilePhoto(index){
   profileDraftPhotos.splice(index,1);
+  if(!profileDraftPhotos.some(photo=>photo.id===profileDraftPrimaryPhotoId))profileDraftPrimaryPhotoId=profileDraftPhotos[0]?.id||"";
   renderProfilePhotos();
   syncBeforeUnload();
 }
 
-async function compressImage(file){
+async function readOriginalImage(file){
+  if(!file.type.startsWith("image/"))throw new Error("Неподдерживаемый формат файла.");
+  if(file.size>3*1024*1024)throw new Error("Файл больше 3 МБ и может переполнить локальное хранилище.");
   const dataUrl=await new Promise((resolve,reject)=>{
     const reader=new FileReader();
     reader.onload=()=>resolve(reader.result);
-    reader.onerror=reject;
+    reader.onerror=()=>reject(new Error("Не удалось прочитать файл."));
     reader.readAsDataURL(file);
   });
-  const img=await new Promise((resolve,reject)=>{
+  await new Promise((resolve,reject)=>{
     const image=new Image();
-    image.onload=()=>resolve(image);
-    image.onerror=reject;
+    image.onload=resolve;image.onerror=()=>reject(new Error("Файл не является корректным изображением."));
     image.src=dataUrl;
   });
-  const max=1000;
-  const scale=Math.min(1,max/Math.max(img.width,img.height));
-  const canvas=document.createElement("canvas");
-  canvas.width=Math.max(1,Math.round(img.width*scale));
-  canvas.height=Math.max(1,Math.round(img.height*scale));
-  canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
-  return canvas.toDataURL("image/jpeg",.82);
+  return normalizePhoto({id:makeId("photo"),source:{kind:"data-url",value:dataUrl},crop:{x:.5,y:.5,zoom:1},alt:"",caption:""},profileEditingId,profileDraftPhotos.length);
 }
+
+function setPrimaryPhoto(id){if(profileDraftPhotos.some(photo=>photo.id===id)){profileDraftPrimaryPhotoId=id;renderProfilePhotos();syncBeforeUnload()}}
+function draftPhoto(id){return profileDraftPhotos.find(photo=>photo.id===id)}
+function openPhotoLightbox(id){const photo=draftPhoto(id);if(!photo)return;document.getElementById("photoLightboxImage").src=photo.source.value;document.getElementById("photoLightboxCaption").textContent=photo.caption||"Оригинальное изображение";showModal("photoLightboxModal")}
+function openPhotoLightboxByCharacter(characterId,id){const p=normalizeProfile(data.profiles?.[characterId],characterById(characterId));const photo=p.photos.find(x=>x.id===id);if(!photo)return;document.getElementById("photoLightboxImage").src=photo.source.value;document.getElementById("photoLightboxCaption").textContent=photo.caption||`Оригинальное изображение: ${p.name}`;showModal("photoLightboxModal")}
+function syncCropPreview(){const crop=photoCropState?.draft;if(!crop)return;const image=document.getElementById("photoCropImage");image.style.objectPosition=`${crop.x*100}% ${crop.y*100}%`;image.style.transform=`scale(${crop.zoom})`;document.getElementById("photoCropZoom").value=crop.zoom}
+function openPhotoCrop(id){const photo=draftPhoto(id);if(!photo)return;photoCropState={id,draft:{...photo.crop}};document.getElementById("photoCropImage").src=photo.source.value;syncCropPreview();showModal("photoCropModal",{initialFocus:"#photoCropZoom"})}
+function nudgePhotoCrop(dx,dy){if(!photoCropState)return;photoCropState.draft.x=Math.max(0,Math.min(1,photoCropState.draft.x+dx));photoCropState.draft.y=Math.max(0,Math.min(1,photoCropState.draft.y+dy));syncCropPreview()}
+function savePhotoCrop(){const photo=draftPhoto(photoCropState?.id);if(photo)photo.crop={...photoCropState.draft};photoCropState=null;forceHideModal("photoCropModal");renderProfilePhotos();syncBeforeUnload()}
+function cancelPhotoCrop(){photoCropState=null;forceHideModal("photoCropModal")}
 
 function profileDisplayValue(profile,key){
   if(profile.hidden?.[key])return null;
@@ -261,5 +274,5 @@ function birthdayDisplay(profile){
   return result||"Не указано";
 }
 
-Object.assign(globalThis,{characterById,characterName,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,compressImage,profileDisplayValue,birthdayDisplay});
-export {characterById,characterName,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,compressImage,profileDisplayValue,birthdayDisplay};
+Object.assign(globalThis,{characterById,characterName,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
+export {characterById,characterName,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};
