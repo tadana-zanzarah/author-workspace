@@ -18,6 +18,7 @@ function renderProfiles(){
       ["Занятость",profileDisplayValue(p,"profession")],["Ориентация",profileDisplayValue(p,"orientation")]
     ].filter(([,v])=>v!==null);
     const primary=p.photos.find(photo=>photo.id===p.primaryPhotoId)||p.photos[0];
+    const structural=linksForCharacter(character.id,data.characterLinks||[]).slice(0,2);
     const cover=primary?`<button type="button" class="profile-cover-button" aria-label="Открыть оригинальное изображение персонажа ${esc(full||character.name)}" onclick="openPhotoLightboxByCharacter('${jsq(character.id)}','${jsq(primary.id)}')"><img src="${esc(primary.source.value)}" alt="${esc(primary.alt||"")}" style="object-position:${primary.crop.x*100}% ${primary.crop.y*100}%;transform:scale(${primary.crop.zoom})"></button>`:`Нет изображения`;
     return `<article class="profile-card">
       <div class="profile-cover">${cover}</div>
@@ -25,6 +26,7 @@ function renderProfiles(){
         <div class="profile-name">${esc(full||character.name)}</div>
         <div class="profile-facts">${facts.map(([k,v])=>`<div class="profile-fact"><strong>${k}:</strong> ${esc(v)}</div>`).join("")}</div>
         ${!p.hidden?.description&&p.description?`<div class="profile-description">${esc(p.description)}</div>`:""}
+        ${structural.length?`<div class="profile-structural-summary"><strong>Связи:</strong>${structural.map(link=>{const other=link.fromCharacterId===character.id?link.toCharacterId:link.fromCharacterId;return `<div>${esc(characterName(other))} — ${esc(characterLinkDisplayLabel(link,character.id))}</div>`}).join("")}${(data.characterLinks||[]).filter(link=>link.fromCharacterId===character.id||link.toCharacterId===character.id).length>2?`<div>И ещё ${(data.characterLinks||[]).filter(link=>link.fromCharacterId===character.id||link.toCharacterId===character.id).length-2}</div>`:""}</div>`:""}
         ${renderProfileAutomaticSection(character.id)}
         <div class="profile-card-actions">
           <button onclick="openCharacterTimeline('${jsq(character.id)}')">Личная хронология</button>
@@ -120,7 +122,8 @@ function moveProfile(characterId,dir){
 function deleteProfile(characterId){
   const character=characterById(characterId);
   if(!character)return;
-  if(!confirm(`Удалить персонажа «${character.name}» из анкет и колонок? Данные этого персонажа в сценах также будут удалены.`))return;
+  const linkCount=linksForCharacter(characterId,data.characterLinks||[]).length;
+  if(!confirm(`Удалить персонажа «${character.name}» из анкет и колонок? Данные этого персонажа в сценах также будут удалены.${linkCount?` Связанных структурных связей: ${linkCount}; они также будут удалены.`:""}`))return;
   const result=commitDataChange(next=>{
     next.characters=next.characters.filter(c=>c.id!==characterId);
     delete next.profiles[characterId];
@@ -132,6 +135,7 @@ function deleteProfile(characterId){
       }
     });
     for(const p of Object.values(next.profiles||{}))delete p.initialRelations?.[characterId];
+    removeCharacterLinksForCharacter(next,characterId);
   },{renderAfter:false});
   if(!result.ok)return;
   if(filters.character===characterId)filters.character="";
@@ -178,7 +182,7 @@ function editProfileNow(characterId){
   profileEditingId=characterId;
   const character=characterById(characterId)||profileDraftCharacter;if(!character||character.id!==characterId)return;
   const p=normalizeProfile(data.profiles?.[characterId],character);
-  profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";
+  profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";profileDraftCharacterLinks=safeOwnCopy(data.characterLinks||[]);
   document.getElementById("profileEditorTitle").textContent=p.name||character.name?`Анкета: ${p.name||character.name}`:"Новый персонаж";
   const values={
     name:p.name||character.name,surname:p.surname,race:p.race,sex:p.sex,secondarySex:p.secondarySex,
@@ -204,6 +208,7 @@ function editProfileNow(characterId){
   });
   renderProfilePhotos();
   renderInitialRelations(p.initialRelations||{},characterId);
+  renderProfileCharacterLinks();
   showModal("profileEditorModal");
   trackerFor("profileEditorModal").captureInitialState();
 }

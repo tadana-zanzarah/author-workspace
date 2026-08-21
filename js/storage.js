@@ -26,7 +26,7 @@ function parseStorageCandidate(key,storage=globalThis.localStorage){
   return {key,exists:true,valid:report.canApply,raw,parsed:parsed.value,normalized:report.migratedData,report,version:report.sourceVersion,score:storageProjectScore(parsed.value),timestamp:projectTimestamp(parsed.value),summary:{scenes:count("scenes"),characters:count("characters"),chapters:count("chapters"),locations:count("locations"),tags:count("tags"),criticalErrors:report.errors.length+report.conflicts.filter(x=>x.critical).length,warnings:report.warnings.length,canOpen:report.canApply&&report.sourceVersion===11,canMigrate:report.canApply||onlyResolvable}};
 }
 function blockedMemoryProject(){
-  return {version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Данные заблокированы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[],readOnlyRecovery:true};
+  return {version:11,characters:[],profiles:{},characterLinks:[],chapters:[{id:"chapter-unassigned",title:"Данные заблокированы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[],readOnlyRecovery:true};
 }
 function loadProjectFromStorage({storage=globalThis.localStorage,key=STORAGE_KEY,oldKeys=OLD_KEYS,discover=true}={}){
   const primary=parseStorageCandidate(key,storage);

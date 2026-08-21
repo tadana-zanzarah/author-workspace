@@ -29,6 +29,11 @@
     margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
     white-space:pre-wrap;line-height:1.4;font-size:13px;
   }
+  .profile-structural-summary{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+  .character-links{display:grid;gap:8px;margin-bottom:9px}
+  .character-link-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .character-link-actions{display:flex;gap:6px;flex-wrap:wrap}.character-link-actions button{min-height:36px}
+  .character-link-modal{width:min(700px,100%);max-height:94vh}.character-link-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.character-link-editor-grid label{display:grid;gap:5px}.character-link-editor-grid .full{grid-column:1/-1}.form-error{min-height:1.4em;color:var(--danger,#a22)}
   .profile-card-actions{
     display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;
   }
@@ -103,4 +108,5 @@
     .profile-field.full{grid-column:auto}
     .initial-relation-row{grid-template-columns:1fr}
     .photo-crop-modal{padding:14px}.photo-crop-viewport{width:100%}.photo-actions button{flex:1 1 auto}
+    .character-link-row{align-items:stretch;flex-direction:column}.character-link-actions button{flex:1}.character-link-editor-grid{grid-template-columns:1fr}.character-link-editor-grid .full{grid-column:auto}
   }

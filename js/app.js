@@ -9,6 +9,7 @@ import "./storage.js";
 import "./dates.js";
 import "./utils.js";
 import "./relationships.js";
+import "./character-links.js";
 import "./scenes.js";
 import "./characters.js";
 import "./chapters.js";
@@ -24,7 +25,8 @@ const editorTrackers={
   sceneModal:createDirtyTracker("sceneModal",()=>serializeForm("sceneModal",{tags:[...sceneTagDraft],newTags:{...sceneNewTagDraft}})),
   textModal:createDirtyTracker("textModal",()=>serializeForm("textModal")),
   allScenesModal:createDirtyTracker("allScenesModal",()=>serializeForm("allScenesModal")),
-  profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:safeOwnCopy(profileDraftPhotos),primaryPhotoId:profileDraftPrimaryPhotoId,favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
+  profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:safeOwnCopy(profileDraftPhotos),primaryPhotoId:profileDraftPrimaryPhotoId,characterLinks:safeOwnCopy(profileDraftCharacterLinks),favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
+  characterLinkModal:createDirtyTracker("characterLinkModal",()=>serializeForm("characterLinkModal")),
   chaptersModal:createDirtyTracker("chaptersModal",()=>serializeForm("chaptersModal")),
   locationsModal:createDirtyTracker("locationsModal",()=>serializeForm("locationsModal")),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
@@ -436,6 +438,12 @@ document.getElementById("cancelProfile").onclick=()=>requestCloseModal("profileE
 document.getElementById("profileEditorModal").onclick=e=>{
   if(e.target.id==="profileEditorModal")requestCloseModal("profileEditorModal","backdrop");
 };
+document.getElementById("addCharacterLink").onclick=()=>openCharacterLinkEditor();
+document.getElementById("cancelCharacterLink").onclick=()=>requestCloseModal("characterLinkModal","button");
+document.getElementById("saveCharacterLink").onclick=saveDraftCharacterLink;
+document.getElementById("characterLinkType").onchange=syncCharacterLinkCustomFields;
+document.getElementById("characterLinkReverseType").onchange=syncCharacterLinkCustomFields;
+document.getElementById("characterLinkModal").onclick=e=>{if(e.target.id==="characterLinkModal")requestCloseModal("characterLinkModal","backdrop")};
 document.getElementById("saveProfile").onclick=()=>{
   const character=characterById(profileEditingId)||profileDraftCharacter;
   if(!character)return;
@@ -490,7 +498,7 @@ document.getElementById("saveProfile").onclick=()=>{
   const result=commitDataChange(next=>{
     let target=next.characters.find(c=>c.id===character.id);
     if(!target){target={...character};next.characters.push(target);next.profiles ||= {}}
-    target.name=newName;next.profiles[character.id]=profile;
+    target.name=newName;next.profiles[character.id]=profile;next.characterLinks=safeOwnCopy(profileDraftCharacterLinks);
   },{renderAfter:false});
   if(!result.ok)return;
   trackerFor("profileEditorModal").captureInitialState();forceHideModal("profileEditorModal");profileDraftCharacter=null;

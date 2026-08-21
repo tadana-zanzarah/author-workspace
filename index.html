@@ -503,12 +503,34 @@
         <div class="profile-field-top"><strong>Отношения с другими персонажами на начало истории</strong></div>
         <div id="profileInitialRelations" class="initial-relations"></div>
       </div>
+      <div class="profile-field full">
+        <div class="profile-field-top"><strong>Родственные и юридические связи</strong></div>
+        <div id="profileCharacterLinks" class="character-links"></div>
+        <button id="addCharacterLink" type="button">＋ Добавить связь</button>
+      </div>
     </div>
 
     <div class="modal-actions">
       <button id="cancelProfile">Отмена</button>
       <button class="primary" id="saveProfile">Сохранить анкету</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="characterLinkModal" role="dialog" aria-modal="true" aria-labelledby="characterLinkEditorTitle">
+  <div class="modal character-link-modal">
+    <h2 id="characterLinkEditorTitle">Добавить связь</h2>
+    <div class="character-link-editor-grid">
+      <label>Персонаж<select id="characterLinkTarget"></select></label>
+      <label>Категория<select id="characterLinkCategory"><option value="family">Родство</option><option value="marriage">Брак / партнёрство</option><option value="legal">Юридические</option><option value="guardianship">Опека</option><option value="other">Другое</option></select></label>
+      <label>Тип связи от текущего персонажа<select id="characterLinkType"></select></label>
+      <label>Обратная связь<select id="characterLinkReverseType"></select></label>
+      <label id="characterLinkCustomFields" hidden>Прямое собственное название<input id="characterLinkCustomLabel"></label>
+      <label id="characterLinkReverseCustomFields" hidden>Обратное собственное название<input id="characterLinkReverseCustomLabel"></label>
+      <label class="full">Заметка (необязательно)<textarea id="characterLinkNotes"></textarea></label>
+    </div>
+    <p id="characterLinkError" class="form-error" role="alert"></p>
+    <div class="modal-actions"><button id="cancelCharacterLink" type="button">Отмена</button><button id="saveCharacterLink" type="button" class="primary">Сохранить связь</button></div>
   </div>
 </div>
 

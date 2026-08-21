@@ -1,5 +1,6 @@
 import {WRITING_STATUSES} from "./constants.js";
 import {validateDateString,validateTimeString} from "./dates.js";
+import {normalizeCharacterLink,isKnownCharacterLinkType,isDuplicateCharacterLink} from "./character-links.js";
 
 const FORBIDDEN_KEYS=new Set(["__proto__","prototype","constructor"]);
 const COLLECTIONS=["characters","profiles","chapters","locations","tags","scenes"];
@@ -49,6 +50,7 @@ function validateProjectStructure(value,{version}={}){
     const valid=expected==="array"?Array.isArray(value[key]):value[key]&&typeof value[key]==="object"&&!Array.isArray(value[key]);
     if(!valid)errors.push({code:"invalid-collection",path:key,message:`Поле ${key} должно иметь тип ${expected}.`});
   }
+  if(value.characterLinks!==undefined&&!Array.isArray(value.characterLinks))errors.push({code:"invalid-collection",path:"characterLinks",message:"Поле characterLinks должно быть массивом."});
   if(sourceVersion===11){
     for(const key of ID_COLLECTIONS){
       if(Array.isArray(value[key]))value[key].forEach((item,index)=>{
@@ -56,6 +58,10 @@ function validateProjectStructure(value,{version}={}){
         else if(typeof item.id!=="string"||!item.id.trim())errors.push({code:"missing-id",path:`${key}[${index}].id`,message:"У сущности отсутствует устойчивый ID."});
       });
     }
+    (value.characterLinks||[]).forEach((item,index)=>{
+      if(!item||typeof item!=="object"||Array.isArray(item))errors.push({code:"invalid-entity",path:`characterLinks[${index}]`,message:"Структурная связь должна быть объектом."});
+      else if(typeof item.id!=="string"||!item.id.trim())errors.push({code:"missing-id",path:`characterLinks[${index}].id`,message:"У структурной связи отсутствует устойчивый ID."});
+    });
   }
   return {valid:errors.length===0,errors,warnings,detectedVersion:sourceVersion,unknownFormat:!detected.recognized};
 }
@@ -73,6 +79,8 @@ function duplicateConflicts(value){
   }
   const unassigned=(value.chapters||[]).filter(x=>x?.id==="chapter-unassigned");
   if(unassigned.length!==1)conflicts.push({type:"system-chapter-count",id:"chapter-unassigned",count:unassigned.length,critical:true,resolution:"unrecoverable",message:"Системная глава «Без главы» отсутствует или повторяется. Миграция заблокирована."});
+  const links=value.characterLinks||[],linkIds=new Map();
+  links.forEach((link,index)=>{if(linkIds.has(link.id))conflicts.push({type:"duplicate-id",collection:"characterLinks",id:link.id,indexes:[linkIds.get(link.id),index],critical:true,resolution:"unrecoverable",message:`В structural links повторяется ID ${link.id}.`});else linkIds.set(link.id,index);if(isDuplicateCharacterLink(link,links.slice(0,index)))conflicts.push({type:"duplicate-character-link",id:link.id,index,critical:true,resolution:"unrecoverable",message:"Одна логическая structural link сохранена дважды."})});
   return conflicts;
 }
 
@@ -100,6 +108,14 @@ function referenceConflicts(value,{confirmations={},characterTargets={}}={}){
   for(const [profileId,profile] of Object.entries(value.profiles||{})){
     if(!characterIds.has(profileId)&&!characterIds.has(profile?.characterId))add(`profiles.${profileId}`,"character",profileId);
     for(const to of Object.keys(profile?.initialRelations||{}))if(!characterIds.has(to))add(`profiles.${profileId}.initialRelations.${to}`,"character",to);
+  }
+  for(const [index,raw] of (value.characterLinks||[]).entries()){
+    const link=normalizeCharacterLink(raw),base=`characterLinks[${index}]`;
+    if(!characterIds.has(link.fromCharacterId))add(`${base}.fromCharacterId`,"character",link.fromCharacterId);
+    if(!characterIds.has(link.toCharacterId))add(`${base}.toCharacterId`,"character",link.toCharacterId);
+    if(link.fromCharacterId===link.toCharacterId)conflicts.push({type:"self-character-link",path:base,critical:true,resolution:"unrecoverable",message:"Связь персонажа с самим собой запрещена."});
+    if(!["family","marriage","legal","guardianship","other"].includes(link.category))conflicts.push({type:"invalid-character-link-category",path:`${base}.category`,critical:true,resolution:"unrecoverable",message:"У structural link неизвестная категория."});
+    if(!isKnownCharacterLinkType(link.type)||(link.type==="custom"&&!link.customLabel)||!isKnownCharacterLinkType(link.reverseType)||(link.reverseType==="custom"&&!link.reverseCustomLabel))conflicts.push({type:"invalid-character-link-type",path:base,critical:true,resolution:"unrecoverable",message:"У structural link неизвестна или не заполнена прямая/обратная семантика."});
   }
   if(value.selectedSceneId&&!ids("scenes").has(value.selectedSceneId))add("selectedSceneId","scene",value.selectedSceneId);
   return {conflicts,damagedReferences};
@@ -243,7 +259,7 @@ function normalizeProject(value){
   const profiles={};
   for(const character of characters)profiles[character.id]=normalizeProfile(src.profiles[character.id],character);
   const scenes=src.scenes.map(scene=>({...safeOwnCopy(scene),id:String(scene.id),date:String(scene.date||""),time:String(scene.time||""),title:String(scene.title||""),chapterId:scene.chapterId||"chapter-unassigned",locationId:scene.locationId||"",tags:[...new Set(scene.tags||scene.tagIds||[])],writingStatus:WRITING_STATUSES.some(x=>x.id===scene.writingStatus)?scene.writingStatus:"idea",sceneText:String(scene.sceneText??scene.text??""),included:scene.included!==false,status:scene.status==="fixed"?"fixed":"floating",dateReview:!!scene.dateReview,people:safeOwnCopy(scene.people||{})}));
-  return {...src,version:11,characters,profiles,chapters:normalizeChapters(src.chapters),locations:normalizeLocations(src.locations),tags:normalizeTags(src.tags),future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[],...safeOwnCopy(src.future||{})},scenes};
+  return {...src,version:11,characters,profiles,characterLinks:(Array.isArray(src.characterLinks)?src.characterLinks:[]).map(normalizeCharacterLink),chapters:normalizeChapters(src.chapters),locations:normalizeLocations(src.locations),tags:normalizeTags(src.tags),future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[],...safeOwnCopy(src.future||{})},scenes};
 }
 const normalizeData=normalizeProject;
 
@@ -284,7 +300,7 @@ function prepareProject(value,options={}){
 }
 
 function defaultData(){
-  return {version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[]};
+  return {version:11,characters:[],profiles:{},characterLinks:[],chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[]};
 }
 
 Object.assign(globalThis,{makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,normalizeCrop,normalizePhoto,defaultData,emptyProfile,normalizeProfile,normalizeData});

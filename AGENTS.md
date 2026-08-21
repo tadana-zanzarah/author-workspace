@@ -37,3 +37,9 @@
 - Оригинальное изображение персонажа нельзя уничтожать или заменять результатом crop; crop хранится отдельно как metadata.
 - Нормализация и persistence изображений обязаны сохранять неизвестные безопасные metadata-поля.
 - При будущем переходе в облако binary изображения переносится в Supabase Storage, а photo ID, storage path, crop, порядок, primary state и caption остаются в базе данных.
+- Структурные связи персонажей (`characterLinks`) независимы от эмоциональных `initialRelations` и изменений отношений в сценах.
+- Structural links используют только устойчивые character IDs; одна логическая link хранит прямую и обратную семантику.
+- Self links запрещены, а reversed semantic duplicates должны выявляться до записи; разные виды связей одной пары допустимы.
+- Family tree является presentation layer и не должен дублировать business data structural links.
+- Неизвестные безопасные metadata-поля structural links должны сохраняться при import → save → load → export.
+- Перед cloud persistence нужно отдельно решить, какие structural links принадлежат global character identity, а какие являются project-level overrides.
