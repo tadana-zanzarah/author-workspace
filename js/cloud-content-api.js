@@ -1,0 +1,70 @@
+const CONTENT_ERROR_CODES=new Set([
+  "REVISION_CONFLICT","NOT_FOUND","FORBIDDEN","VALIDATION_ERROR","DUPLICATE","POSITION_ERROR","UNKNOWN"
+]);
+
+const SAFE_MESSAGES={
+  REVISION_CONFLICT:"Проект изменён в другом сеансе. Перезагрузите данные перед сохранением.",
+  NOT_FOUND:"Объект не найден или больше недоступен.",
+  FORBIDDEN:"Недостаточно прав для этой операции.",
+  VALIDATION_ERROR:"Проверьте введённые данные.",
+  DUPLICATE:"Такой объект уже существует.",
+  POSITION_ERROR:"Не удалось безопасно определить позицию.",
+  UNKNOWN:"Не удалось выполнить облачную операцию."
+};
+
+function normalizeContentResult(result){
+  if(result?.error){
+    const code=result.error?.code==="42501"?"FORBIDDEN":"UNKNOWN";
+    return {ok:false,code,message:SAFE_MESSAGES[code]};
+  }
+  const value=result?.data;
+  if(!value||typeof value!=="object")return {ok:false,code:"UNKNOWN",message:SAFE_MESSAGES.UNKNOWN};
+  if(value.ok===true)return {
+    ok:true,code:"OK",revision:Number(value.revision),changed:value.changed===true,
+    data:value.data??null,normalized:value.normalized===true,message:String(value.message||"")
+  };
+  const code=CONTENT_ERROR_CODES.has(value.code)?value.code:"UNKNOWN";
+  return {
+    ok:false,code,message:SAFE_MESSAGES[code],
+    expectedRevision:value.expectedRevision==null?undefined:Number(value.expectedRevision),
+    actualRevision:value.actualRevision==null?undefined:Number(value.actualRevision),
+    revision:value.revision==null?undefined:Number(value.revision),changed:false
+  };
+}
+
+function createCloudContentApi(client){
+  if(!client?.rpc)throw new TypeError("Supabase client with rpc() is required");
+  const call=async(name,args)=>normalizeContentResult(await client.rpc(name,args));
+  return {
+    loadProjectContent:projectId=>call("get_project_content",{target_project_id:projectId}),
+    createChapter:(projectId,expectedRevision,{title,position})=>call("create_chapter",{target_project_id:projectId,expected_revision:expectedRevision,chapter_title:title,chapter_position:position}),
+    updateChapter:(projectId,chapterId,expectedRevision,{title})=>call("update_chapter",{target_project_id:projectId,target_chapter_id:chapterId,expected_revision:expectedRevision,chapter_title:title}),
+    deleteChapter:(projectId,chapterId,expectedRevision)=>call("delete_chapter",{target_project_id:projectId,target_chapter_id:chapterId,expected_revision:expectedRevision}),
+    reorderChapter:(projectId,chapterId,expectedRevision,position)=>call("reorder_chapter",{target_project_id:projectId,target_chapter_id:chapterId,expected_revision:expectedRevision,chapter_position:position}),
+    createLocation:(projectId,expectedRevision,{name,description=""})=>call("create_location",{target_project_id:projectId,expected_revision:expectedRevision,location_name:name,location_description:description}),
+    updateLocation:(projectId,locationId,expectedRevision,{name,description=""})=>call("update_location",{target_project_id:projectId,target_location_id:locationId,expected_revision:expectedRevision,location_name:name,location_description:description}),
+    deleteLocation:(projectId,locationId,expectedRevision)=>call("delete_location",{target_project_id:projectId,target_location_id:locationId,expected_revision:expectedRevision}),
+    createTag:(projectId,expectedRevision,{name})=>call("create_tag",{target_project_id:projectId,expected_revision:expectedRevision,tag_name:name}),
+    updateTag:(projectId,tagId,expectedRevision,{name})=>call("update_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision,tag_name:name}),
+    deleteTag:(projectId,tagId,expectedRevision)=>call("delete_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision}),
+    createScene:(projectId,expectedRevision,scene)=>call("create_scene",sceneArgs(projectId,expectedRevision,scene)),
+    updateScene:(projectId,sceneId,expectedRevision,scene)=>call("update_scene",{target_scene_id:sceneId,...sceneArgs(projectId,expectedRevision,scene, false)}),
+    deleteScene:(projectId,sceneId,expectedRevision)=>call("delete_scene",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision}),
+    moveScene:(projectId,sceneId,expectedRevision,{chapterId=null,beforeSceneId=null})=>call("move_scene",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision,target_chapter_id:chapterId,before_scene_id:beforeSceneId}),
+    setSceneTags:(projectId,sceneId,expectedRevision,tagIds)=>call("set_scene_tags",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision,tag_ids:[...new Set(tagIds||[])]})
+  };
+}
+
+function sceneArgs(projectId,expectedRevision,scene,includePosition=true){
+  const args={
+    target_project_id:projectId,expected_revision:expectedRevision,target_chapter_id:scene.chapterId??null,
+    target_location_id:scene.locationId??null,scene_title:scene.title??"",scene_text_value:scene.sceneText??"",
+    scene_date_value:scene.sceneDate??null,scene_time_value:scene.sceneTime??null,
+    placement_status_value:scene.placementStatus,writing_status_value:scene.writingStatus,
+    included_value:scene.included!==false,date_review_value:scene.dateReview===true
+  };
+  if(includePosition)args.scene_position=scene.position??null;
+  return args;
+}
+
+export {CONTENT_ERROR_CODES,createCloudContentApi,normalizeContentResult};
