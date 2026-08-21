@@ -3,10 +3,33 @@ function throwIfError(result){
   return result?.data;
 }
 
+function throwQueryError(result,table){
+  if(!result?.error)return result?.data;
+  const error=result.error;
+  console.error("[Author Workspace cloud query]",{
+    table,
+    status:error?.status??null,
+    code:error?.code??null,
+    message:error?.message??String(error),
+    details:error?.details??null,
+    hint:error?.hint??null
+  });
+  if(error&&typeof error==="object")error.cloudQuery=table;
+  throw error;
+}
+
+async function getVerifiedSession(client){
+  const session=throwIfError(await client.auth.getSession())?.session??null;
+  if(!session)return null;
+  const user=throwIfError(await client.auth.getUser())?.user??null;
+  if(!user||user.id!==session.user?.id)throw new Error("Authenticated session user mismatch");
+  return {...session,user};
+}
+
 function createCloudApi(client){
   if(!client)throw new TypeError("Supabase client is required");
   return {
-    async getSession(){return throwIfError(await client.auth.getSession())?.session??null},
+    async getSession(){return getVerifiedSession(client)},
     onAuthStateChange(callback){return client.auth.onAuthStateChange((event,session)=>callback(session,event))},
     async signUp({email,password,displayName}){
       return throwIfError(await client.auth.signUp({email,password,options:{data:{display_name:displayName}}}));
@@ -14,15 +37,17 @@ function createCloudApi(client){
     async signIn({email,password}){return throwIfError(await client.auth.signInWithPassword({email,password}))},
     async signOut(){throwIfError(await client.auth.signOut())},
     async loadAccount(){
+      const user=throwIfError(await client.auth.getUser())?.user??null;
+      if(!user)throw new Error("Authenticated user is unavailable");
       const [profileResult,seriesResult,projectsResult]=await Promise.all([
         client.from("profiles").select("user_id,display_name,avatar_path,bio,settings,created_at,updated_at").single(),
         client.from("series").select("*").is("deleted_at",null).order("created_at"),
         client.from("projects").select("*").is("deleted_at",null).order("created_at")
       ]);
       return {
-        profile:throwIfError(profileResult),
-        series:throwIfError(seriesResult)||[],
-        projects:throwIfError(projectsResult)||[]
+        profile:throwQueryError(profileResult,"profiles"),
+        series:throwQueryError(seriesResult,"series")||[],
+        projects:throwQueryError(projectsResult,"projects")||[]
       };
     },
     async createSeries({ownerId,title,description=""}){
@@ -50,4 +75,4 @@ function createCloudApi(client){
   };
 }
 
-export {createCloudApi,throwIfError};
+export {createCloudApi,getVerifiedSession,throwIfError,throwQueryError};

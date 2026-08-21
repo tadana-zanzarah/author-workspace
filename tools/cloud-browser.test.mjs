@@ -38,6 +38,7 @@ await page.addInitScript(()=>{
   globalThis.__AUTHOR_WORKSPACE_SUPABASE_CLIENT__={
     auth:{
       async getSession(){return {data:{session:localStorage.getItem("mockSession")?{user}:null},error:null}},
+      async getUser(){return {data:{user:localStorage.getItem("mockSession")?user:null},error:null}},
       onAuthStateChange(callback){listeners.push(callback);return {data:{subscription:{unsubscribe(){}}}}},
       async signInWithPassword(){const session={user};localStorage.setItem("mockSession","yes");listeners.forEach(cb=>cb("SIGNED_IN",session));return {data:{session,user},error:null}},
       async signUp(){return {data:{session:null,user},error:null}},
@@ -84,7 +85,7 @@ await page.click("#signInButton");await page.waitForSelector("#projectsScreen:no
 if(!await page.getByRole("heading",{name:"Мои проекты"}).isVisible())throw new Error("Dashboard heading is not visible");
 if(!await page.getByRole("button",{name:"＋ Новый проект"}).first().isVisible())throw new Error("New Project button is not visible");
 if(!await page.getByRole("button",{name:"＋ Новый цикл"}).isVisible())throw new Error("New Series button is not visible");
-if(!await page.getByText("Проектов пока нет.",{exact:true}).isVisible())throw new Error("Project empty state is missing");
+if(!await page.getByText("Создайте свой первый проект",{exact:true}).isVisible())throw new Error("Project empty state is missing");
 
 await page.getByRole("button",{name:"＋ Новый проект"}).first().click();
 if(await page.evaluate(()=>document.activeElement?.getAttribute("name"))!=="title")throw new Error("New Project modal initial focus is incorrect");

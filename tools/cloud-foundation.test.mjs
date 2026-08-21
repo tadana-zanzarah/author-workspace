@@ -9,6 +9,7 @@ import {
   hasLegacyWorkspace
 } from "../js/workspace-storage.js";
 import {loadProjectFromStorage,persistProject} from "../js/storage.js";
+import {createCloudApi,getVerifiedSession} from "../js/cloud-api.js";
 
 const projectA="11111111-1111-4111-8111-111111111111";
 const projectB="22222222-2222-4222-8222-222222222222";
@@ -42,5 +43,42 @@ const migration=fs.readFileSync(new URL("../supabase/migrations/20260812193655_c
 for(const table of ["profiles","series","projects"])assert.match(migration,new RegExp(`alter table public\\.${table} enable row level security`,"i"));
 for(const policy of ["projects_select_own","projects_update_own","series_select_own","profiles_select_own"])assert.match(migration,new RegExp(`create policy ${policy}`,"i"));
 assert.doesNotMatch(migration,/service[_-]?role\s*[:=]/i);
+
+const authUser={id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",email:"owner@example.invalid"};
+let getUserCalls=0,queryCalls=0;
+const query=data=>{
+  const api={select(){queryCalls++;return api},is(){return api},order(){return api},single(){return Promise.resolve({data,error:null})},then(resolve){resolve({data,error:null})}};
+  return api;
+};
+const verifiedClient={
+  auth:{
+    async getSession(){return {data:{session:{user:authUser}},error:null}},
+    async getUser(){getUserCalls++;return {data:{user:authUser},error:null}},
+    onAuthStateChange(){return {data:{subscription:{unsubscribe(){}}}}}
+  },
+  from(table){
+    if(table==="profiles")return query({user_id:authUser.id});
+    return query([]);
+  }
+};
+assert.equal((await getVerifiedSession(verifiedClient)).user.id,authUser.id,"bootstrap validates the persisted session with getUser");
+const account=await createCloudApi(verifiedClient).loadAccount();
+assert.equal(account.profile.user_id,authUser.id);
+assert.deepEqual(account.series,[]);
+assert.deepEqual(account.projects,[]);
+assert.ok(getUserCalls>=2,"getUser validates bootstrap and account hydration");
+assert.equal(queryCalls,3,"the production profile/series/projects selects still run unchanged");
+
+let blockedQueries=0;
+const expiredClient={
+  auth:{
+    async getSession(){return {data:{session:{user:authUser}},error:null}},
+    async getUser(){return {data:{user:null},error:{status:403,code:"bad_jwt",message:"token is expired"}}},
+    onAuthStateChange(){return {data:{subscription:{unsubscribe(){}}}}}
+  },
+  from(){blockedQueries++;return query([])}
+};
+await assert.rejects(()=>createCloudApi(expiredClient).loadAccount(),error=>error?.code==="bad_jwt"&&error?.message==="token is expired");
+assert.equal(blockedQueries,0,"an invalid JWT is rejected before concurrent account queries start");
 
 console.log("cloud foundation tests: OK");

@@ -21,7 +21,7 @@ function friendlyError(error){
   if(/user already registered/i.test(message))return "Аккаунт с таким email уже существует.";
   if(/password/i.test(message)&&/least|short|weak/i.test(message))return "Пароль слишком короткий или слабый.";
   if(/failed to fetch|network|load failed/i.test(message))return "Облачный сервис сейчас недоступен. Локальные данные не изменены.";
-  return "Не удалось выполнить облачную операцию. Подробности записаны в консоль разработчика.";
+  return "Не удалось выполнить облачную операцию.";
 }
 function showAuthMessage(message,isError=false){
   const node=byId("authMessage");node.textContent=message;node.classList.toggle("error",isError);
@@ -44,7 +44,7 @@ function renderDashboardStatus(status,error=null){
   byId("projectsEmptyState").hidden=status!=="success"||cloudState.projects.length!==0;
   byId("seriesList").closest("section").hidden=status!=="success";
   byId("standaloneProjects").closest("section").hidden=status!=="success";
-  if(error)byId("projectsErrorMessage").textContent=friendlyError(error);
+  if(error)byId("projectsErrorMessage").textContent="Проверьте подключение и попробуйте ещё раз.";
 }
 
 async function createClient(){
