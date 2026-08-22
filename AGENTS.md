@@ -53,3 +53,9 @@
 - Semantic no-op глобального character или global structural link не увеличивает его глобальную revision.
 - Derived/effective emotional relation state по сценам не сохраняется: persistence содержит только initial relation и явные scene changes.
 - При подключении cloud UI запрещено обходить transactional character/relationship RPC прямыми записями content tables.
+- В cloud-mode главы, core-поля сцен, локации, теги и scene tags являются Supabase-authoritative; localStorage для них только last-good cache/recovery.
+- Local cache никогда не загружается в cloud автоматически и не является триггером cloud mutation.
+- Пустой cloud snapshot запрещено записывать поверх непустых legacy local данных; такой первый вход блокируется до явного решения пользователя.
+- Project-scoped cloud mutations выполняются сериализованной revision-aware очередью и используют только последний подтверждённый сервером revision.
+- Cloud-authoritative state и cache обновляются только после успешного RPC; failure/conflict не должны изображать локальный успех.
+- Пока character phase отложен, local-only scene adjunct (people/actions/relations и другие несинхронизируемые поля) сохраняется и присоединяется к cloud scene core по stable scene ID.
