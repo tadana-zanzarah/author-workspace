@@ -34,8 +34,12 @@ function openAllScenesNow(){
   trackerFor("allScenesModal").captureInitialState();
 }
 
-function saveAllScenes(){
+async function saveAllScenes(){
   const values=new Map([...document.querySelectorAll(".all-scene-text")].map(area=>[area.dataset.sceneId,area.value]));
+  if(isCloudWorkspace()){
+    for(const scene of data.scenes)if(values.has(scene.id)&&values.get(scene.id)!==scene.sceneText){const result=await runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,scene.id,revision,sceneToCloud({...scene,sceneText:values.get(scene.id)})),{renderAfter:false});if(!result.ok)return result}
+    data=cloudProjectSync.confirmedProject;render();return {ok:true};
+  }
   return commitDataChange(next=>next.scenes.forEach(scene=>{if(values.has(scene.id))scene.sceneText=values.get(scene.id)}),{renderAfter:false});
 }
 

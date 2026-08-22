@@ -36,7 +36,7 @@ function autoscrollSceneViewport(clientY){
 
 function dragLeave(event){event.currentTarget.classList.remove("drop-before","drop-after")}
 
-function dropScene(event,targetSceneId){
+async function dropScene(event,targetSceneId){
   event.preventDefault();
   const row=event.currentTarget;
   const rect=row.getBoundingClientRect();
@@ -44,6 +44,14 @@ function dropScene(event,targetSceneId){
   row.classList.remove("drop-before","drop-after");
   if(!draggedSceneId||draggedSceneId===targetSceneId)return;
   const movedId=draggedSceneId;
+  if(isCloudWorkspace()){
+    const targetScene=sceneById(targetSceneId);if(!targetScene)return;
+    const sameChapter=data.scenes.filter(scene=>scene.chapterId===targetScene.chapterId&&scene.id!==movedId);
+    const targetIndex=sameChapter.findIndex(scene=>scene.id===targetSceneId);
+    const beforeSceneId=after?(sameChapter[targetIndex+1]?.id||null):targetSceneId;
+    const result=await runCloudMutation("moveScene",(api,revision)=>api.moveScene(cloudProjectSync.projectId,movedId,revision,{chapterId:targetScene.chapterId==="chapter-unassigned"?null:targetScene.chapterId,beforeSceneId}));
+    if(result.ok)draggedSceneId=null;return result;
+  }
   const result=commitDataChange(next=>{
     const movedIndex=next.scenes.findIndex(s=>s.id===movedId);
     const targetScene=next.scenes.find(s=>s.id===targetSceneId);
@@ -91,6 +99,7 @@ function compactMoveScene(sceneId,{chapterId,beforeSceneId=null}){
   const current=data.scenes.find(scene=>scene.id===sceneId);
   if(!current||!data.chapters.some(chapter=>chapter.id===chapterId))return {ok:false,userMessage:"Сцена или глава больше не найдена."};
   if(beforeSceneId===sceneId)return {ok:true,unchanged:true,data};
+  if(isCloudWorkspace())return runCloudMutation("moveScene",(api,revision)=>api.moveScene(cloudProjectSync.projectId,sceneId,revision,{chapterId:chapterId==="chapter-unassigned"?null:chapterId,beforeSceneId}));
   const nextOrder=data.scenes.filter(scene=>scene.id!==sceneId);
   let insertIndex;
   if(beforeSceneId){
@@ -129,11 +138,11 @@ function compactMoveScene(sceneId,{chapterId,beforeSceneId=null}){
   },{renderAfter:false});
 }
 
-function compactDropScene(event,position,sceneId=draggedSceneId){
+async function compactDropScene(event,position,sceneId=draggedSceneId){
   event.preventDefault();
   event.currentTarget?.classList.remove("active");
   if(!sceneId||hasActiveFilters())return {ok:false};
-  const result=compactMoveScene(sceneId,position);
+  const result=await compactMoveScene(sceneId,position);
   if(result.ok){draggedSceneId=null;if(!result.unchanged)render()}
   return result;
 }
@@ -189,7 +198,7 @@ function sortDragOver(event){
   else if(window.innerHeight-event.clientY<90)modal.scrollTop+=18;
 }
 
-function sortDrop(event){
+async function sortDrop(event){
   const row=event.target.closest("[data-sort-scene-id]");
   if(!row||!sortDraggedSceneId)return;
   event.preventDefault();
@@ -198,6 +207,13 @@ function sortDrop(event){
   const after=event.clientY>rect.top+rect.height/2;
   if(targetId!==sortDraggedSceneId){
     const movedId=sortDraggedSceneId;
+    if(isCloudWorkspace()){
+      const target=sceneById(targetId);if(!target)return;
+      const siblings=data.scenes.filter(scene=>scene.chapterId===target.chapterId&&scene.id!==movedId);
+      const index=siblings.findIndex(scene=>scene.id===targetId),beforeSceneId=after?(siblings[index+1]?.id||null):targetId;
+      const result=await runCloudMutation("moveScene",(api,revision)=>api.moveScene(cloudProjectSync.projectId,movedId,revision,{chapterId:target.chapterId==="chapter-unassigned"?null:target.chapterId,beforeSceneId}));
+      if(!result.ok)return;sortDraggedSceneId=null;renderSortScenes();return;
+    }
     const result=commitDataChange(next=>{
       const movedIndex=next.scenes.findIndex(s=>s.id===movedId);
       const targetScene=next.scenes.find(s=>s.id===targetId);

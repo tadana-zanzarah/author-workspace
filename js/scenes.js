@@ -296,28 +296,35 @@ function openSceneTextNow(sceneId){
   setTimeout(()=>document.getElementById("fullSceneText").focus(),0);
 }
 
-function toggleIncluded(sceneId,checked){
+async function toggleIncluded(sceneId,checked){
   if(!sceneById(sceneId))return;
+  if(isCloudWorkspace()){const scene={...sceneById(sceneId),included:checked};return runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,sceneId,revision,sceneToCloud(scene)))}
   commitDataChange(next=>{next.scenes.find(s=>s.id===sceneId).included=checked},{renderAfter:false});
   scheduleRender();
 }
 
-function confirmSceneDate(sceneId){
+async function confirmSceneDate(sceneId){
   if(!sceneById(sceneId))return;
+  if(isCloudWorkspace()){const scene={...sceneById(sceneId),dateReview:false};return runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,sceneId,revision,sceneToCloud(scene)))}
   const result=commitDataChange(next=>{next.scenes.find(s=>s.id===sceneId).dateReview=false},{renderAfter:false});
   if(result.ok)scheduleRender();
 }
 
-function quickUpdate(sceneId,key,value){
+async function quickUpdate(sceneId,key,value){
   const current=sceneById(sceneId);if(!current||current[key]===value)return;
+  if(isCloudWorkspace()){const scene={...current,[key]:value};if(key==="date"||key==="time")scene.dateReview=true;return runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,sceneId,revision,sceneToCloud(scene)))}
   const result=commitDataChange(next=>{const scene=next.scenes.find(s=>s.id===sceneId);scene[key]=value;if(key==="date"||key==="time")scene.dateReview=true},{renderAfter:false});
   if(result.ok)scheduleRender();else scheduleRender();
 }
 
-function deleteScene(sceneId){
+async function deleteScene(sceneId){
   const scene=sceneById(sceneId);
   if(!scene)return;
   if(confirm(`Удалить сцену «${scene.title||"Без названия"}»?`)){
+    if(isCloudWorkspace()){
+      const result=await runCloudMutation("deleteScene",(api,revision)=>api.deleteScene(cloudProjectSync.projectId,sceneId,revision));
+      if(result.ok&&sceneId===selectedSceneId){selectedSceneId=null;selectedSceneIndex=null;render()}return result;
+    }
     const result=commitDataChange(next=>{
       const index=next.scenes.findIndex(item=>item.id===sceneId);
       if(index>=0)next.scenes.splice(index,1);

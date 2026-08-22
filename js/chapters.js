@@ -26,10 +26,17 @@ function saveChapterNames(){
   });
 }
 
-function moveChapter(chapterId,dir){
+async function moveChapter(chapterId,dir){
   const index=data.chapters.findIndex(chapter=>chapter.id===chapterId);
   const target=index+dir;
   if(index<0||target<0||target>=data.chapters.length||data.chapters[target]?.id==="chapter-unassigned")return;
+  if(isCloudWorkspace()){
+    const ordered=data.chapters.filter(chapter=>chapter.id!=="chapter-unassigned"&&chapter.id!==chapterId);ordered.splice(target,0,chapterById(chapterId));
+    const at=ordered.findIndex(chapter=>chapter.id===chapterId),previous=ordered[at-1]?.position,next=ordered[at+1]?.position;
+    const position=previous==null?(next??1000)-1000:next==null?previous+1000:(previous+next)/2;
+    const result=await runCloudMutation("reorderChapter",(api,revision)=>api.reorderChapter(cloudProjectSync.projectId,chapterId,revision,position));
+    if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState()}return result;
+  }
   const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
   const result=commitDataChange(next=>{
     next.chapters.forEach(c=>{if(names.get(c.id))c.title=names.get(c.id)});
@@ -40,9 +47,13 @@ function moveChapter(chapterId,dir){
   if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState();render()}
 }
 
-function deleteChapter(id){
+async function deleteChapter(id){
   const c=chapterById(id);if(!c||id==="chapter-unassigned")return;
   if(!confirm(`Удалить главу «${c.title}»? Её сцены перейдут в «Без главы».`))return;
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("deleteChapter",(api,revision)=>api.deleteChapter(cloudProjectSync.projectId,id,revision));
+    if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState()}return result;
+  }
   const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
   const result=commitDataChange(next=>{
     next.chapters.forEach(chapter=>{if(names.get(chapter.id))chapter.title=names.get(chapter.id)});
@@ -72,9 +83,13 @@ function saveLocations(){
   });
 }
 
-function deleteLocation(id){
+async function deleteLocation(id){
   const l=locationById(id);if(!l)return;
   if(!confirm(`Удалить локацию «${l.name}»? В сценах она станет не указанной.`))return;
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("deleteLocation",(api,revision)=>api.deleteLocation(cloudProjectSync.projectId,id,revision));
+    if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState()}return result;
+  }
   const values=[...document.querySelectorAll(".location-name-input")].map(input=>({id:input.dataset.id,name:input.value.trim(),description:document.querySelector(`.location-desc-input[data-id="${cssEscape(input.dataset.id)}"]`)?.value.trim()||""}));
   const result=commitDataChange(next=>{
     values.forEach(value=>{const item=next.locations.find(location=>location.id===value.id);if(item&&value.name)Object.assign(item,value)});
@@ -103,9 +118,13 @@ function saveTags(){
   });
 }
 
-function deleteTag(id){
+async function deleteTag(id){
   const t=tagById(id);if(!t)return;
   if(!confirm(`Удалить тег #${t.name} из всех сцен?`))return;
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("deleteTag",(api,revision)=>api.deleteTag(cloudProjectSync.projectId,id,revision));
+    if(result.ok){renderTagsManager();trackerFor("tagsModal").captureInitialState()}return result;
+  }
   const values=new Map([...document.querySelectorAll(".tag-name-input")].map(input=>[input.dataset.id,canonicalTagName(input.value)]));
   const result=commitDataChange(next=>{
     const used=new Set();next.tags.forEach(tag=>{const name=values.get(tag.id)||tag.name,key=name.toLocaleLowerCase("ru");if(!used.has(key)){tag.name=name;used.add(key)}});

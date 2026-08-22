@@ -70,10 +70,17 @@ document.querySelectorAll("#profileEditorModal .profile-field").forEach((field,i
 
 
 
-document.getElementById("saveQuickField").onclick=()=>{
+document.getElementById("saveQuickField").onclick=async()=>{
   if(!quickFieldState)return;
   const {sceneId,field}=quickFieldState;
   const value=document.getElementById("quickFieldSelect").value;
+  if(isCloudWorkspace()){
+    const current=sceneById(sceneId);if(!current)return;
+    const result=field==="chapterId"
+      ?await runCloudMutation("moveScene",(api,revision)=>api.moveScene(cloudProjectSync.projectId,sceneId,revision,{chapterId:value==="chapter-unassigned"?null:value,beforeSceneId:null}))
+      :await runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,sceneId,revision,sceneToCloud({...current,[field]:value})));
+    if(!result.ok)return;quickFieldState=null;trackerFor("quickFieldModal").captureInitialState();forceHideModal("quickFieldModal");return;
+  }
   const result=commitDataChange(next=>{
     const scene=next.scenes.find(item=>item.id===sceneId);if(!scene)throw new Error("scene missing");
     if(scene[field]===value)return;
@@ -159,9 +166,13 @@ document.querySelectorAll("#viewSwitch button").forEach(btn=>btn.onclick=()=>{cu
 
 document.getElementById("addSceneTag").onclick=addTagToDraft;
 document.getElementById("sceneTagInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addTagToDraft()}};
-document.getElementById("quickAddLocation").onclick=()=>{
+document.getElementById("quickAddLocation").onclick=async()=>{
   const name=prompt("Название новой локации:");
   if(!name?.trim())return;
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("createLocation",(api,revision)=>api.createLocation(cloudProjectSync.projectId,revision,{name:name.trim(),description:""}),{renderAfter:false});
+    if(!result.ok)return;data=cloudProjectSync.confirmedProject;populateSceneSelectors();document.getElementById("sceneLocation").value=result.data?.id||"";return;
+  }
   const location={id:makeId("location"),name:name.trim(),description:""};
   const result=commitDataChange(next=>next.locations.push(location),{renderAfter:false});
   if(!result.ok)return;
@@ -175,14 +186,23 @@ document.getElementById("quickAddLocation").onclick=()=>{
 
 
 document.getElementById("manageChapters").onclick=openChaptersManager;
-document.getElementById("addChapter").onclick=()=>{
+document.getElementById("addChapter").onclick=async()=>{
+  if(isCloudWorkspace()){
+    const title=`Глава ${data.chapters.filter(c=>c.id!=="chapter-unassigned").length+1}`;
+    const result=await runCloudMutation("createChapter",(api,revision)=>api.createChapter(cloudProjectSync.projectId,revision,{title,position:(data.chapters.length+1)*1000}));
+    if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState()}return;
+  }
   const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
   const id=makeId("chapter"),title=`Глава ${data.chapters.length}`;
   const result=commitDataChange(next=>{next.chapters.forEach(c=>{if(names.get(c.id))c.title=names.get(c.id)});next.chapters.push({id,title,collapsed:false})},{renderAfter:false});
   if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState();render()}
 };
-function saveChapterDraft(){
+async function saveChapterDraft(){
   const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
+  if(isCloudWorkspace()){
+    for(const chapter of data.chapters.filter(c=>c.id!=="chapter-unassigned"))if(names.get(chapter.id)&&names.get(chapter.id)!==chapter.title){const result=await runCloudMutation("updateChapter",(api,revision)=>api.updateChapter(cloudProjectSync.projectId,chapter.id,revision,{title:names.get(chapter.id)}));if(!result.ok)return result}
+    renderChaptersManager();trackerFor("chaptersModal").captureInitialState();return {ok:true};
+  }
   const result=commitDataChange(next=>next.chapters.forEach(c=>{if(names.get(c.id))c.title=names.get(c.id)}),{renderAfter:false});
   if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState();render()}
   return result;
@@ -196,13 +216,21 @@ document.getElementById("chaptersModal").onclick=e=>{if(e.target.id==="chaptersM
 
 
 document.getElementById("manageLocations").onclick=openLocationsManager;
-document.getElementById("addLocation").onclick=()=>{
+document.getElementById("addLocation").onclick=async()=>{
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("createLocation",(api,revision)=>api.createLocation(cloudProjectSync.projectId,revision,{name:"Новая локация",description:""}));
+    if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState()}return;
+  }
   const values=[...document.querySelectorAll(".location-name-input")].map(input=>({id:input.dataset.id,name:input.value.trim(),description:document.querySelector(`.location-desc-input[data-id="${cssEscape(input.dataset.id)}"]`)?.value.trim()||""}));
   const result=commitDataChange(next=>{values.forEach(v=>{const l=next.locations.find(x=>x.id===v.id);if(l&&v.name)Object.assign(l,v)});next.locations.push({id:makeId("location"),name:"Новая локация",description:""})},{renderAfter:false});
   if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState();render()}
 };
-function saveLocationDraft(){
+async function saveLocationDraft(){
   const values=[...document.querySelectorAll(".location-name-input")].map(input=>({id:input.dataset.id,name:input.value.trim(),description:document.querySelector(`.location-desc-input[data-id="${cssEscape(input.dataset.id)}"]`)?.value.trim()||""}));
+  if(isCloudWorkspace()){
+    for(const value of values){const old=locationById(value.id);if(old&&value.name&&(old.name!==value.name||(old.description||"")!==value.description)){const result=await runCloudMutation("updateLocation",(api,revision)=>api.updateLocation(cloudProjectSync.projectId,value.id,revision,value));if(!result.ok)return result}}
+    renderLocationsManager();trackerFor("locationsModal").captureInitialState();return {ok:true};
+  }
   const result=commitDataChange(next=>values.forEach(v=>{const l=next.locations.find(x=>x.id===v.id);if(l&&v.name)Object.assign(l,v)}),{renderAfter:false});
   if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState();render()}
   return result;
@@ -216,13 +244,21 @@ document.getElementById("locationsModal").onclick=e=>{if(e.target.id==="location
 
 
 document.getElementById("manageTags").onclick=openTagsManager;
-document.getElementById("addTag").onclick=()=>{
+document.getElementById("addTag").onclick=async()=>{
   const name=canonicalTagName(prompt("Название тега:"));if(!name)return;
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("createTag",(api,revision)=>api.createTag(cloudProjectSync.projectId,revision,{name}));
+    if(result.ok){renderTagsManager();trackerFor("tagsModal").captureInitialState()}return;
+  }
   const result=commitDataChange(next=>{if(!next.tags.some(t=>t.name.toLocaleLowerCase("ru")===name.toLocaleLowerCase("ru")))next.tags.push({id:makeId("tag"),name})},{renderAfter:false});
   if(result.ok){renderTagsManager();trackerFor("tagsModal").captureInitialState();render()}
 };
-function saveTagDraft(){
+async function saveTagDraft(){
   const values=new Map([...document.querySelectorAll(".tag-name-input")].map(input=>[input.dataset.id,canonicalTagName(input.value)]));
+  if(isCloudWorkspace()){
+    for(const tag of data.tags)if(values.get(tag.id)&&values.get(tag.id)!==tag.name){const result=await runCloudMutation("updateTag",(api,revision)=>api.updateTag(cloudProjectSync.projectId,tag.id,revision,{name:values.get(tag.id)}));if(!result.ok)return result}
+    renderTagsManager();trackerFor("tagsModal").captureInitialState();return {ok:true};
+  }
   const result=commitDataChange(next=>next.tags.forEach(t=>{if(values.get(t.id))t.name=values.get(t.id)}),{renderAfter:false});
   if(result.ok){renderTagsManager();trackerFor("tagsModal").captureInitialState();render()}
   return result;
@@ -236,7 +272,7 @@ document.getElementById("tagsModal").onclick=e=>{if(e.target.id==="tagsModal")re
 
 
 
-document.getElementById("saveScene").onclick=()=>{
+document.getElementById("saveScene").onclick=async()=>{
   const existingScene=editingSceneId?sceneById(editingSceneId):null;
   const targetIndex=existingScene
     ?sceneIndexById(existingScene.id)
@@ -288,6 +324,31 @@ document.getElementById("saveScene").onclick=()=>{
     }
   });
 
+  if(isCloudWorkspace()){
+    const resolvedTags=[];
+    for(const tagId of scene.tags){
+      if(!sceneNewTagDraft[tagId]){resolvedTags.push(tagId);continue}
+      const created=await runCloudMutation("createTag",(api,revision)=>api.createTag(cloudProjectSync.projectId,revision,{name:sceneNewTagDraft[tagId]}),{renderAfter:false});
+      if(!created.ok)return;resolvedTags.push(created.data?.id);
+    }
+    const cloudScene={...scene,tags:resolvedTags};
+    const previousPosition=data.scenes[sceneIndex-1]?.position,nextPosition=data.scenes[sceneIndex]?.position;
+    const createPosition=previousPosition==null?(nextPosition??1000)-1000:nextPosition==null?previousPosition+1000:(previousPosition+nextPosition)/2;
+    const mutation=existingScene
+      ?(api,revision)=>api.updateScene(cloudProjectSync.projectId,existingScene.id,revision,sceneToCloud(cloudScene))
+      :(api,revision)=>api.createScene(cloudProjectSync.projectId,revision,sceneToCloud(cloudScene,createPosition));
+    const result=await runCloudMutation(existingScene?"updateScene":"createScene",mutation,{renderAfter:false});
+    if(!result.ok)return;
+    const sceneId=existingScene?.id||result.data?.id;
+    if(sceneId){
+      const tagsResult=await runCloudMutation("setSceneTags",(api,revision)=>api.setSceneTags(cloudProjectSync.projectId,sceneId,revision,resolvedTags),{renderAfter:false});
+      if(!tagsResult.ok)return;
+      const target=cloudProjectSync.confirmedProject.scenes.find(item=>item.id===sceneId);
+      if(target){target.people=scene.people;cloudProjectSync.cache()}
+    }
+    data=cloudProjectSync.confirmedProject;trackerFor("sceneModal").captureInitialState();forceHideModal("sceneModal");render();return;
+  }
+
   const result=commitDataChange(next=>{
     for(const [id,name] of Object.entries(sceneNewTagDraft))if(scene.tags.includes(id)&&!next.tags.some(tag=>tag.id===id))next.tags.push({id,name});
     if(existingScene){
@@ -307,10 +368,14 @@ document.getElementById("saveScene").onclick=()=>{
 
 
 
-document.getElementById("saveText").onclick=()=>{
+document.getElementById("saveText").onclick=async()=>{
   const scene=sceneById(textEditingSceneId);
   if(!scene)return;
   const value=document.getElementById("fullSceneText").value;
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,scene.id,revision,sceneToCloud({...scene,sceneText:value})));
+    if(!result.ok)return;trackerFor("textModal").captureInitialState();forceHideModal("textModal");return;
+  }
   const result=commitDataChange(next=>{next.scenes.find(s=>s.id===textEditingSceneId).sceneText=value},{renderAfter:false});
   if(!result.ok)return;
   trackerFor("textModal").captureInitialState();forceHideModal("textModal");
@@ -511,8 +576,8 @@ document.getElementById("saveProfile").onclick=()=>{
 
 
 document.getElementById("allScenesBtn").onclick=openAllScenes;
-document.getElementById("saveAllScenes").onclick=()=>{
-  const result=saveAllScenes();
+document.getElementById("saveAllScenes").onclick=async()=>{
+  const result=await saveAllScenes();
   if(result?.ok){trackerFor("allScenesModal").captureInitialState();forceHideModal("allScenesModal")}
 };
 document.getElementById("closeAllScenes").onclick=()=>requestCloseModal("allScenesModal","button");
@@ -535,6 +600,7 @@ document.getElementById("exportBtn").onclick=()=>{
 document.getElementById("downloadProblemRaw").onclick=downloadProblemRaw;
 document.getElementById("importInput").onchange=async e=>{
   const file=e.target.files[0];if(!file)return;
+  if(isCloudWorkspace()){showStorageMessage("Импорт local JSON в облачный проект пока не включён. Файл и облачные данные не изменены.","warning");e.target.value="";return}
   const visible=[...dirtyTrackers.values()].find(tracker=>tracker.active&&document.getElementById(tracker.id)?.style.display==="flex");
   if(visible&&!(await requestCloseModal(visible.id,"import"))){e.target.value="";return}
   try{
@@ -566,6 +632,7 @@ document.getElementById("importInput").onchange=async e=>{
   e.target.value="";
 };
 document.getElementById("clearBtn").onclick=()=>{
+  if(isCloudWorkspace()){showStorageMessage("Полная очистка облачного проекта пока недоступна: удаляйте подтверждённые сущности отдельно.","warning");return}
   const warning="Будут безвозвратно удалены сцены, главы, персонажи, отношения, локации, теги, фотографии и весь текст. Перед очисткой рекомендуется нажать «Экспорт».\\n\\nДля продолжения введите слово УДАЛИТЬ:";
   const answer=prompt(warning);
   if(answer!=="УДАЛИТЬ")return;

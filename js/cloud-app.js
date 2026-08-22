@@ -1,9 +1,11 @@
 import {SUPABASE_CONFIG} from "./supabase-config.js";
 import {createCloudApi} from "./cloud-api.js";
+import {createCloudContentApi} from "./cloud-content-api.js";
+import {createCloudProjectSync} from "./cloud-project-sync.js";
 import {activateCloudWorkspace,hasLegacyWorkspace} from "./workspace-storage.js";
 
 const SUPABASE_BROWSER_MODULE="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm";
-const cloudState={api:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle"};
+const cloudState={api:null,contentApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null};
 const byId=id=>document.getElementById(id);
 
 function setAppState(state){
@@ -183,17 +185,37 @@ async function cloudOperation(operation,successMessage=""){
 async function openCloudProject(project){
   if(!(await requestEditorTransition(()=>true)))return;
   activateCloudWorkspace(project.id);
-  storageWriteEnabled=true;
-  data=loadDataSafe();
+  storageWriteEnabled=false;
+  const localBeforeLoad=loadDataSafe();
+  data=localBeforeLoad;
   selectedSceneId=null;selectedSceneIndex=null;
-  normalizeSceneOrder();loadUiState();
-  if(startupLoadInfo?.fresh)saveData();
-  render();initializeStorageNotice();
-  byId("downloadProblemRaw").hidden=!startupLoadInfo?.blocked;
-  byId("openRecovery").hidden=!startupLoadInfo?.blocked;
   byId("workspaceProjectTitle").textContent=project.title;
   setAppState("workspace");
   clearCloudMessages();
+  byId("board").innerHTML='<div class="section-empty-state" role="status"><strong>Загрузка проекта…</strong></div>';
+  const sync=createCloudProjectSync({projectId:project.id,api:cloudState.contentApi,onState:(status,payload)=>{
+    if(status==="loading")byId("saveStatus").textContent="Синхронизация…";
+    else if(status==="saved")byId("saveStatus").textContent="Сохранено";
+    else if(status==="conflict")showStorageMessage("Проект изменился в другом окне или на другом устройстве. Форма и черновик сохранены; загрузите актуальную версию или отмените операцию.","error");
+    else if(status==="save-error")showStorageMessage(payload?.message||"Не удалось сохранить облачные изменения.","error");
+  },onConflict:()=>setTimeout(async()=>{
+    if(!confirm("Проект изменился в другом окне или на другом устройстве. Загрузить актуальную облачную версию? Введённый текст открытой формы останется в форме, но перед повторным сохранением проверьте изменения."))return;
+    const reloaded=await sync.reload();if(reloaded.ok){data=reloaded.data;render();showStorageMessage("Актуальная облачная версия загружена. Черновик открытой формы не закрыт — проверьте его перед сохранением.","warning")}
+  },0)});
+  cloudState.projectSync=sync;globalThis.cloudProjectSync=sync;
+  try{
+    const loaded=await sync.load();
+    if(!loaded.ok&&loaded.code==="LOCAL_CONTENT_CLOUD_EMPTY"){
+      data=localBeforeLoad;storageWriteEnabled=false;normalizeSceneOrder();loadUiState();render();
+      showStorageMessage("В этом браузере найдены локальные данные проекта, а облачная версия пуста. Локальные данные не удалены. Скачайте резервную копию через «Экспорт»; перенос в облако будет добавлен отдельным этапом.","error");
+      return;
+    }
+    data=loaded.data;storageWriteEnabled=true;normalizeSceneOrder();loadUiState();render();clearCloudMessages();
+    byId("saveStatus").textContent="Сохранено";
+  }catch(error){
+    data=localBeforeLoad;storageWriteEnabled=false;normalizeSceneOrder();loadUiState();render();
+    showStorageMessage("Не удалось загрузить облачный проект. Локальная копия показана только для восстановления; изменения не синхронизируются.","error");
+  }
 }
 async function returnToProjects(){
   if(!(await requestEditorTransition(()=>true)))return;
@@ -288,7 +310,7 @@ async function initializeCloudApp(){
       if(!startupLoadInfo?.blocked)showStorageMessage("Локальный режим: рабочее пространство доступно без облачного аккаунта. Уберите ?local=1, чтобы открыть облачный вход.","warning");
       return;
     }
-    cloudState.api=createCloudApi(client);bindUi();
+    cloudState.api=createCloudApi(client);cloudState.contentApi=createCloudContentApi(client);bindUi();
     cloudState.api.onAuthStateChange((session,event)=>{
       cloudState.authRevision++;
       cloudState.session=session;
