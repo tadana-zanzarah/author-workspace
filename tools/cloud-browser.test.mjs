@@ -1,6 +1,7 @@
 import {createRequire} from "node:module";
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
+const base=process.env.AUTHOR_WORKSPACE_URL||"http://127.0.0.1:8000/author-workspace/";
 const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
 const context=await browser.newContext();
 const page=await context.newPage();
@@ -8,7 +9,7 @@ page.setDefaultTimeout(8000);
 
 await page.addInitScript(()=>{
   const user={id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",email:"author@example.test"};
-  const read=()=>JSON.parse(localStorage.getItem("mockCloud")||'{"profiles":[],"series":[],"projects":[]}');
+  const read=()=>{const db=JSON.parse(localStorage.getItem("mockCloud")||'{"profiles":[],"series":[],"projects":[],"chapters":[],"locations":[],"tags":[],"scenes":[],"scene_tags":[]}');for(const key of ["profiles","series","projects","chapters","locations","tags","scenes","scene_tags"])db[key]||=[];return db};
   const write=value=>localStorage.setItem("mockCloud",JSON.stringify(value));
   const listeners=[];
   globalThis.__mockFailures={};
@@ -26,7 +27,7 @@ await page.addInitScript(()=>{
         const db=read();let rows=db[table].filter(row=>state.filters.every(filter=>filter(row)));
         if(state.action==="insert"){
           const payload=Array.isArray(state.payload)?state.payload:[state.payload];
-          rows=payload.map(item=>({...item,id:item.id||crypto.randomUUID(),created_at:new Date().toISOString(),updated_at:new Date().toISOString(),deleted_at:null,status:item.status||"active"}));
+          rows=payload.map(item=>({...item,id:item.id||crypto.randomUUID(),created_at:new Date().toISOString(),updated_at:new Date().toISOString(),deleted_at:null,status:item.status||"active",...(table==="projects"?{revision:0}:{})}));
           db[table].push(...rows);write(db);
         }else if(state.action==="update"){
           rows=rows.map(row=>Object.assign(row,state.payload,{updated_at:new Date().toISOString()}));write(db);
@@ -51,8 +52,17 @@ await page.addInitScript(()=>{
     async rpc(name,args){
       if(globalThis.__mockFailures[name])return {data:null,error:new Error(globalThis.__mockFailures[name])};
       const db=read();
+      const project=db.projects.find(item=>item.id===args.target_project_id);
+      if(name==="get_project_content")return {data:project?{ok:true,code:"OK",revision:project.revision||0,changed:false,data:{project:{id:project.id,revision:project.revision||0,updated_at:project.updated_at},chapters:db.chapters.filter(x=>x.project_id===project.id&&!x.deleted_at),locations:db.locations.filter(x=>x.project_id===project.id&&!x.deleted_at),tags:db.tags.filter(x=>x.project_id===project.id),scenes:db.scenes.filter(x=>x.project_id===project.id&&!x.deleted_at),scene_tags:db.scene_tags.filter(x=>x.project_id===project.id)}}:{ok:false,code:"NOT_FOUND",changed:false},error:null};
+      if(name==="create_scene"){
+        if(project.revision!==args.expected_revision)return {data:{ok:false,code:"REVISION_CONFLICT",actualRevision:project.revision,changed:false},error:null};
+        const scene={id:crypto.randomUUID(),project_id:project.id,chapter_id:args.target_chapter_id,location_id:args.target_location_id,title:args.scene_title,scene_text:args.scene_text_value,scene_date:args.scene_date_value,scene_time:args.scene_time_value,placement_status:args.placement_status_value,writing_status:args.writing_status_value,included:args.included_value,date_review:args.date_review_value,position:args.scene_position||1000,deleted_at:null};db.scenes.push(scene);project.revision++;write(db);return {data:{ok:true,code:"OK",revision:project.revision,changed:true,data:scene},error:null};
+      }
+      if(name==="set_scene_tags"){
+        if(project.revision!==args.expected_revision)return {data:{ok:false,code:"REVISION_CONFLICT",actualRevision:project.revision,changed:false},error:null};
+        db.scene_tags=db.scene_tags.filter(x=>x.scene_id!==args.target_scene_id);for(const tag_id of args.tag_ids||[])db.scene_tags.push({project_id:project.id,scene_id:args.target_scene_id,tag_id});project.revision++;write(db);return {data:{ok:true,code:"OK",revision:project.revision,changed:true,data:args.tag_ids||[]},error:null};
+      }
       if(name==="set_project_series"){
-        const project=db.projects.find(item=>item.id===args.target_project_id);
         Object.assign(project,{series_id:args.target_series_id,position_in_series:args.target_series_id?args.target_position:null});
       }
       if(name==="reorder_series_projects")args.ordered_project_ids.forEach((id,index)=>{db.projects.find(item=>item.id===id).position_in_series=index+1});
@@ -78,7 +88,7 @@ const createProject=async(title,seriesLabel="Без цикла")=>{
   await projectRow(title).waitFor();
 };
 
-await page.goto("http://127.0.0.1:8000/author-workspace/",{waitUntil:"networkidle"});
+await page.goto(base,{waitUntil:"networkidle"});
 await page.waitForSelector("#authScreen:not([hidden])");
 await page.fill("#authEmail","author@example.test");await page.fill("#authPassword","password");
 await page.click("#signInButton");await page.waitForSelector("#projectsScreen:not([hidden])");

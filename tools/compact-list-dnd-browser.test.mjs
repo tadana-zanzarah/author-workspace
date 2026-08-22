@@ -3,6 +3,7 @@ import {spawn} from "node:child_process";
 
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
+const base=process.env.AUTHOR_WORKSPACE_URL||"http://127.0.0.1:8000/";
 const server=spawn(process.execPath,["tools/server.mjs"],{stdio:"ignore"});
 const project={version:11,characters:[{id:"char-a",name:"Анна"},{id:"char-b",name:"Борис"}],profiles:{"char-a":{id:"char-a",characterId:"char-a",name:"Анна",photos:[],hidden:{},initialRelations:{"char-b":"друзья"}},"char-b":{id:"char-b",characterId:"char-b",name:"Борис",photos:[],hidden:{},initialRelations:{}}},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false},{id:"chapter-one",title:"Глава 1",collapsed:false},{id:"chapter-two",title:"Глава 2",collapsed:false},{id:"chapter-empty",title:"Глава 3",collapsed:false}],locations:[],tags:[],future:{},scenes:[
   {id:"scene-a",title:"A",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"idea",sceneText:"",included:true,status:"floating",people:{"char-a":{action:"",relationChanges:{"char-b":"враги"},visibleRelations:["char-b"]}}},
@@ -14,7 +15,7 @@ const browser=await chromium.launch({headless:true,executablePath:"C:/Program Fi
 try{
   const page=await browser.newPage();
   await page.addInitScript(value=>{if(sessionStorage.getItem("compact-dnd-seeded"))return;sessionStorage.setItem("compact-dnd-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
-  for(let attempt=0;attempt<30;attempt++){try{await page.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
+  for(let attempt=0;attempt<30;attempt++){try{await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
   await page.click('[data-view="list"]');
   await page.waitForSelector(".compact-chapter-group");
   const structure=await page.evaluate(()=>({handles:[...document.querySelectorAll(".compact-drag-handle")].map(x=>({disabled:x.disabled,label:x.getAttribute("aria-label"),draggable:x.draggable})),chapters:[...document.querySelectorAll(".compact-chapter-group")].map(x=>x.dataset.chapterId)}));

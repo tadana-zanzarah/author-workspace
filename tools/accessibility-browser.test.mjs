@@ -2,6 +2,7 @@ import {createRequire} from "node:module";
 
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
+const base=process.env.AUTHOR_WORKSPACE_URL||"http://127.0.0.1:8000/";
 const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
 const context=await browser.newContext();
 const page=await context.newPage();
@@ -12,7 +13,7 @@ page.on("console",message=>{if(message.type()==="error")errors.push(message.text
 
 const project={version:11,characters:[{id:"character-a",name:"Анна"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"Анна",photos:[],hidden:{},initialRelations:{}}},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],scenes:[{id:"scene-a",title:"Исходная сцена",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],writingStatus:"draft",sceneText:"Текст",included:true,status:"fixed",people:{}}]};
 await page.addInitScript(value=>localStorage.setItem("novelTimelineV11",JSON.stringify(value)),project);
-await page.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 
 const activeInside=id=>page.evaluate(modalId=>document.getElementById(modalId).contains(document.activeElement),id);
 const activeId=()=>page.evaluate(()=>document.activeElement?.id||document.activeElement?.getAttribute("data-action")||document.activeElement?.tagName);
@@ -87,7 +88,7 @@ await page.evaluate(()=>quickEditChapter("scene-a"));if(!await activeInside("qui
 
 const recoveryContext=await browser.newContext(),recoveryPage=await recoveryContext.newPage();
 await recoveryPage.addInitScript(()=>{localStorage.setItem("novelTimelineV11","{broken");localStorage.setItem("novelTimelineV10",JSON.stringify({version:10,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы"}],locations:[],tags:[],scenes:[]}))});
-await recoveryPage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});await recoveryPage.waitForSelector("#recoveryModal",{state:"visible"});
+await recoveryPage.goto(`${base}?local=1`,{waitUntil:"networkidle"});await recoveryPage.waitForSelector("#recoveryModal",{state:"visible"});
 if(!await recoveryPage.evaluate(()=>document.getElementById("recoveryModal").contains(document.activeElement)&&document.querySelector("header").inert))throw new Error("Recovery modal не управляет focus/background");
 await recoveryContext.close();
 

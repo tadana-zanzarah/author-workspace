@@ -1,6 +1,7 @@
 import {createRequire} from "node:module";
 const require = createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium} = require("playwright");
+const base=process.env.AUTHOR_WORKSPACE_URL||"http://127.0.0.1:8000/";
 
 const browser = await chromium.launch({
   headless: true,
@@ -11,7 +12,7 @@ const freshContext = await browser.newContext();
 const freshPage = await freshContext.newPage();
 const freshErrors=[];
 freshPage.on("pageerror",error=>freshErrors.push(error.message));
-await freshPage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await freshPage.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 await freshPage.waitForSelector(".workspace-empty-state");
 const freshProject=await freshPage.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
 if(freshProject.characters.length||freshProject.scenes.length||freshProject.locations.length||freshProject.tags.length)throw new Error("Fresh install не пуст");
@@ -47,7 +48,7 @@ await freshContext.close();
 
 const noCharacterContext=await browser.newContext();
 const noCharacterPage=await noCharacterContext.newPage();
-await noCharacterPage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await noCharacterPage.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 await noCharacterPage.locator(".workspace-empty-state button",{hasText:"Создать сцену"}).click();
 await noCharacterPage.fill("#sceneTitle","Сцена без персонажей");
 await noCharacterPage.click("#saveScene");
@@ -84,7 +85,7 @@ await page.addInitScript(()=>{
   }));
 });
 
-await page.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 await page.waitForSelector("#board");
 if(await page.locator("#recoveryModal").isVisible()){
   await page.locator('input[name="recoveryCandidate"]').first().check();
@@ -196,7 +197,7 @@ await fallbackPage.addInitScript(()=>{
     locations:[],tags:[],scenes:[{title:"Восстановленная сцена",people:{Миграция:{action:"Есть"}}}]
   }));
 });
-await fallbackPage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await fallbackPage.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 await fallbackPage.waitForSelector("#recoveryModal",{state:"visible"});
 const corruptFallback=await fallbackPage.evaluate(()=>{
   return {
@@ -232,7 +233,7 @@ if(recoverySuccess.version!==11||!recoverySuccess.writesEnabled||recoverySuccess
 const fatalContext=await browser.newContext();
 const fatalPage=await fatalContext.newPage();
 await fatalPage.addInitScript(()=>localStorage.setItem("novelTimelineV11","{broken"));
-await fatalPage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await fatalPage.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 const corruptProtected=await fatalPage.evaluate(()=>({
   originalPreserved:localStorage.getItem("novelTimelineV11")==="{broken",
   writesDisabled:storageWriteEnabled===false,
@@ -244,7 +245,7 @@ if(!corruptProtected.originalPreserved || !corruptProtected.writesDisabled) thro
 const structureContext=await browser.newContext();
 const structurePage=await structureContext.newPage();
 await structurePage.addInitScript(()=>localStorage.setItem("novelTimelineV11","{}"));
-await structurePage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await structurePage.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 const invalidStructure=await structurePage.evaluate(()=>({
   originalPreserved:localStorage.getItem("novelTimelineV11")==="{}",
   writesDisabled:storageWriteEnabled===false,
@@ -259,7 +260,7 @@ await quotaPage.addInitScript(project=>localStorage.setItem("novelTimelineV11",J
   version:11,characters:[{id:"character-a",name:"А"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"А",initialRelations:{}}},
   chapters:[{id:"chapter-unassigned",title:"Без главы"}],locations:[],tags:[],future:{},scenes:[]
 });
-await quotaPage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await quotaPage.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 await quotaPage.click("#addFirst");
 await quotaPage.fill("#sceneTitle","Не должна сохраниться");
 await quotaPage.evaluate(()=>{
@@ -280,7 +281,7 @@ if(quotaRollback.memoryScenes!==0||quotaRollback.storedScenes!==0||!quotaRollbac
 const failureContext=await browser.newContext();
 const failurePage=await failureContext.newPage();
 await failurePage.addInitScript(()=>localStorage.setItem("novelTimelineV11",JSON.stringify({version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы"},{id:"chapter-two",title:"Глава 2"}],locations:[],tags:[],future:{},scenes:[{id:"scene-a",title:"A",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],people:{}},{id:"scene-b",title:"B",date:"2026-01-02",time:"10:00",dateReview:true,chapterId:"chapter-two",locationId:"",tags:[],people:{}}]})));
-await failurePage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await failurePage.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 const beforeFailures=await failurePage.evaluate(()=>localStorage.getItem("novelTimelineV11"));
 await failurePage.evaluate(()=>{const original=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new DOMException("quota","QuotaExceededError")};globalThis.__restoreSetItem=()=>Storage.prototype.setItem=original});
 const dateFailure=await failurePage.evaluate(()=>{quickUpdate("scene-a","date","2026-01-03");return {memory:data.scenes[0].date,stored:JSON.parse(localStorage.getItem("novelTimelineV11")).scenes[0].date,banner:document.getElementById("storageBanner").textContent}});
@@ -298,7 +299,7 @@ await failureContext.close();
 const duplicateContext=await browser.newContext();
 const duplicatePage=await duplicateContext.newPage();
 await duplicatePage.addInitScript(()=>{localStorage.setItem("novelTimelineV11","{broken");localStorage.setItem("novelTimelineV10",JSON.stringify({version:10,characters:[{name:"Алекс",surname:"Первый"},{name:"Алекс",surname:"Второй"}],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы"}],locations:[],tags:[],future:{},scenes:[{title:"Выбор",chapterId:"chapter-unassigned",people:{Алекс:{action:"есть",relationChanges:{},visibleRelations:[]}}}]}))});
-await duplicatePage.goto("http://127.0.0.1:8000/?local=1",{waitUntil:"networkidle"});
+await duplicatePage.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 await duplicatePage.locator('input[name="recoveryCandidate"]').check();
 const unresolvedBlocked=await duplicatePage.locator("#applyRecovery").isDisabled();
 await duplicatePage.locator("[data-recovery-path]").selectOption({index:2});

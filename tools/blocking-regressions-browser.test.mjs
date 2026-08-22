@@ -1,6 +1,7 @@
 import {createRequire} from "node:module";
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
+const base=process.env.AUTHOR_WORKSPACE_URL||"http://127.0.0.1:8000/author-workspace/";
 
 const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
 const context=await browser.newContext();
@@ -20,9 +21,9 @@ await page.addInitScript(()=>{
     profiles:[{user_id:user.id,display_name:"Автор",settings:{},created_at:now,updated_at:now}],
     series:[{id:seriesId,owner_id:user.id,title:"Series A",description:"",created_at:now,updated_at:now,deleted_at:null}],
     projects:[
-      {id:projectAId,owner_id:user.id,title:"Project A",description:"",series_id:seriesId,position_in_series:1,status:"active",created_at:now,updated_at:now,deleted_at:null},
-      {id:projectBId,owner_id:user.id,title:"Project B",description:"",series_id:null,position_in_series:null,status:"active",created_at:now,updated_at:now,deleted_at:null}
-    ]
+      {id:projectAId,owner_id:user.id,title:"Project A",description:"",series_id:seriesId,position_in_series:1,status:"active",revision:0,created_at:now,updated_at:now,deleted_at:null},
+      {id:projectBId,owner_id:user.id,title:"Project B",description:"",series_id:null,position_in_series:null,status:"active",revision:0,created_at:now,updated_at:now,deleted_at:null}
+    ],chapters:[{id:"chapter-one",project_id:projectAId,title:"Глава 1",position:1000,deleted_at:null}],locations:[],tags:[],scenes:[],scene_tags:[]
   };
   if(!localStorage.getItem("mockBlockingCloud"))localStorage.setItem("mockBlockingCloud",JSON.stringify(existing));
   if(!localStorage.getItem("novelTimelineV11"))localStorage.setItem("novelTimelineV11",JSON.stringify({version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],future:{},scenes:[],legacyMarker:true}));
@@ -65,7 +66,16 @@ await page.addInitScript(()=>{
       async signOut(){localStorage.removeItem("mockBlockingSession");listeners.forEach(callback=>callback("SIGNED_OUT",null));return {error:null}}
     },
     from:builder,
-    async rpc(){return {data:null,error:null}}
+    async rpc(name,args){
+      const db=read(),project=db.projects.find(item=>item.id===args.target_project_id);
+      if(name==="get_project_content")return {data:{ok:true,code:"OK",revision:project.revision,changed:false,data:{project:{id:project.id,revision:project.revision},chapters:db.chapters.filter(x=>x.project_id===project.id&&!x.deleted_at),locations:[],tags:[],scenes:db.scenes.filter(x=>x.project_id===project.id&&!x.deleted_at),scene_tags:[]}},error:null};
+      if(name==="create_scene"){
+        if(project.revision!==args.expected_revision)return {data:{ok:false,code:"REVISION_CONFLICT",actualRevision:project.revision,changed:false},error:null};
+        const scene={id:crypto.randomUUID(),project_id:project.id,chapter_id:args.target_chapter_id,location_id:args.target_location_id,title:args.scene_title,scene_text:args.scene_text_value,scene_date:args.scene_date_value,scene_time:args.scene_time_value,placement_status:args.placement_status_value,writing_status:args.writing_status_value,included:args.included_value,date_review:args.date_review_value,position:args.scene_position||1000,deleted_at:null};db.scenes.push(scene);project.revision++;localStorage.setItem("mockBlockingCloud",JSON.stringify(db));return {data:{ok:true,code:"OK",revision:project.revision,changed:true,data:scene},error:null};
+      }
+      if(name==="set_scene_tags")return {data:{ok:true,code:"OK",revision:project.revision,changed:false,data:[]},error:null};
+      return {data:null,error:null};
+    }
   };
 });
 
@@ -75,7 +85,7 @@ const login=async()=>{
   await page.waitForSelector('#projectsScreen:not([hidden])');
 };
 
-await page.goto("http://127.0.0.1:8000/author-workspace/",{waitUntil:"networkidle"});
+await page.goto(base,{waitUntil:"networkidle"});
 await page.waitForSelector('#authScreen:not([hidden])');
 await page.evaluate(()=>{globalThis.__blockingMock.delayMs=350});
 await login();
