@@ -17,18 +17,24 @@
     <div class="account-card"><h1>Рабочее пространство автора</h1><p>Проверяем сессию…</p></div>
   </section>
   <section id="authScreen" class="state-screen" hidden>
-    <form id="authForm" class="account-card">
-      <h1>Вход</h1>
-      <p class="account-note">Войдите, чтобы открыть облачные контейнеры проектов. Сцены и персонажи пока сохраняются только на этом устройстве.</p>
+    <form id="authForm" class="account-card" data-mode="login">
+      <h1 id="authTitle">Вход</h1>
+      <p id="authNote" class="account-note">Войдите, чтобы открыть свои проекты.</p>
       <label><span>Email</span><input id="authEmail" name="email" type="email" autocomplete="email" required></label>
       <label><span>Пароль</span><input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="6" required></label>
-      <label><span>Отображаемое имя</span><input id="authDisplayName" name="displayName" autocomplete="name" maxlength="120"></label>
+      <label id="authDisplayNameField" hidden><span>Отображаемое имя</span><input id="authDisplayName" name="displayName" autocomplete="name" maxlength="120"></label>
+      <label id="authPasswordConfirmField" hidden><span>Повторите пароль</span><input id="authPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" minlength="6"></label>
       <div class="account-actions">
         <button class="primary" id="signInButton" type="submit">Войти</button>
-        <button id="signUpButton" type="button">Создать аккаунт</button>
       </div>
+      <button id="authModeSwitch" class="account-link-button" type="button">Нет аккаунта? Создать аккаунт</button>
       <p id="authMessage" class="account-message" role="status" aria-live="polite"></p>
     </form>
+    <div id="signupSuccess" class="account-card" role="status" hidden>
+      <h1>Проверьте почту</h1>
+      <p id="signupSuccessText" class="account-note"></p>
+      <button id="signupSuccessLogin" class="primary" type="button">Перейти ко входу</button>
+    </div>
   </section>
   <section id="projectsScreen" class="projects-screen" hidden>
     <div class="projects-head">

@@ -31,8 +31,8 @@ function createCloudApi(client){
   return {
     async getSession(){return getVerifiedSession(client)},
     onAuthStateChange(callback){return client.auth.onAuthStateChange((event,session)=>callback(session,event))},
-    async signUp({email,password,displayName}){
-      return throwIfError(await client.auth.signUp({email,password,options:{data:{display_name:displayName}}}));
+    async signUp({email,password,displayName,emailRedirectTo}){
+      return throwIfError(await client.auth.signUp({email,password,options:{data:{display_name:displayName},emailRedirectTo}}));
     },
     async signIn({email,password}){return throwIfError(await client.auth.signInWithPassword({email,password}))},
     async signOut(){throwIfError(await client.auth.signOut())},

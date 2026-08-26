@@ -3,9 +3,10 @@ import {createCloudApi} from "./cloud-api.js";
 import {createCloudContentApi} from "./cloud-content-api.js";
 import {createCloudProjectSync} from "./cloud-project-sync.js";
 import {activateCloudWorkspace,hasLegacyWorkspace} from "./workspace-storage.js";
+import {AUTH_MESSAGES,authErrorMessage,authReturnUrl,inspectAuthReturn} from "./auth-flow.js";
 
 const SUPABASE_BROWSER_MODULE="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm";
-const cloudState={api:null,contentApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null};
+const cloudState={api:null,contentApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null,authMode:"login",dashboardSessionId:null};
 const byId=id=>document.getElementById(id);
 
 function setAppState(state){
@@ -15,15 +16,10 @@ function setAppState(state){
   byId("projectsScreen").hidden=state!=="projects";
   byId("workspaceCloudBar").hidden=state!=="workspace";
 }
-function friendlyError(error){
+function friendlyError(error,authOperation=false){
   console.error("[Author Workspace cloud]",error);
-  const message=String(error?.message||"");
-  if(/invalid login credentials/i.test(message))return "Неверный email или пароль.";
-  if(/email not confirmed/i.test(message))return "Сначала подтвердите email по ссылке из письма.";
-  if(/user already registered/i.test(message))return "Аккаунт с таким email уже существует.";
-  if(/password/i.test(message)&&/least|short|weak/i.test(message))return "Пароль слишком короткий или слабый.";
-  if(/failed to fetch|network|load failed/i.test(message))return "Облачный сервис сейчас недоступен. Локальные данные не изменены.";
-  return "Не удалось выполнить облачную операцию.";
+  const message=authErrorMessage(error);
+  return authOperation||message!==AUTH_MESSAGES.unknown?message:"Не удалось выполнить облачную операцию.";
 }
 function showAuthMessage(message,isError=false){
   const node=byId("authMessage");node.textContent=message;node.classList.toggle("error",isError);
@@ -60,6 +56,8 @@ async function createClient(){
 }
 async function loadDashboard(){
   if(!cloudState.session)return;
+  if(cloudState.dashboardStatus==="loading"&&cloudState.dashboardSessionId===cloudState.session.user?.id)return;
+  cloudState.dashboardSessionId=cloudState.session.user?.id||null;
   const request=++cloudState.dashboardRequest;
   const previousState=document.body.dataset.appState;
   clearCloudMessages();
@@ -217,6 +215,30 @@ async function openCloudProject(project){
     showStorageMessage("Не удалось загрузить облачный проект. Локальная копия показана только для восстановления; изменения не синхронизируются.","error");
   }
 }
+function setAuthMode(mode,{message="",focus=true}={}){
+  cloudState.authMode=mode;
+  const signup=mode==="signup",form=byId("authForm");
+  form.dataset.mode=mode;form.hidden=false;byId("signupSuccess").hidden=true;
+  byId("authTitle").textContent=signup?"Создание аккаунта":"Вход";
+  byId("authNote").textContent=signup?"Создайте аккаунт, чтобы хранить проекты в облаке.":"Войдите, чтобы открыть свои проекты.";
+  byId("authDisplayNameField").hidden=!signup;byId("authPasswordConfirmField").hidden=!signup;
+  byId("authDisplayName").required=signup;byId("authPasswordConfirm").required=signup;
+  byId("authPassword").autocomplete=signup?"new-password":"current-password";
+  byId("signInButton").textContent=signup?"Создать аккаунт":"Войти";
+  byId("authModeSwitch").textContent=signup?"Уже есть аккаунт? Войти":"Нет аккаунта? Создать аккаунт";
+  showAuthMessage(message,false);if(focus)byId(signup?"authDisplayName":"authEmail").focus();
+}
+function showSignupSuccess(email){
+  byId("authForm").hidden=true;byId("signupSuccess").hidden=false;
+  byId("signupSuccessText").textContent=`Мы отправили письмо со ссылкой подтверждения на ${email}. После подтверждения адреса вернитесь сюда и войдите.`;
+  byId("signupSuccessLogin").focus();
+}
+async function acceptSession(session,{forceDashboard=false}={}){
+  if(!session)return false;
+  cloudState.session=session;clearConsumedAuthUrl();
+  if(forceDashboard||cloudState.dashboardSessionId!==session.user?.id||cloudState.dashboardStatus!=="success")await loadDashboard();
+  return true;
+}
 async function returnToProjects(){
   if(!(await requestEditorTransition(()=>true)))return;
   byId("workspaceAccountMenu").open=false;
@@ -227,7 +249,7 @@ async function returnToProjects(){
 
 function clearConsumedAuthUrl(){
   const url=new URL(location.href);
-  const authKeys=new Set(["access_token","refresh_token","expires_in","expires_at","token_type","type","code"]);
+  const authKeys=new Set(["access_token","refresh_token","expires_in","expires_at","token_type","type","code","error","error_code","error_description"]);
   let changed=false;
   for(const key of [...url.searchParams.keys()])if(authKeys.has(key)){url.searchParams.delete(key);changed=true}
   const hash=new URLSearchParams(url.hash.replace(/^#/,""));
@@ -258,17 +280,23 @@ function bindUi(){
   };
   byId("authForm").onsubmit=async event=>{
     event.preventDefault();showAuthMessage("");
+    const form=event.currentTarget;
+    if(cloudState.authMode==="signup"){
+      if(form.password.value!==form.passwordConfirm.value){showAuthMessage("Пароли не совпадают.",true);form.passwordConfirm.focus();return}
+      try{
+        const email=form.email.value.trim();
+        const result=await cloudState.api.signUp({email,password:form.password.value,displayName:form.displayName.value.trim(),emailRedirectTo:authReturnUrl(location.href)});
+        if(result.session)await acceptSession(result.session,{forceDashboard:true});else showSignupSuccess(email);
+      }catch(error){showAuthMessage(friendlyError(error,true),true)}
+      return;
+    }
     try{
-      await cloudState.api.signIn({email:event.currentTarget.email.value.trim(),password:event.currentTarget.password.value});
-    }catch(error){showAuthMessage(friendlyError(error),true)}
+      const result=await cloudState.api.signIn({email:form.email.value.trim(),password:form.password.value});
+      if(result.session)await acceptSession(result.session,{forceDashboard:true});
+    }catch(error){showAuthMessage(friendlyError(error,true),true)}
   };
-  byId("signUpButton").onclick=async()=>{
-    const form=byId("authForm");if(!form.reportValidity())return;
-    try{
-      const result=await cloudState.api.signUp({email:form.email.value.trim(),password:form.password.value,displayName:form.displayName.value.trim()});
-      showAuthMessage(result.session?"Аккаунт создан.":"Проверьте почту для подтверждения регистрации.");
-    }catch(error){showAuthMessage(friendlyError(error),true)}
-  };
+  byId("authModeSwitch").onclick=()=>setAuthMode(cloudState.authMode==="login"?"signup":"login");
+  byId("signupSuccessLogin").onclick=()=>setAuthMode("login");
   byId("newProjectForm").onsubmit=async event=>{
     event.preventDefault();const form=event.currentTarget;
     const title=form.elements.namedItem("title").value.trim();
@@ -311,21 +339,22 @@ async function initializeCloudApp(){
       return;
     }
     cloudState.api=createCloudApi(client);cloudState.contentApi=createCloudContentApi(client);bindUi();
+    const authReturn=inspectAuthReturn(location.href);
     cloudState.api.onAuthStateChange((session,event)=>{
       cloudState.authRevision++;
       cloudState.session=session;
       if(session)clearConsumedAuthUrl();
-      if(session&&(event==="INITIAL_SESSION"||event==="SIGNED_IN"))queueMicrotask(loadDashboard);
-      else if(!session){cloudState.dashboardRequest++;setAppState("unauthenticated")}
+      if(session&&(event==="INITIAL_SESSION"||event==="SIGNED_IN"))queueMicrotask(()=>acceptSession(session));
+      else if(!session){cloudState.dashboardRequest++;cloudState.dashboardSessionId=null;cloudState.dashboardStatus="idle";setAppState("unauthenticated");setAuthMode("login",{focus:false})}
     });
     const authRevision=cloudState.authRevision;
     const initialSession=await cloudState.api.getSession();
     if(authRevision===cloudState.authRevision)cloudState.session=initialSession;
     if(cloudState.session)clearConsumedAuthUrl();
-    if(cloudState.session&&authRevision===cloudState.authRevision)await loadDashboard();
-    else if(!cloudState.session)setAppState("unauthenticated");
+    if(cloudState.session&&authRevision===cloudState.authRevision)await acceptSession(cloudState.session);
+    else if(!cloudState.session){setAppState("unauthenticated");setAuthMode("login",{message:authReturn.isAuthReturn&&!authReturn.error?"Email подтверждён. Теперь войдите в аккаунт.":authReturn.error?authErrorMessage({message:authReturn.error}):"",focus:false});clearConsumedAuthUrl()}
   }catch(error){
-    setAppState("unauthenticated");showAuthMessage(friendlyError(error),true);
+    setAppState("unauthenticated");showAuthMessage(friendlyError(error,true),true);
   }
 }
 
