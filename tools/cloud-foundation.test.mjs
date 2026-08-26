@@ -69,6 +69,16 @@ assert.deepEqual(account.projects,[]);
 assert.ok(getUserCalls>=2,"getUser validates bootstrap and account hydration");
 assert.equal(queryCalls,3,"the production profile/series/projects selects still run unchanged");
 
+let signUpPayload=null;
+const signupClient={auth:{
+  async signUp(payload){signUpPayload=payload;return {data:{user:authUser,session:null},error:null}},
+  onAuthStateChange(){return {data:{subscription:{unsubscribe(){}}}}}
+}};
+const signupResult=await createCloudApi(signupClient).signUp({email:"owner@example.invalid",password:"password",displayName:"Автор",emailRedirectTo:"https://tadana-zanzarah.github.io/author-workspace/"});
+assert.equal(signupResult.session,null,"email-confirmation signup may succeed without a session");
+assert.equal(signUpPayload.options.emailRedirectTo,"https://tadana-zanzarah.github.io/author-workspace/");
+assert.deepEqual(signUpPayload.options.data,{display_name:"Автор"});
+
 let blockedQueries=0;
 const expiredClient={
   auth:{
