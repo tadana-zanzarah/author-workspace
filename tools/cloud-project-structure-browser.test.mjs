@@ -1,54 +1,36 @@
 import {createRequire} from "node:module";
 import crypto from "node:crypto";
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
-const {chromium}=require("playwright");
-
-const base=process.env.AUTHOR_WORKSPACE_URL||"http://127.0.0.1:8000/author-workspace/";
-const token=crypto.randomBytes(8).toString("hex"),email=process.env.CLOUD_TEST_EMAIL,password=process.env.CLOUD_TEST_PASSWORD,title=`Cloud structure ${token}`;
-if(!email||!password){console.log("cloud project structure real-browser test skipped: CLOUD_TEST_EMAIL/CLOUD_TEST_PASSWORD are not configured");process.exit(0)}
-const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
-const a=await browser.newContext(),b=await browser.newContext();
-const pageA=await a.newPage(),pageB=await b.newPage();
-for(const page of [pageA,pageB])page.setDefaultTimeout(15000);
-
-async function login(page){
-  await page.goto(base,{waitUntil:"networkidle"});await page.waitForSelector("#authScreen:not([hidden])");
-  await page.fill("#authEmail",email);await page.fill("#authPassword",password);await page.click("#signInButton");
-  await page.waitForSelector("#projectsScreen:not([hidden])");
-}
-async function openProject(page){
-  const row=page.locator(".cloud-project",{has:page.getByText(title,{exact:true})});await row.getByRole("button",{name:"Открыть"}).click();
-  await page.waitForSelector('body[data-app-state="workspace"]');await page.getByText("Сцен пока нет",{exact:false}).waitFor();
-}
-
+const {chromium}=require("playwright"),base=process.env.AUTHOR_WORKSPACE_URL||"http://127.0.0.1:8000/author-workspace/";
+const email=process.env.CLOUD_TEST_EMAIL,password=process.env.CLOUD_TEST_PASSWORD;
+if(!email||!password){console.log("cloud project structure real-browser test skipped: credentials are not configured");process.exit(0)}
+const token=crypto.randomBytes(8).toString("hex"),titleA=`AW acceptance A ${token}`,titleB=`AW acceptance B ${token}`,ids=[];
+const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"}),contexts=[];
+const assert=(v,m)=>{if(!v)throw new Error(m)};
+async function page(){const c=await browser.newContext();contexts.push(c);const p=await c.newPage();p.setDefaultTimeout(20000);return p}
+async function login(p){await p.goto(base,{waitUntil:"networkidle"});await p.waitForSelector("#authScreen:not([hidden])");await p.fill("#authEmail",email);await p.fill("#authPassword",password);await p.click("#signInButton");await p.waitForSelector("#projectsScreen:not([hidden])")}
+const row=(p,t)=>p.locator(".cloud-project",{has:p.getByText(t,{exact:true})});
+async function create(p,t){await p.getByRole("button",{name:"＋ Новый проект"}).first().click();await p.fill('#newProjectForm [name="title"]',t);await p.click('#newProjectForm button[type="submit"]');try{await p.waitForSelector("#newProjectModal",{state:"hidden"})}catch{const messages=await p.locator("#newProjectError,#dashboardMessage,#cloudFailure").allTextContents();throw new Error(`project creation did not finish: ${messages.filter(Boolean).join(" | ")}`)}let r=row(p,t);try{await r.waitFor({timeout:5000})}catch{await p.reload({waitUntil:"networkidle"});await p.waitForSelector("#projectsScreen:not([hidden])");r=row(p,t);await r.waitFor()}ids.push(await r.getAttribute("data-project-id"))}
+async function open(p,t){await row(p,t).getByRole("button",{name:"Открыть"}).click();await p.waitForSelector('body[data-app-state="workspace"]');await p.waitForFunction(()=>globalThis.cloudProjectSync?.revision>=0)}
+async function back(p,selector="#backToProjects"){await p.click(selector);await p.waitForSelector("#projectsScreen:not([hidden])");assert(await p.locator("#cloudFailure:not([hidden]),#storageBanner.error").count()===0,"stale navigation error")}
+const state=p=>p.evaluate(()=>({revision:cloudProjectSync.revision,projectId:cloudProjectSync.projectId,chapters:data.chapters,locations:data.locations,tags:data.tags,scenes:data.scenes}));
+const snapshot=(p,id)=>p.evaluate(id=>cloudState.contentApi.loadProjectContent(id),id);
+async function projectMenuAction(p,selector){await p.locator("#projectMenu summary").click();await p.click(selector)}
+async function cleanup(p){const result=await p.evaluate(async ({known,titles})=>{const {createClient}=await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm"),client=createClient("https://crchibwumcuuqhkabmfj.supabase.co","sb_publishable_XF0Jk1qKpK4OgW8NAyaj7g_IuAdH8RT");const session=(await client.auth.getSession()).data.session;if(!session)throw new Error("cleanup session unavailable");const found=await client.from("projects").select("id").in("title",titles);if(found.error)throw found.error;const all=[...new Set([...known,...found.data.map(x=>x.id)])];if(!all.length)return [0,0,0,0,0,0];const d=await client.from("projects").delete().in("id",all);if(d.error)throw d.error;const tables=["projects","chapters","locations","tags","scenes","scene_tags"],counts=[];for(const table of tables){const q=table==="projects"?client.from(table).select("id").in("id",all):client.from(table).select("project_id").in("project_id",all);const x=await q;if(x.error)throw x.error;counts.push(x.data.length)}return counts},{known:ids,titles:[titleA,titleB]});assert(result.every(x=>x===0),`fixture cleanup incomplete: ${result}`)}
+let a,b,c,report;
 try{
-  await login(pageA);
-  await pageA.getByRole("button",{name:"＋ Новый проект"}).first().click();await pageA.fill('#newProjectForm [name="title"]',title);await pageA.click('#newProjectForm button[type="submit"]');
-  await pageA.waitForSelector("#newProjectModal",{state:"hidden"});await openProject(pageA);
-  if(!await pageA.getByText("Сцен пока нет",{exact:false}).isVisible())throw new Error("Empty cloud project state missing");
-
-  await pageA.click("#manageChapters");await pageA.click("#addChapter");await pageA.locator(".chapter-name-input").last().fill("Cloud chapter");await pageA.click("#saveChapters");await pageA.click("#closeChapters");
-  await pageA.click("#manageLocations");await pageA.click("#addLocation");await pageA.locator(".location-name-input").last().fill("Cloud location");await pageA.click("#saveLocations");await pageA.click("#closeLocations");
-  await pageA.click("#manageTags");await pageA.evaluate(()=>{const original=prompt;globalThis.prompt=()=>"Cloud tag";document.getElementById("addTag").click();globalThis.prompt=original});await pageA.getByDisplayValue("Cloud tag").waitFor();await pageA.click("#closeTags");
-
-  await pageA.click("#addFirst");await pageA.fill("#sceneTitle","Cross device scene");await pageA.selectOption("#sceneChapter",{label:"Cloud chapter"});await pageA.selectOption("#sceneLocation",{label:"Cloud location"});await pageA.selectOption("#sceneWritingStatus","draft");await pageA.fill("#sceneTagInput","Cloud tag");await pageA.click("#addSceneTag");await pageA.click("#saveScene");
-  await pageA.getByText("Cross device scene",{exact:true}).waitFor();
-  const immediate=await pageA.evaluate(()=>{const s=data.scenes.find(x=>x.title==="Cross device scene");return {chapter:chapterById(s.chapterId)?.title,status:s.writingStatus,revision:cloudProjectSync.revision}});
-  if(immediate.chapter!=="Cloud chapter"||immediate.status!=="draft")throw new Error(`First-create regression: ${JSON.stringify(immediate)}`);
-
-  await login(pageB);await openProject(pageB);await pageB.getByText("Cross device scene",{exact:true}).waitFor();
-  const fresh=await pageB.evaluate(()=>({cache:localStorage.getItem(activeWorkspaceContext().storageKey),revision:cloudProjectSync.revision,scene:data.scenes.find(x=>x.title==="Cross device scene")}));
-  if(!fresh.cache||fresh.scene.writingStatus!=="draft")throw new Error("Fresh context cache/status missing");
-  if(await pageB.locator("#sideLocations").getByText("Cloud location",{exact:false}).count()===0)throw new Error("Location missing in fresh context");
-  if(await pageB.locator("#sideTags").getByText("Cloud tag",{exact:false}).count()===0)throw new Error("Tag missing in fresh context");
-  const bChapter=await pageB.evaluate(()=>chapterById(data.scenes.find(x=>x.title==="Cross device scene").chapterId)?.title);
-  if(bChapter!=="Cloud chapter")throw new Error("Chapter missing in fresh context");
-
-  await pageB.getByText("Cross device scene",{exact:true}).dblclick();await pageB.fill("#sceneTitle","Changed in B");await pageB.click("#saveScene");await pageB.getByText("Changed in B",{exact:true}).waitFor();
-  pageA.once("dialog",dialog=>dialog.dismiss());await pageA.getByText("Cross device scene",{exact:true}).dblclick();await pageA.fill("#sceneTitle","Stale A");await pageA.click("#saveScene");
-  await pageA.getByText("Проект изменился в другом окне или на другом устройстве.",{exact:false}).waitFor();
-  if(!await pageA.locator("#sceneModal").isVisible()||await pageA.inputValue("#sceneTitle")!=="Stale A")throw new Error("Conflict destroyed dirty draft");
-
-  const projectId=await pageB.evaluate(()=>cloudProjectSync.projectId),userId=await pageB.evaluate(()=>cloudState.session.user.id);
-  console.log(JSON.stringify({ok:true,projectId,userId,email,revision:fresh.revision}));
-}finally{await a.close();await b.close();await browser.close()}
+  a=await page();await login(a);await create(a,titleA);await open(a,titleA);
+  await projectMenuAction(a,"#manageChapters");await a.click("#addChapter");await a.waitForFunction(()=>data.chapters.some(x=>x.title==="Глава 1"));await a.locator(".chapter-name-input").last().fill("Chapter A");await a.click("#saveChapters");await a.waitForFunction(()=>data.chapters.some(x=>x.title==="Chapter A")&&!trackerFor("chaptersModal").isDirty());await a.click("#closeChapters");
+  await projectMenuAction(a,"#manageLocations");await a.click("#addLocation");await a.waitForFunction(()=>data.locations.some(x=>x.name==="Новая локация"));await a.locator(".location-name-input").last().fill("Location A");await a.click("#saveLocations");await a.waitForFunction(()=>data.locations.some(x=>x.name==="Location A")&&!trackerFor("locationsModal").isDirty());await a.click("#closeLocations");
+  await projectMenuAction(a,"#manageTags");await a.evaluate(()=>{const old=prompt;globalThis.prompt=()=>"Tag A";document.getElementById("addTag").click();globalThis.prompt=old});await a.waitForFunction(()=>data.tags.some(x=>x.name==="Tag A")&&!trackerFor("tagsModal").isDirty());await a.click("#closeTags");
+  await a.click("#addFirst");await a.fill("#sceneTitle","Scene A");await a.selectOption("#sceneChapter",{label:"Chapter A"});await a.selectOption("#sceneWritingStatus","draft");await a.selectOption("#sceneLocation",{label:"Location A"});await a.fill("#sceneTagInput","Tag A");await a.click("#addSceneTag");await a.click("#saveScene");await a.getByText("Scene A",{exact:true}).waitFor();
+  const sa=await state(a),scene=sa.scenes.find(x=>x.title==="Scene A"),chapter=sa.chapters.find(x=>x.title==="Chapter A"),location=sa.locations.find(x=>x.name==="Location A"),tag=sa.tags.find(x=>x.name==="Tag A");assert(scene.chapterId===chapter.id&&scene.writingStatus==="draft"&&scene.locationId===location.id&&scene.tags.includes(tag.id),"first-open DOM/state regression");const remote=await snapshot(a,sa.projectId);assert(remote.ok&&remote.revision===sa.revision,"remote snapshot mismatch");
+  b=await page();await b.goto(base,{waitUntil:"networkidle"});assert(await b.evaluate(()=>Object.keys(localStorage).every(k=>!k.startsWith("authorWorkspace:project:"))),"B cache not empty");await login(b);await open(b,titleA);await b.getByText("Scene A",{exact:true}).waitFor();const sb=await state(b),bs=sb.scenes.find(x=>x.title==="Scene A");assert(bs.chapterId===sb.chapters.find(x=>x.title==="Chapter A").id&&bs.writingStatus==="draft"&&bs.locationId===sb.locations.find(x=>x.name==="Location A").id&&bs.tags.includes(sb.tags.find(x=>x.name==="Tag A").id),"B hydration mismatch");
+  c=await page();await c.goto(base,{waitUntil:"networkidle"});assert(await c.evaluate(()=>Object.keys(localStorage).every(k=>!k.startsWith("authorWorkspace:project:"))),"C cache not empty");await login(c);await open(c,titleA);await c.getByText("Scene A",{exact:true}).waitFor();assert((await state(c)).scenes.some(x=>x.title==="Scene A"),"C hydration failed");await c.evaluate(id=>localStorage.removeItem(`authorWorkspace:project:${id}`),sa.projectId);await c.reload({waitUntil:"networkidle"});await c.waitForSelector("#projectsScreen:not([hidden])");await open(c,titleA);await c.getByText("Scene A",{exact:true}).waitFor();assert((await state(c)).scenes.some(x=>x.title==="Scene A"),"cloud-vs-cache proof failed");
+  const n=sb.revision;assert(sa.revision===n,"A/B revision N mismatch");await b.evaluate(()=>editScene(data.scenes.find(x=>x.title==="Scene A").id));await b.waitForSelector("#sceneModal",{state:"visible"});await b.fill("#sceneTitle","Changed in B");await b.click("#saveScene");await b.getByText("Changed in B",{exact:true}).waitFor();const n1=(await state(b)).revision;assert(n1===n+1,"revision did not increment once");a.once("dialog",d=>d.dismiss());await a.evaluate(()=>editScene(data.scenes.find(x=>x.title==="Scene A").id));await a.waitForSelector("#sceneModal",{state:"visible"});await a.fill("#sceneTitle","Stale A");await a.click("#saveScene");await a.getByText("Проект изменился в другом окне или на другом устройстве.",{exact:false}).waitFor();assert(await a.locator("#sceneModal").isVisible()&&await a.inputValue("#sceneTitle")==="Stale A","dirty draft lost");const conflict=await snapshot(b,sa.projectId);assert(conflict.revision===n1&&conflict.data.scenes.some(x=>x.title==="Changed in B"),"stale writer changed remote");
+  await back(b);await create(b,titleB);await open(b,titleB);const isolated=await state(b);assert(!isolated.scenes.length&&!isolated.chapters.some(x=>x.title==="Chapter A")&&!isolated.locations.some(x=>x.name==="Location A")&&!isolated.tags.some(x=>x.name==="Tag A"),"project isolation failed");await back(b);await open(b,titleA);assert((await state(b)).scenes.some(x=>x.title==="Changed in B"),"Project A disappeared");
+  await b.evaluate(async()=>{const s=cloudProjectSync,api=cloudState.contentApi,p=s.projectId,initial=await s.reload();if(!initial.ok)throw new Error(`DnD initial reload failed: ${initial.code}`);data=initial.data;render();let r=s.revision;const must=result=>{if(!result.ok)throw new Error(`DnD setup RPC failed: ${result.code}`);return result};let x=must(await api.createChapter(p,r,{title:"Chapter B",position:2000}));r=x.revision;x=must(await api.createChapter(p,r,{title:"Empty Chapter",position:3000}));r=x.revision;let snap=must(await api.loadProjectContent(p));const ca=snap.data.chapters.find(x=>x.title==="Chapter A"),cb=snap.data.chapters.find(x=>x.title==="Chapter B"),ce=snap.data.chapters.find(x=>x.title==="Empty Chapter"),base={sceneText:"",sceneDate:null,sceneTime:null,placementStatus:"unplaced",writingStatus:"draft",included:true,dateReview:false,locationId:null};for(const [title,chapterId] of [["DnD 1",ca.id],["DnD 2",ca.id],["DnD 3",cb.id]]){x=must(await api.createScene(p,r,{...base,title,chapterId}));r=x.revision}const loaded=await s.reload();data=loaded.data;render();const m=Object.fromEntries(data.scenes.map(x=>[x.title,x.id])),r0=s.revision,order0=data.scenes.filter(x=>x.chapterId===ca.id).map(x=>x.title);let z=await compactMoveScene(m["DnD 1"],{chapterId:ca.id,beforeSceneId:m["DnD 2"]});if(!z.ok||s.revision!==r0)throw new Error(`same-position no-op failed: ${JSON.stringify({result:z,revisionBefore:r0,revisionAfter:s.revision,orderBefore:order0})}`);for(const q of [{id:m["DnD 2"],ch:ca.id,b:m["DnD 1"]},{id:m["DnD 1"],ch:cb.id,b:null},{id:m["DnD 3"],ch:ce.id,b:null},{id:m["DnD 1"],ch:"chapter-unassigned",b:null}]){z=await compactMoveScene(q.id,{chapterId:q.ch,beforeSceneId:q.b});if(!z.ok)throw new Error("DnD move failed")}});
+  await c.reload({waitUntil:"networkidle"});await c.waitForSelector("#projectsScreen:not([hidden])");await open(c,titleA);await c.getByText("DnD 1",{exact:true}).waitFor();const sd=await state(c);assert(sd.scenes.find(x=>x.title==="DnD 1").chapterId==="chapter-unassigned"&&sd.scenes.find(x=>x.title==="DnD 3").dateReview===true,"DnD persistence/dateReview failed");await back(c);await open(c,titleA);await c.click("#workspaceAccountName");await back(c,"#workspaceProjects");assert(!(await c.locator("#workspaceAccountMenu").getAttribute("open")),"account menu stayed open");
+  report={browserA:true,browserB:true,browserC:true,cacheEmptyB:true,cacheEmptyC:true,chapter:true,scene:true,status:true,location:true,tag:true,cacheProof:true,isolation:true,conflict:true,dirtyDraft:true,dnd:true,navigation:true};
+}finally{try{const p=c||b||a;if(p){if(await p.locator("#authScreen:not([hidden])").count())await login(p);await cleanup(p)}}finally{for(const x of contexts)await x.close();await browser.close()}}
+console.log(JSON.stringify({ok:true,...report,fixtures:{projects:0,contentRows:0}}));
