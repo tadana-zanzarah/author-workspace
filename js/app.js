@@ -543,6 +543,28 @@ async function syncCloudCharacterLinks(original,draft){
   }
   const loaded=await cloudProjectSync.reload();if(loaded.ok)data=loaded.data;return loaded;
 }
+async function reloadAfterImageMutation(){const loaded=await cloudProjectSync.reload();if(loaded.ok)data=loaded.data;return loaded}
+async function syncCloudCharacterImages(character,oldPhotos,draftPhotos,primaryPhotoId,scope){
+  const api=cloudState.imageApi,projectScoped=scope==="project",projectCharacterId=projectScoped?character.projectCharacterId:null;
+  const oldById=new Map(oldPhotos.filter(photo=>photo.source?.kind==="storage").map(photo=>[photo.id,photo]));
+  for(let index=0;index<draftPhotos.length;index++){
+    const photo=draftPhotos[index],file=profileDraftPhotoFiles.get(photo.id),isPrimary=photo.id===primaryPhotoId;
+    if(file){
+      const expectedRevision=projectScoped?cloudProjectSync.revision:character.characterRevision;
+      const result=await api.uploadImage({characterId:character.id,projectCharacterId,photoId:photo.id,file,photo,scope,expectedRevision,isPrimary,sortOrder:index});
+      if(!result.ok){showStorageMessage(result.orphaned?"Изображение не сохранено; загруженный объект отмечен для ручной очистки.":result.message||"Не удалось загрузить изображение.","error");return result}
+      profileDraftPhotoFiles.delete(photo.id);URL.revokeObjectURL(photo.source.value);const loaded=await reloadAfterImageMutation();if(!loaded.ok)return loaded;
+      character=characterById(character.id);
+      continue;
+    }
+    const before=oldById.get(photo.id);if(!before)continue;
+    const changed=JSON.stringify([before.crop,before.alt,before.caption,before.isPrimary,before.sortOrder])!==JSON.stringify([photo.crop,photo.alt,photo.caption,isPrimary,index]);
+    if(changed){const expected=before.scope==="project"?cloudProjectSync.revision:before.revision,result=await api.updateImage(photo.id,expected,{crop:photo.crop,alt:photo.alt,caption:photo.caption,isPrimary,sortOrder:index,metadata:Object.fromEntries(Object.entries(photo).filter(([key])=>!["id","source","crop","alt","caption","revision","isPrimary","sortOrder","scope","projectCharacterId"].includes(key)))});if(!result.ok){showStorageMessage(result.message||"Изображение изменено в другом сеансе.","error");return result}const loaded=await reloadAfterImageMutation();if(!loaded.ok)return loaded}
+    oldById.delete(photo.id);
+  }
+  for(const removed of oldById.values()){const expected=removed.scope==="project"?cloudProjectSync.revision:removed.revision,result=await api.deleteImage(removed.id,expected);if(!result.ok){showStorageMessage(result.message||"Не удалось удалить изображение.",result.recoverable?"warning":"error");return result}const loaded=await reloadAfterImageMutation();if(!loaded.ok)return loaded}
+  return {ok:true};
+}
 document.getElementById("saveProfile").onclick=async()=>{
   const character=characterById(profileEditingId)||profileDraftCharacter;
   if(!character)return;
@@ -611,6 +633,7 @@ document.getElementById("saveProfile").onclick=async()=>{
     }
     if(!result?.ok)return;
     const createdId=result.data?.character?.id,current=cloudProjectSync.confirmedProject.characters.find(item=>item.id===(createdId||character.id));
+    const imageResult=current?await syncCloudCharacterImages(current,old.photos||[],profileDraftPhotos,profileDraftPrimaryPhotoId,document.getElementById("profileSaveScope").value):{ok:true};if(!imageResult.ok)return;
     if(current){
       const relations=[];
       for(const source of cloudProjectSync.confirmedProject.characters){
@@ -620,7 +643,6 @@ document.getElementById("saveProfile").onclick=async()=>{
       const relResult=await runCloudMutation("setInitialRelations",(_api,revision)=>api.setInitialRelations(projectId,revision,relations.filter(item=>item.toProjectCharacterId)),{renderAfter:false});if(!relResult.ok)return;
     }
     const linkResult=await syncCloudCharacterLinks(data.characterLinks||[],profileDraftCharacterLinks);if(!linkResult?.ok)return;
-    const savedProfile=cloudProjectSync.confirmedProject.profiles[createdId||character.id];if(savedProfile&&profileDraftPhotos.length){savedProfile.photos=safeOwnCopy(profileDraftPhotos);savedProfile.primaryPhotoId=profileDraftPrimaryPhotoId;cloudProjectSync.cache()}
     data=cloudProjectSync.confirmedProject;trackerFor("profileEditorModal").captureInitialState();forceHideModal("profileEditorModal");profileDraftCharacter=null;renderProfiles();render();return;
   }
   const result=commitDataChange(next=>{

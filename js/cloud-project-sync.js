@@ -25,11 +25,17 @@ function hydrateCloudCharacters(payload,localProject={}){
     const identity=identities.get(pc.character_id);if(!identity)continue;
     globalIdByParticipation[pc.id]=identity.id;
     const base=identity.base_profile||{},overrides=pc.overrides||{},effective=effectiveProfile(base,overrides);
+    const cloudPhotos=(payload.character_images||[]).filter(image=>image.character_id===identity.id&&(image.project_character_id===null||image.project_character_id===pc.id)).map(image=>({
+      id:image.id,source:{kind:"storage",value:image.signedUrl||"",storagePath:image.storage_path},crop:image.crop||{x:.5,y:.5,zoom:1},alt:image.alt||"",caption:image.caption||"",
+      revision:Number(image.revision),isPrimary:image.is_primary===true,sortOrder:Number(image.sort_order||0),projectCharacterId:image.project_character_id,scope:image.project_character_id?"project":"global",...(image.metadata||{})
+    }));
     const localPhotos=(localProfiles[identity.id]?.photos||[]).filter(photo=>String(photo?.source?.value||"").startsWith("data:"));
+    const photos=cloudPhotos.length?cloudPhotos:localPhotos;
     characters.push({id:identity.id,name:identity.name||"",surname:identity.surname||"",projectCharacterId:pc.id,
       characterRevision:Number(identity.revision),projectOverrides:overrides,role:pc.role??null,sortOrder:Number(pc.sort_order||0)});
     profiles[identity.id]={...effective,id:identity.id,characterId:identity.id,name:identity.name||"",surname:identity.surname||"",
-      photos:localPhotos,primaryPhotoId:localProfiles[identity.id]?.primaryPhotoId||localPhotos[0]?.id||"",initialRelations:{},
+      photos,primaryPhotoId:cloudPhotos.find(photo=>photo.isPrimary)?.id||cloudPhotos[0]?.id||localProfiles[identity.id]?.primaryPhotoId||localPhotos[0]?.id||"",initialRelations:{},
+      _legacyLocalPhotosPending:cloudPhotos.length===0&&localPhotos.length>0,
       _cloud:{baseProfile:base,overrides,characterRevision:Number(identity.revision),projectCharacterId:pc.id}};
   }
   for(const row of payload.project_character_relations||[]){
@@ -98,7 +104,14 @@ function createProjectMutationQueue({projectId,api,getRevision,setRevision,onCon
   };
   return {projectId,enqueue,reset(){failed=false},idle(){return tail}};
 }
-function createCloudProjectSync({projectId,api,characterApi=null,storage=globalThis.localStorage,onState,onConflict}){
+async function loadImageRows(imageApi,characters,projectCharacters){
+  if(!imageApi)return [];
+  const byCharacter=new Map(projectCharacters.map(pc=>[pc.character_id,pc.id]));
+  const results=await Promise.all(characters.filter(c=>byCharacter.has(c.id)).map(c=>imageApi.listImages(c.id,byCharacter.get(c.id))));
+  const rows=results.flatMap(result=>result.ok?(result.data||[]):[]),unique=[...new Map(rows.map(row=>[row.id,row])).values()];
+  await Promise.all(unique.map(async row=>{const signed=await imageApi.signedUrl(row.storage_path);if(signed.ok)row.signedUrl=signed.url}));return unique;
+}
+function createCloudProjectSync({projectId,api,characterApi=null,imageApi=null,storage=globalThis.localStorage,onState,onConflict}){
   let revision=null,confirmedProject=null;
   const sync={projectId,api,get revision(){return revision},get confirmedProject(){return confirmedProject}};
   const cache=()=>writeConfirmedCache(projectId,revision,confirmedProject,storage);
@@ -106,12 +119,12 @@ function createCloudProjectSync({projectId,api,characterApi=null,storage=globalT
     onState?.("loading");const local=readLocalProject(projectId,storage);const [result,identities,globalLinks]=await Promise.all([api.loadProjectContent(projectId),characterApi?.listCharacters(),characterApi?.listGlobalLinks()]);
     if(!result.ok){onState?.("error",result);throw Object.assign(new Error(result.message),result)}
     if(characterApi&&(!identities?.ok||!globalLinks?.ok)){const failure=!identities?.ok?identities:globalLinks;onState?.("error",failure);throw Object.assign(new Error(failure?.message||"Character snapshot failed"),failure)}
-    result.data.characters=identities?.data||[];result.data.global_character_links=globalLinks?.data||[];
+    result.data.characters=identities?.data||[];result.data.global_character_links=globalLinks?.data||[];result.data.character_images=await loadImageRows(imageApi,result.data.characters,result.data.project_characters||[]);
     const remoteEmpty=!hasProjectContent(result.data),localHas=hasProjectContent(local);
     if(remoteEmpty&&localHas&&!allowLegacyChoice){onState?.("legacy-blocked",{local,result});return {ok:false,code:"LOCAL_CONTENT_CLOUD_EMPTY",local,result}}
     revision=result.revision;confirmedProject=hydrateProjectFromCloudSnapshot(result.data,local||{});cache();onState?.("ready");return {ok:true,revision,data:confirmedProject};
   };
-  const queue=createProjectMutationQueue({projectId,api,getRevision:()=>revision,setRevision:value=>{revision=value},onConfirmed:async()=>{const [fresh,identities,globalLinks]=await Promise.all([api.loadProjectContent(projectId),characterApi?.listCharacters(),characterApi?.listGlobalLinks()]);if(!fresh.ok)throw Object.assign(new Error(fresh.message),fresh);if(characterApi&&(!identities?.ok||!globalLinks?.ok))throw Object.assign(new Error("Character snapshot failed"),!identities?.ok?identities:globalLinks);fresh.data.characters=identities?.data||[];fresh.data.global_character_links=globalLinks?.data||[];revision=fresh.revision;const adjunctSource=globalThis.cloudProjectSync===sync&&globalThis.data?globalThis.data:confirmedProject;confirmedProject=hydrateProjectFromCloudSnapshot(fresh.data,adjunctSource);cache();onState?.("saved",confirmedProject)},onFailure:(result)=>{onState?.(result.code==="REVISION_CONFLICT"?"conflict":"save-error",result);if(result.code==="REVISION_CONFLICT")onConflict?.(result)}});
+  const queue=createProjectMutationQueue({projectId,api,getRevision:()=>revision,setRevision:value=>{revision=value},onConfirmed:async()=>{const [fresh,identities,globalLinks]=await Promise.all([api.loadProjectContent(projectId),characterApi?.listCharacters(),characterApi?.listGlobalLinks()]);if(!fresh.ok)throw Object.assign(new Error(fresh.message),fresh);if(characterApi&&(!identities?.ok||!globalLinks?.ok))throw Object.assign(new Error("Character snapshot failed"),!identities?.ok?identities:globalLinks);fresh.data.characters=identities?.data||[];fresh.data.global_character_links=globalLinks?.data||[];fresh.data.character_images=await loadImageRows(imageApi,fresh.data.characters,fresh.data.project_characters||[]);revision=fresh.revision;const adjunctSource=globalThis.cloudProjectSync===sync&&globalThis.data?globalThis.data:confirmedProject;confirmedProject=hydrateProjectFromCloudSnapshot(fresh.data,adjunctSource);cache();onState?.("saved",confirmedProject)},onFailure:(result)=>{onState?.(result.code==="REVISION_CONFLICT"?"conflict":"save-error",result);if(result.code==="REVISION_CONFLICT")onConflict?.(result)}});
   return Object.assign(sync,{load,cache,queue,mutate:(name,operation)=>queue.enqueue(name,operation),reload:async()=>{queue.reset();return load({allowLegacyChoice:true})}});
 }
 

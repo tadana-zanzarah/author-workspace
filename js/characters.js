@@ -196,7 +196,7 @@ function editProfileNow(characterId){
   const character=characterById(characterId)||profileDraftCharacter;if(!character||character.id!==characterId)return;
   const p=normalizeProfile(data.profiles?.[characterId],character);
   document.getElementById("cloudProfileScope").hidden=!isCloudWorkspace();document.getElementById("profileSaveScope").value="project";
-  profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";profileDraftCharacterLinks=safeOwnCopy(data.characterLinks||[]);
+  profileDraftPhotoFiles=new Map();profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";profileDraftCharacterLinks=safeOwnCopy(data.characterLinks||[]);
   document.getElementById("profileEditorTitle").textContent=p.name||character.name?`Анкета: ${p.name||character.name}`:"Новый персонаж";
   const values={
     name:p.name||character.name,surname:p.surname,race:p.race,sex:p.sex,secondarySex:p.secondarySex,
@@ -242,6 +242,7 @@ function renderProfilePhotos(){
 }
 
 function removeProfilePhoto(index){
+  const removed=profileDraftPhotos[index];if(removed?.source?.kind==="pending")URL.revokeObjectURL(removed.source.value);profileDraftPhotoFiles.delete(removed?.id);
   profileDraftPhotos.splice(index,1);
   if(!profileDraftPhotos.some(photo=>photo.id===profileDraftPrimaryPhotoId))profileDraftPrimaryPhotoId=profileDraftPhotos[0]?.id||"";
   renderProfilePhotos();
@@ -251,6 +252,12 @@ function removeProfilePhoto(index){
 async function readOriginalImage(file){
   if(!file.type.startsWith("image/"))throw new Error("Неподдерживаемый формат файла.");
   if(file.size>3*1024*1024)throw new Error("Файл больше 3 МБ и может переполнить локальное хранилище.");
+  if(isCloudWorkspace()){
+    const objectUrl=URL.createObjectURL(file);
+    try{await new Promise((resolve,reject)=>{const image=new Image();image.onload=resolve;image.onerror=()=>reject(new Error("Файл не является корректным изображением."));image.src=objectUrl})}
+    catch(error){URL.revokeObjectURL(objectUrl);throw error}
+    const id=crypto.randomUUID(),photo=normalizePhoto({id,source:{kind:"pending",value:objectUrl},crop:{x:.5,y:.5,zoom:1},alt:"",caption:""},profileEditingId,profileDraftPhotos.length);profileDraftPhotoFiles.set(id,file);return photo;
+  }
   const dataUrl=await new Promise((resolve,reject)=>{
     const reader=new FileReader();
     reader.onload=()=>resolve(reader.result);
