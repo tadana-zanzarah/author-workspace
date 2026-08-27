@@ -1,12 +1,13 @@
 import {SUPABASE_CONFIG} from "./supabase-config.js";
 import {createCloudApi} from "./cloud-api.js";
 import {createCloudContentApi} from "./cloud-content-api.js";
+import {createCloudCharacterApi} from "./cloud-character-api.js";
 import {createCloudProjectSync} from "./cloud-project-sync.js";
 import {activateCloudWorkspace,hasLegacyWorkspace} from "./workspace-storage.js";
 import {AUTH_MESSAGES,authErrorMessage,authReturnUrl,inspectAuthReturn} from "./auth-flow.js";
 
 const SUPABASE_BROWSER_MODULE="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm";
-const cloudState={api:null,contentApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null,authMode:"login",dashboardSessionId:null};
+const cloudState={api:null,contentApi:null,characterApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null,authMode:"login",dashboardSessionId:null};
 const byId=id=>document.getElementById(id);
 
 function setAppState(state){
@@ -191,7 +192,7 @@ async function openCloudProject(project){
   setAppState("workspace");
   clearCloudMessages();
   byId("board").innerHTML='<div class="section-empty-state" role="status"><strong>Загрузка проекта…</strong></div>';
-  const sync=createCloudProjectSync({projectId:project.id,api:cloudState.contentApi,onState:(status,payload)=>{
+  const sync=createCloudProjectSync({projectId:project.id,api:cloudState.contentApi,characterApi:cloudState.characterApi,onState:(status,payload)=>{
     if(status==="loading")byId("saveStatus").textContent="Синхронизация…";
     else if(status==="saved")byId("saveStatus").textContent="Сохранено";
     else if(status==="conflict")showStorageMessage("Проект изменился в другом окне или на другом устройстве. Форма и черновик сохранены; загрузите актуальную версию или отмените операцию.","error");
@@ -338,7 +339,7 @@ async function initializeCloudApp(){
       if(!startupLoadInfo?.blocked)showStorageMessage("Локальный режим: рабочее пространство доступно без облачного аккаунта. Уберите ?local=1, чтобы открыть облачный вход.","warning");
       return;
     }
-    cloudState.api=createCloudApi(client);cloudState.contentApi=createCloudContentApi(client);bindUi();
+    cloudState.api=createCloudApi(client);cloudState.contentApi=createCloudContentApi(client);cloudState.characterApi=createCloudCharacterApi(client);bindUi();
     const authReturn=inspectAuthReturn(location.href);
     cloudState.api.onAuthStateChange((session,event)=>{
       cloudState.authRevision++;

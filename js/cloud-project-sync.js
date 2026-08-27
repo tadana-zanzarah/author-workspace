@@ -17,22 +17,54 @@ function localAdjunctByScene(project){
     ...Object.fromEntries(Object.entries(scene).filter(([key])=>!new Set(["id","chapterId","locationId","title","sceneText","date","time","status","writingStatus","included","dateReview","tags"]).has(key)))
   }]));
 }
+function effectiveProfile(base,overrides){return {...(base||{}),...(overrides||{})}}
+function hydrateCloudCharacters(payload,localProject={}){
+  const identities=new Map((payload.characters||[]).map(row=>[row.id,row]));
+  const localProfiles=localProject.profiles||{},characters=[],profiles={},globalIdByParticipation={};
+  for(const pc of payload.project_characters||[]){
+    const identity=identities.get(pc.character_id);if(!identity)continue;
+    globalIdByParticipation[pc.id]=identity.id;
+    const base=identity.base_profile||{},overrides=pc.overrides||{},effective=effectiveProfile(base,overrides);
+    const localPhotos=(localProfiles[identity.id]?.photos||[]).filter(photo=>String(photo?.source?.value||"").startsWith("data:"));
+    characters.push({id:identity.id,name:identity.name||"",surname:identity.surname||"",projectCharacterId:pc.id,
+      characterRevision:Number(identity.revision),projectOverrides:overrides,role:pc.role??null,sortOrder:Number(pc.sort_order||0)});
+    profiles[identity.id]={...effective,id:identity.id,characterId:identity.id,name:identity.name||"",surname:identity.surname||"",
+      photos:localPhotos,primaryPhotoId:localProfiles[identity.id]?.primaryPhotoId||localPhotos[0]?.id||"",initialRelations:{},
+      _cloud:{baseProfile:base,overrides,characterRevision:Number(identity.revision),projectCharacterId:pc.id}};
+  }
+  for(const row of payload.project_character_relations||[]){
+    const from=globalIdByParticipation[row.from_project_character_id],to=globalIdByParticipation[row.to_project_character_id];
+    if(from&&to&&profiles[from])profiles[from].initialRelations[to]=row.value??"";
+  }
+  return {characters,profiles,globalIdByParticipation};
+}
 function hydrateProjectFromCloudSnapshot(snapshot,localProject={}){
   const payload=snapshot?.data||snapshot||{};
   const adjunct=localAdjunctByScene(localProject);
+  const cloudCharacters=hydrateCloudCharacters(payload,localProject);
   const tagIdsByScene={};
   for(const join of payload.scene_tags||[])(tagIdsByScene[join.scene_id]||=[]).push(join.tag_id);
   const cloudChapters=(payload.chapters||[]).map(row=>({id:row.id,title:row.title,position:Number(row.position),collapsed:false}));
+  const participantsByScene={};
+  for(const item of payload.scene_characters||[]){const characterId=cloudCharacters.globalIdByParticipation[item.project_character_id];if(characterId)(participantsByScene[item.scene_id]||={})[characterId]={action:item.action||"",legacyState:item.legacy_state??null,relationChanges:{},visibleRelations:[]}}
+  for(const item of payload.scene_relation_changes||[]){
+    const from=cloudCharacters.globalIdByParticipation[item.from_project_character_id],to=cloudCharacters.globalIdByParticipation[item.to_project_character_id],person=participantsByScene[item.scene_id]?.[from];if(!person||!to)continue;
+    if(item.value_operation==="set")person.relationChanges[to]=item.value??"";else if(item.value_operation==="clear")person.relationChanges[to]="";
+    if(item.visible===true)person.visibleRelations.push(to);
+    (person._cloudRelationChanges||=[]).push({toCharacterId:to,valueOperation:item.value_operation??null,value:item.value??null,visible:item.visible??null,metadata:item.metadata||{}});
+  }
   const scenes=(payload.scenes||[]).map(row=>({
-    ...(adjunct[row.id]||{}),id:row.id,date:row.scene_date||"",time:String(row.scene_time||"").slice(0,5),title:row.title||"",
+    ...Object.fromEntries(Object.entries(adjunct[row.id]||{}).filter(([key])=>key!=="people")),id:row.id,date:row.scene_date||"",time:String(row.scene_time||"").slice(0,5),title:row.title||"",
     chapterId:row.chapter_id||UNASSIGNED_CHAPTER_ID,locationId:row.location_id||"",tags:tagIdsByScene[row.id]||[],
     writingStatus:CLOUD_TO_LOCAL_WRITING[row.writing_status]||"draft",sceneText:row.scene_text||"",included:row.included!==false,
-    status:row.placement_status==="placed"?"fixed":"floating",dateReview:row.date_review===true,position:Number(row.position),people:adjunct[row.id]?.people||{}
+    status:row.placement_status==="placed"?"fixed":"floating",dateReview:row.date_review===true,position:Number(row.position),people:participantsByScene[row.id]||{}
   }));
   return {
     ...localProject,version:11,
-    characters:Array.isArray(localProject.characters)?localProject.characters:[],profiles:localProject.profiles||{},
-    characterLinks:Array.isArray(localProject.characterLinks)?localProject.characterLinks:[],
+    characters:cloudCharacters.characters,profiles:cloudCharacters.profiles,
+    characterLinks:(payload.character_links||[]).concat(payload.global_character_links||[]).map(row=>({id:row.id,fromCharacterId:row.from_character_id,toCharacterId:row.to_character_id,
+      category:row.metadata?.uiCategory||row.category,type:row.type,reverseType:row.reverse_type,customLabel:row.custom_label,reverseCustomLabel:row.reverse_custom_label,
+      notes:row.notes||"",structureKind:row.metadata?.uiStructureKind||row.structure_kind||"other",metadata:row.metadata||{},scope:row.project_id?"project":"global",revision:Number(row.revision)})),
     future:localProject.future||{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},
     chapters:[...cloudChapters,{id:UNASSIGNED_CHAPTER_ID,title:"Без главы",collapsed:false}],
     locations:(payload.locations||[]).map(row=>({id:row.id,name:row.name,description:row.description||""})),
@@ -66,18 +98,20 @@ function createProjectMutationQueue({projectId,api,getRevision,setRevision,onCon
   };
   return {projectId,enqueue,reset(){failed=false},idle(){return tail}};
 }
-function createCloudProjectSync({projectId,api,storage=globalThis.localStorage,onState,onConflict}){
+function createCloudProjectSync({projectId,api,characterApi=null,storage=globalThis.localStorage,onState,onConflict}){
   let revision=null,confirmedProject=null;
   const sync={projectId,api,get revision(){return revision},get confirmedProject(){return confirmedProject}};
   const cache=()=>writeConfirmedCache(projectId,revision,confirmedProject,storage);
   const load=async({allowLegacyChoice=false}={})=>{
-    onState?.("loading");const local=readLocalProject(projectId,storage);const result=await api.loadProjectContent(projectId);
+    onState?.("loading");const local=readLocalProject(projectId,storage);const [result,identities,globalLinks]=await Promise.all([api.loadProjectContent(projectId),characterApi?.listCharacters(),characterApi?.listGlobalLinks()]);
     if(!result.ok){onState?.("error",result);throw Object.assign(new Error(result.message),result)}
+    if(characterApi&&(!identities?.ok||!globalLinks?.ok)){const failure=!identities?.ok?identities:globalLinks;onState?.("error",failure);throw Object.assign(new Error(failure?.message||"Character snapshot failed"),failure)}
+    result.data.characters=identities?.data||[];result.data.global_character_links=globalLinks?.data||[];
     const remoteEmpty=!hasProjectContent(result.data),localHas=hasProjectContent(local);
     if(remoteEmpty&&localHas&&!allowLegacyChoice){onState?.("legacy-blocked",{local,result});return {ok:false,code:"LOCAL_CONTENT_CLOUD_EMPTY",local,result}}
     revision=result.revision;confirmedProject=hydrateProjectFromCloudSnapshot(result.data,local||{});cache();onState?.("ready");return {ok:true,revision,data:confirmedProject};
   };
-  const queue=createProjectMutationQueue({projectId,api,getRevision:()=>revision,setRevision:value=>{revision=value},onConfirmed:async()=>{const fresh=await api.loadProjectContent(projectId);if(!fresh.ok)throw Object.assign(new Error(fresh.message),fresh);revision=fresh.revision;const adjunctSource=globalThis.cloudProjectSync===sync&&globalThis.data?globalThis.data:confirmedProject;confirmedProject=hydrateProjectFromCloudSnapshot(fresh.data,adjunctSource);cache();onState?.("saved",confirmedProject)},onFailure:(result)=>{onState?.(result.code==="REVISION_CONFLICT"?"conflict":"save-error",result);if(result.code==="REVISION_CONFLICT")onConflict?.(result)}});
+  const queue=createProjectMutationQueue({projectId,api,getRevision:()=>revision,setRevision:value=>{revision=value},onConfirmed:async()=>{const [fresh,identities,globalLinks]=await Promise.all([api.loadProjectContent(projectId),characterApi?.listCharacters(),characterApi?.listGlobalLinks()]);if(!fresh.ok)throw Object.assign(new Error(fresh.message),fresh);if(characterApi&&(!identities?.ok||!globalLinks?.ok))throw Object.assign(new Error("Character snapshot failed"),!identities?.ok?identities:globalLinks);fresh.data.characters=identities?.data||[];fresh.data.global_character_links=globalLinks?.data||[];revision=fresh.revision;const adjunctSource=globalThis.cloudProjectSync===sync&&globalThis.data?globalThis.data:confirmedProject;confirmedProject=hydrateProjectFromCloudSnapshot(fresh.data,adjunctSource);cache();onState?.("saved",confirmedProject)},onFailure:(result)=>{onState?.(result.code==="REVISION_CONFLICT"?"conflict":"save-error",result);if(result.code==="REVISION_CONFLICT")onConflict?.(result)}});
   return Object.assign(sync,{load,cache,queue,mutate:(name,operation)=>queue.enqueue(name,operation),reload:async()=>{queue.reset();return load({allowLegacyChoice:true})}});
 }
 
@@ -91,4 +125,4 @@ async function runCloudMutation(name,operation,{renderAfter=true}={}){
 }
 
 Object.assign(globalThis,{runCloudMutation,sceneToCloud,isCloudWorkspace});
-export {UNASSIGNED_CHAPTER_ID,cacheMetadataKey,createCloudProjectSync,createProjectMutationQueue,hasProjectContent,hydrateProjectFromCloudSnapshot,isCloudWorkspace,localAdjunctByScene,readLocalProject,runCloudMutation,sceneToCloud,writeConfirmedCache};
+export {UNASSIGNED_CHAPTER_ID,cacheMetadataKey,createCloudProjectSync,createProjectMutationQueue,effectiveProfile,hasProjectContent,hydrateCloudCharacters,hydrateProjectFromCloudSnapshot,isCloudWorkspace,localAdjunctByScene,readLocalProject,runCloudMutation,sceneToCloud,writeConfirmedCache};
