@@ -343,8 +343,17 @@ document.getElementById("saveScene").onclick=async()=>{
     if(sceneId){
       const tagsResult=await runCloudMutation("setSceneTags",(api,revision)=>api.setSceneTags(cloudProjectSync.projectId,sceneId,revision,resolvedTags),{renderAfter:false});
       if(!tagsResult.ok)return;
-      const target=cloudProjectSync.confirmedProject.scenes.find(item=>item.id===sceneId);
-      if(target){target.people=scene.people;cloudProjectSync.cache()}
+      const participants=Object.entries(scene.people).map(([characterId,person],sortOrder)=>({projectCharacterId:characterById(characterId)?.projectCharacterId,action:person.action,legacyState:person.legacyState||null,sortOrder})).filter(item=>item.projectCharacterId);
+      const participantResult=await runCloudMutation("setSceneCharacters",(_api,revision)=>cloudState.characterApi.setSceneCharacters(cloudProjectSync.projectId,sceneId,revision,participants),{renderAfter:false});
+      if(!participantResult.ok)return;
+      const changes=[];
+      for(const [fromId,person] of Object.entries(scene.people))for(const toId of new Set([...Object.keys(person.relationChanges||{}),...(person.visibleRelations||[])])){
+        const explicit=Object.prototype.hasOwnProperty.call(person.relationChanges||{},toId),value=person.relationChanges?.[toId];
+        changes.push({fromProjectCharacterId:characterById(fromId)?.projectCharacterId,toProjectCharacterId:characterById(toId)?.projectCharacterId,
+          valueOperation:explicit?(value?"set":"clear"):null,value:explicit&&value?value:null,visible:(person.visibleRelations||[]).includes(toId)});
+      }
+      const relationResult=await runCloudMutation("setSceneRelationChanges",(_api,revision)=>cloudState.characterApi.setSceneRelationChanges(cloudProjectSync.projectId,sceneId,revision,changes.filter(item=>item.fromProjectCharacterId&&item.toProjectCharacterId)),{renderAfter:false});
+      if(!relationResult.ok)return;
     }
     data=cloudProjectSync.confirmedProject;trackerFor("sceneModal").captureInitialState();forceHideModal("sceneModal");render();return;
   }
@@ -460,10 +469,22 @@ document.getElementById("closeCharacterTimeline").onclick=()=>hideModal("charact
 document.getElementById("characterTimelineModal").onclick=e=>{if(e.target.id==="characterTimelineModal")hideModal("characterTimelineModal")};
 
 
-document.getElementById("addChar").onclick=()=>{
-  const character={id:makeId("character"),name:""};
-  profileDraftCharacter=character;
-  editProfile(character.id);
+document.getElementById("addChar").onclick=async()=>{
+  if(!isCloudWorkspace()){const character={id:makeId("character"),name:""};profileDraftCharacter=character;editProfile(character.id);return}
+  document.getElementById("characterCreateError").textContent="";document.getElementById("existingCharacterField").hidden=true;
+  const result=await cloudState.characterApi.listCharacters();
+  const attached=new Set(data.characters.map(item=>item.id)),available=(result.data||[]).filter(item=>!attached.has(item.id));
+  document.getElementById("existingCharacterSelect").replaceChildren(...available.map(item=>{const option=document.createElement("option");option.value=item.id;option.textContent=[item.name,item.surname].filter(Boolean).join(" ")||"Без имени";return option}));
+  document.getElementById("attachExistingCharacter").disabled=!available.length;showModal("characterCreateModal",{initialFocus:"#createNewCharacter"});
+};
+document.getElementById("cancelCharacterCreate").onclick=()=>forceHideModal("characterCreateModal");
+document.getElementById("characterCreateModal").onclick=e=>{if(e.target.id==="characterCreateModal")forceHideModal("characterCreateModal")};
+document.getElementById("createNewCharacter").onclick=()=>{forceHideModal("characterCreateModal");const character={id:makeId("character"),name:""};profileDraftCharacter=character;editProfile(character.id)};
+document.getElementById("attachExistingCharacter").onclick=async()=>{
+  const field=document.getElementById("existingCharacterField");if(field.hidden){field.hidden=false;document.getElementById("existingCharacterSelect").focus();return}
+  const characterId=document.getElementById("existingCharacterSelect").value;if(!characterId)return;
+  const result=await runCloudMutation("attachProjectCharacter",(_api,revision)=>cloudState.characterApi.attachProjectCharacter(cloudProjectSync.projectId,characterId,revision,{}));
+  if(!result.ok){document.getElementById("characterCreateError").textContent=result.message;return}forceHideModal("characterCreateModal");data=cloudProjectSync.confirmedProject;renderProfiles();render();
 };
 
 
@@ -509,14 +530,27 @@ document.getElementById("saveCharacterLink").onclick=saveDraftCharacterLink;
 document.getElementById("characterLinkType").onchange=syncCharacterLinkCustomFields;
 document.getElementById("characterLinkReverseType").onchange=syncCharacterLinkCustomFields;
 document.getElementById("characterLinkModal").onclick=e=>{if(e.target.id==="characterLinkModal")requestCloseModal("characterLinkModal","backdrop")};
-document.getElementById("saveProfile").onclick=()=>{
+async function syncCloudCharacterLinks(original,draft){
+  const api=cloudState.characterApi,projectId=cloudProjectSync.projectId,originalById=new Map(original.map(item=>[item.id,item])),draftById=new Map(draft.map(item=>[item.id,item]));
+  for(const old of original)if(!draftById.has(old.id)){
+    const result=old.scope==="global"?await api.deleteLink(old.id,{expectedLinkRevision:old.revision}):await runCloudMutation("deleteCharacterLink",(_api,revision)=>api.deleteLink(old.id,{expectedProjectRevision:revision}),{renderAfter:false});if(!result.ok)return result;
+  }
+  for(const link of draft){
+    const old=originalById.get(link.id),cloudCategory=({marriage:"romantic",legal:"other",guardianship:"other"})[link.category]||link.category,cloudStructure=({parent_child:"biological",sibling:"biological",partnership:"chosen",guardianship:"legal"})[link.structureKind]||link.structureKind,payload={fromCharacterId:link.fromCharacterId,toCharacterId:link.toCharacterId,category:cloudCategory,type:link.type,reverseType:link.reverseType,customLabel:link.customLabel,reverseCustomLabel:link.reverseCustomLabel,notes:link.notes,structureKind:cloudStructure,metadata:{...(link.metadata||{}),uiCategory:link.category,uiStructureKind:link.structureKind}};
+    let result;if(!old)result=link.scope==="global"?await api.createLink(null,null,payload):await runCloudMutation("createCharacterLink",(_api,revision)=>api.createLink(projectId,revision,payload),{renderAfter:false});
+    else if(JSON.stringify({...old,id:undefined,revision:undefined})!==JSON.stringify({...link,id:undefined,revision:undefined}))result=old.scope==="global"?await api.updateLink(old.id,{expectedLinkRevision:old.revision},payload):await runCloudMutation("updateCharacterLink",(_api,revision)=>api.updateLink(old.id,{expectedProjectRevision:revision},payload),{renderAfter:false});
+    if(result&&!result.ok){showStorageMessage(result.message,"error");return result}
+  }
+  const loaded=await cloudProjectSync.reload();if(loaded.ok)data=loaded.data;return loaded;
+}
+document.getElementById("saveProfile").onclick=async()=>{
   const character=characterById(profileEditingId)||profileDraftCharacter;
   if(!character)return;
   const nameInput=document.getElementById("pf_name");
   const newName=nameInput.value.trim();
   if(!newName){nameInput.setCustomValidity("Введите имя персонажа.");nameInput.reportValidity();nameInput.focus();return}
   nameInput.setCustomValidity("");
-  if(data.characters.some(c=>c.id!==character.id&&c.name.toLocaleLowerCase("ru")===newName.toLocaleLowerCase("ru"))){
+  if(!isCloudWorkspace()&&data.characters.some(c=>c.id!==character.id&&c.name.toLocaleLowerCase("ru")===newName.toLocaleLowerCase("ru"))){
     alert("Персонаж с таким именем уже существует.");
     return;
   }
@@ -560,6 +594,35 @@ document.getElementById("saveProfile").onclick=()=>{
     description:document.getElementById("pf_description").value.trim(),
     hidden,initialRelations
   };
+  if(isCloudWorkspace()){
+    const api=cloudState.characterApi,projectId=cloudProjectSync.projectId;
+    const profilePayload={...profile};for(const key of ["id","characterId","name","surname","photos","primaryPhotoId","initialRelations","_cloud"])delete profilePayload[key];
+    let result;
+    if(profileDraftCharacter){
+      result=await runCloudMutation("createCharacterAndAttach",(_api,revision)=>api.createCharacterAndAttach(projectId,revision,{name:newName,surname:profile.surname,baseProfile:profilePayload},{}),{renderAfter:false});
+    }else if(document.getElementById("profileSaveScope").value==="global"){
+      result=await api.updateCharacter(character.id,character.characterRevision,{name:newName,surname:profile.surname,baseProfile:profilePayload});
+      if(result.ok){const loaded=await cloudProjectSync.reload();if(loaded.ok)data=loaded.data}
+      else showStorageMessage(result.message,"error");
+    }else{
+      const base=old._cloud?.baseProfile||{},previous=old._cloud?.overrides||{},overrides={...previous};
+      for(const [key,value] of Object.entries(profilePayload)){if(JSON.stringify(value)===JSON.stringify(base[key]))delete overrides[key];else overrides[key]=value}
+      result=await runCloudMutation("updateProjectCharacter",(_api,revision)=>api.updateProjectCharacter(projectId,character.projectCharacterId,revision,{overrides,role:character.role,sortOrder:character.sortOrder}),{renderAfter:false});
+    }
+    if(!result?.ok)return;
+    const createdId=result.data?.character?.id,current=cloudProjectSync.confirmedProject.characters.find(item=>item.id===(createdId||character.id));
+    if(current){
+      const relations=[];
+      for(const source of cloudProjectSync.confirmedProject.characters){
+        const values=source.id===current.id?initialRelations:(cloudProjectSync.confirmedProject.profiles[source.id]?.initialRelations||{});
+        for(const [targetId,value] of Object.entries(values))relations.push({fromProjectCharacterId:source.projectCharacterId,toProjectCharacterId:cloudProjectSync.confirmedProject.characters.find(item=>item.id===targetId)?.projectCharacterId,valueOperation:"set",value,visible:true});
+      }
+      const relResult=await runCloudMutation("setInitialRelations",(_api,revision)=>api.setInitialRelations(projectId,revision,relations.filter(item=>item.toProjectCharacterId)),{renderAfter:false});if(!relResult.ok)return;
+    }
+    const linkResult=await syncCloudCharacterLinks(data.characterLinks||[],profileDraftCharacterLinks);if(!linkResult?.ok)return;
+    const savedProfile=cloudProjectSync.confirmedProject.profiles[createdId||character.id];if(savedProfile&&profileDraftPhotos.length){savedProfile.photos=safeOwnCopy(profileDraftPhotos);savedProfile.primaryPhotoId=profileDraftPrimaryPhotoId;cloudProjectSync.cache()}
+    data=cloudProjectSync.confirmedProject;trackerFor("profileEditorModal").captureInitialState();forceHideModal("profileEditorModal");profileDraftCharacter=null;renderProfiles();render();return;
+  }
   const result=commitDataChange(next=>{
     let target=next.characters.find(c=>c.id===character.id);
     if(!target){target={...character};next.characters.push(target);next.profiles ||= {}}

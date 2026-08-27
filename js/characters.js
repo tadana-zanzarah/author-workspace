@@ -111,17 +111,30 @@ function openCharacterTimeline(characterId){
   showModal("characterTimelineModal");
 }
 
-function moveProfile(characterId,dir){
+async function moveProfile(characterId,dir){
   const index=data.characters.findIndex(c=>c.id===characterId);
   const target=index+dir;
   if(index<0||target<0||target>=data.characters.length)return;
+  if(isCloudWorkspace()){
+    const moved=data.characters[index],other=data.characters[target],result=await runCloudMutation("reorderProjectCharacter",(_api,revision)=>cloudState.characterApi.updateProjectCharacter(cloudProjectSync.projectId,moved.projectCharacterId,revision,{overrides:moved.projectOverrides||{},role:moved.role,sortOrder:other.sortOrder}),{renderAfter:false});
+    if(result.ok){data=cloudProjectSync.confirmedProject;renderProfiles();render()}return;
+  }
   const result=commitDataChange(next=>{[next.characters[index],next.characters[target]]=[next.characters[target],next.characters[index]]},{renderAfter:false});
   if(result.ok){renderProfiles();render()}
 }
 
-function deleteProfile(characterId){
+async function deleteProfile(characterId){
   const character=characterById(characterId);
   if(!character)return;
+  if(isCloudWorkspace()){
+    let result=await runCloudMutation("removeProjectCharacter",(_api,revision)=>cloudState.characterApi.removeProjectCharacter(cloudProjectSync.projectId,character.projectCharacterId,revision),{renderAfter:false});
+    if(!result.ok&&result.code==="DEPENDENCIES_EXIST"){
+      const counts=result.dependencies||{},summary=Object.entries(counts).filter(([,value])=>Number(value)>0).map(([key,value])=>`${key}: ${value}`).join("; ");
+      if(!confirm(`Персонаж используется в проекте (${summary}). Удалить участие и только проектные зависимости? Общий персонаж сохранится.`))return;
+      result=await runCloudMutation("removeProjectCharacterCleanup",(_api,revision)=>cloudState.characterApi.removeProjectCharacter(cloudProjectSync.projectId,character.projectCharacterId,revision,{cleanupDependencies:true}),{renderAfter:false});
+    }
+    if(!result.ok)return;if(filters.character===characterId)filters.character="";data=cloudProjectSync.confirmedProject;renderProfiles();render();return;
+  }
   const linkCount=linksForCharacter(characterId,data.characterLinks||[]).length;
   if(!confirm(`Удалить персонажа «${character.name}» из анкет и колонок? Данные этого персонажа в сценах также будут удалены.${linkCount?` Связанных структурных связей: ${linkCount}; они также будут удалены.`:""}`))return;
   const result=commitDataChange(next=>{
@@ -182,6 +195,7 @@ function editProfileNow(characterId){
   profileEditingId=characterId;
   const character=characterById(characterId)||profileDraftCharacter;if(!character||character.id!==characterId)return;
   const p=normalizeProfile(data.profiles?.[characterId],character);
+  document.getElementById("cloudProfileScope").hidden=!isCloudWorkspace();document.getElementById("profileSaveScope").value="project";
   profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";profileDraftCharacterLinks=safeOwnCopy(data.characterLinks||[]);
   document.getElementById("profileEditorTitle").textContent=p.name||character.name?`Анкета: ${p.name||character.name}`:"Новый персонаж";
   const values={

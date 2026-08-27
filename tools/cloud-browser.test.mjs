@@ -53,7 +53,8 @@ await page.addInitScript(()=>{
       if(globalThis.__mockFailures[name])return {data:null,error:new Error(globalThis.__mockFailures[name])};
       const db=read();
       const project=db.projects.find(item=>item.id===args.target_project_id);
-      if(name==="get_project_content")return {data:project?{ok:true,code:"OK",revision:project.revision||0,changed:false,data:{project:{id:project.id,revision:project.revision||0,updated_at:project.updated_at},chapters:db.chapters.filter(x=>x.project_id===project.id&&!x.deleted_at),locations:db.locations.filter(x=>x.project_id===project.id&&!x.deleted_at),tags:db.tags.filter(x=>x.project_id===project.id),scenes:db.scenes.filter(x=>x.project_id===project.id&&!x.deleted_at),scene_tags:db.scene_tags.filter(x=>x.project_id===project.id)}}:{ok:false,code:"NOT_FOUND",changed:false},error:null};
+      if(name==="list_characters"||name==="list_global_character_links")return {data:{ok:true,code:"OK",changed:false,data:[]},error:null};
+      if(name==="get_project_content")return {data:project?{ok:true,code:"OK",revision:project.revision||0,changed:false,data:{project:{id:project.id,revision:project.revision||0,updated_at:project.updated_at},chapters:db.chapters.filter(x=>x.project_id===project.id&&!x.deleted_at),locations:db.locations.filter(x=>x.project_id===project.id&&!x.deleted_at),tags:db.tags.filter(x=>x.project_id===project.id),scenes:db.scenes.filter(x=>x.project_id===project.id&&!x.deleted_at),scene_tags:db.scene_tags.filter(x=>x.project_id===project.id),project_characters:[],scene_characters:[],project_character_relations:[],scene_relation_changes:[],character_links:[]}}:{ok:false,code:"NOT_FOUND",changed:false},error:null};
       if(name==="create_scene"){
         if(project.revision!==args.expected_revision)return {data:{ok:false,code:"REVISION_CONFLICT",actualRevision:project.revision,changed:false},error:null};
         const scene={id:crypto.randomUUID(),project_id:project.id,chapter_id:args.target_chapter_id,location_id:args.target_location_id,title:args.scene_title,scene_text:args.scene_text_value,scene_date:args.scene_date_value,scene_time:args.scene_time_value,placement_status:args.placement_status_value,writing_status:args.writing_status_value,included:args.included_value,date_review:args.date_review_value,position:args.scene_position||1000,deleted_at:null};db.scenes.push(scene);project.revision++;write(db);return {data:{ok:true,code:"OK",revision:project.revision,changed:true,data:scene},error:null};
@@ -62,6 +63,7 @@ await page.addInitScript(()=>{
         if(project.revision!==args.expected_revision)return {data:{ok:false,code:"REVISION_CONFLICT",actualRevision:project.revision,changed:false},error:null};
         db.scene_tags=db.scene_tags.filter(x=>x.scene_id!==args.target_scene_id);for(const tag_id of args.tag_ids||[])db.scene_tags.push({project_id:project.id,scene_id:args.target_scene_id,tag_id});project.revision++;write(db);return {data:{ok:true,code:"OK",revision:project.revision,changed:true,data:args.tag_ids||[]},error:null};
       }
+      if(name==="set_scene_characters"||name==="set_scene_relation_changes")return {data:{ok:true,code:"OK",revision:project.revision||0,changed:false,data:[]},error:null};
       if(name==="set_project_series"){
         Object.assign(project,{series_id:args.target_series_id,position_in_series:args.target_series_id?args.target_position:null});
       }
@@ -152,6 +154,7 @@ if(await page.locator("#projectMenu").getAttribute("open")!==null)throw new Erro
 await page.click("#closeChars");
 await page.click("#sidebarManageChars");if(!await page.locator("#charsModal").isVisible())throw new Error("Sidebar Characters manager did not open");
 await page.click("#addChar");
+await page.click("#createNewCharacter");
 if(await page.inputValue("#pf_name")!==""||await page.getAttribute("#pf_name","placeholder")!=="Имя")throw new Error("New character name is not empty with Имя placeholder");
 await page.click("#cancelProfile");await page.waitForSelector("#profileEditorModal",{state:"hidden"});await page.click("#closeChars");
 await page.click("#addFirst");await page.waitForSelector("#sceneModal",{state:"visible"});

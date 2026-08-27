@@ -400,6 +400,20 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="characterCreateModal" role="dialog" aria-modal="true" aria-labelledby="characterCreateTitle" aria-describedby="characterCreateDescription">
+  <div class="modal" style="width:min(620px,100%)">
+    <h2 id="characterCreateTitle">Добавить персонажа</h2>
+    <p id="characterCreateDescription" class="profile-note">Создайте новую общую identity или подключите к проекту уже существующего персонажа.</p>
+    <label id="existingCharacterField" hidden>Существующий персонаж<select id="existingCharacterSelect"></select></label>
+    <p id="characterCreateError" class="form-error" role="alert"></p>
+    <div class="modal-actions">
+      <button id="cancelCharacterCreate" type="button">Отмена</button>
+      <button id="attachExistingCharacter" type="button">Добавить существующего</button>
+      <button id="createNewCharacter" class="primary" type="button">Создать нового</button>
+    </div>
+  </div>
+</div>
+
 
 <div class="modal-backdrop" id="characterTimelineModal" role="dialog" aria-modal="true" aria-labelledby="characterTimelineTitle" aria-describedby="characterTimelineSummary">
   <div class="modal" style="width:min(900px,100%);max-height:94vh">
@@ -413,6 +427,14 @@
 <div class="modal-backdrop" id="profileEditorModal" role="dialog" aria-modal="true" aria-labelledby="profileEditorTitle">
   <div class="modal" style="width:min(1050px,100%);max-height:94vh">
     <h2 id="profileEditorTitle">Анкета персонажа</h2>
+
+    <div id="cloudProfileScope" class="profile-field full" hidden>
+      <div class="profile-field-top"><strong>Общие данные и данные проекта</strong></div>
+      <label>Куда сохранить изменения
+        <select id="profileSaveScope"><option value="project">Только в этом проекте (override)</option><option value="global">Общие данные персонажа</option></select>
+      </label>
+      <p class="profile-note">Project override имеет приоритет. Поля, совпадающие с общими данными, снова наследуются и не сохраняются копией.</p>
+    </div>
 
     <div class="profile-field full">
       <div class="profile-field-top"><strong>Фото и визуализации</strong></div>
@@ -528,6 +550,7 @@
     <h2 id="characterLinkEditorTitle">Добавить связь</h2>
     <div class="character-link-editor-grid">
       <label>Персонаж<select id="characterLinkTarget"></select></label>
+      <label id="characterLinkScopeField">Область связи<select id="characterLinkScope"><option value="project">Только этот проект</option><option value="global">Общая identity</option></select></label>
       <label>Категория<select id="characterLinkCategory"><option value="family">Родство</option><option value="marriage">Брак / партнёрство</option><option value="legal">Юридические</option><option value="guardianship">Опека</option><option value="other">Другое</option></select></label>
       <label>Тип связи от текущего персонажа<select id="characterLinkType"></select></label>
       <label>Обратная связь<select id="characterLinkReverseType"></select></label>
