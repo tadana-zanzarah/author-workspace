@@ -59,3 +59,9 @@
 - Project-scoped cloud mutations выполняются сериализованной revision-aware очередью и используют только последний подтверждённый сервером revision.
 - Cloud-authoritative state и cache обновляются только после успешного RPC; failure/conflict не должны изображать локальный успех.
 - Пока character phase отложен, local-only scene adjunct (people/actions/relations и другие несинхронизируемые поля) сохраняется и присоединяется к cloud scene core по stable scene ID.
+- Binary character images никогда не хранятся в Postgres; база хранит только metadata и canonical `storage_path`.
+- Оригинал character image хранится отдельно от crop metadata и не заменяется cropped preview.
+- Signed/private URL является только transient runtime value и не сохраняется как canonical project data.
+- Cloud image write успешен только после согласованного Storage + DB результата; partial failure всегда требует compensation или явного recoverable orphan state.
+- Legacy local data URL нельзя автоматически загружать в cloud без отдельного подтверждения пользователя.
+- Identity-level и project-specific character image scopes нельзя смешивать; project image всегда обязан ссылаться на project character той же global identity.

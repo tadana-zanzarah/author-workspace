@@ -69,8 +69,7 @@ project is global account canon; a non-null project is a project-context link.
 Reversed-semantic duplicate detection remains an application/transaction-layer
 task because its canonical fingerprint depends on relationship semantics.
 
-`character_images` stores paths and metadata only: no binary/base64 column and
-no Storage bucket. Identity and project-specific primary-image uniqueness is
+`character_images` stores paths and metadata only: no binary/base64 column. Original binary objects use the private `character-images` Storage bucket and the owner-isolated path described in [cloud-character-image-storage.md](cloud-character-image-storage.md). Identity and project-specific primary-image uniqueness is
 enforced with partial indexes.
 
 ## API grants and RLS

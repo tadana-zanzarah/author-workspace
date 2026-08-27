@@ -6,7 +6,7 @@ Every mutation receives `projectId` and `expectedRevision`. A changed success re
 
 Available methods are `loadProjectContent`, chapter create/update/delete/reorder, location create/update/delete, tag create/update/delete, scene create/update/delete/move, and `setSceneTags`. UI code calls these methods through the serialized project mutation queue instead of scattering raw `client.rpc()` calls.
 
-The snapshot contains `project`, `chapters`, `locations`, `tags`, `scenes`, and `scene_tags`. Characters, scene participants, emotional relation changes, structural links, and images remain outside this phase.
+The content snapshot is combined with character, relation, structural-link and character-image RPC reads. Character image operations are `list_character_images`, `create_character_image`, `update_character_image`, and `delete_character_image`; the browser then resolves canonical `storage_path` values to transient private signed URLs. See [cloud-character-image-storage.md](cloud-character-image-storage.md).
 # Cloud character API
 
 `js/cloud-character-api.js` is a separate, currently unused Data API adapter. Production editors remain localStorage-backed.
