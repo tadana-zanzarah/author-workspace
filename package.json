@@ -10,6 +10,7 @@
     "test:auth-browser": "node tools/auth-browser.test.mjs",
     "test:auth-real-login": "node tools/auth-real-login.test.mjs",
     "test:cloud-project-structure": "node tools/cloud-project-structure-browser.test.mjs",
+    "test:cloud-characters-real": "node tools/cloud-characters-real-browser.test.mjs",
     "test:blocking-browser": "node tools/blocking-regressions-browser.test.mjs",
     "test:compact-dnd-browser": "node tools/compact-list-dnd-browser.test.mjs",
     "test:multi-value-browser": "node tools/multi-value-profile-browser.test.mjs",
