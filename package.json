@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:unit": "node tools/data-safety.test.mjs && node tools/character-images-data.test.mjs && node tools/cloud-character-image-api.test.mjs && node tools/character-links-data.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs && node tools/auth-flow.test.mjs && node tools/cloud-foundation.test.mjs && node tools/cloud-content-api.test.mjs && node tools/cloud-character-api.test.mjs && node tools/cloud-project-sync.test.mjs",
+    "test:unit": "node tools/data-safety.test.mjs && node tools/character-images-data.test.mjs && node tools/cloud-character-image-api.test.mjs && node tools/character-links-data.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs && node tools/auth-flow.test.mjs && node tools/cloud-foundation.test.mjs && node tools/cloud-content-api.test.mjs && node tools/cloud-character-api.test.mjs && node tools/cloud-project-sync.test.mjs && node tools/local-to-cloud-migration.test.mjs",
     "test:smoke": "node tools/browser-smoke.mjs",
     "test:dirty-browser": "node tools/dirty-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",

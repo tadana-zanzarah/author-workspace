@@ -65,3 +65,10 @@
 - Cloud image write успешен только после согласованного Storage + DB результата; partial failure всегда требует compensation или явного recoverable orphan state.
 - Legacy local data URL нельзя автоматически загружать в cloud без отдельного подтверждения пользователя.
 - Identity-level и project-specific character image scopes нельзя смешивать; project image всегда обязан ссылаться на project character той же global identity.
+- Local→cloud migration всегда выполняется по схеме preview before write; preview не имеет побочных эффектов.
+- Character identity при local→cloud migration никогда не deduplicate по имени автоматически: mapping требует явного решения пользователя.
+- После migration исходный local project никогда не удаляется автоматически.
+- До execution необходимо зафиксировать cloud target revision; import использует её как expected revision.
+- Неразрешённые ссылки и character mappings блокируют migration, silent loss запрещён.
+- Upload legacy local image всегда требует явного подтверждения и никогда не выполняется молча.
+- Системная local-глава `chapter-unassigned` отображается в cloud как `chapter_id = NULL`; отдельная cloud row для неё не создаётся.
