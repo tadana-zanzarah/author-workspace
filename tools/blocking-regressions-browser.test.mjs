@@ -55,6 +55,7 @@ await page.addInitScript(()=>{
     return api;
   };
   globalThis.__AUTHOR_WORKSPACE_SUPABASE_CLIENT__={
+    storage:{from(){return {async upload(path){return {data:{path},error:null}},async remove(paths){return {data:paths,error:null}},async createSignedUrl(path){return {data:{signedUrl:`mock:${path}`},error:null}}}}},
     auth:{
       async getSession(){return {data:{session:localStorage.getItem("mockBlockingSession")?{user}:null},error:null}},
       async getUser(){return {data:{user:localStorage.getItem("mockBlockingSession")?user:null},error:null}},
@@ -67,6 +68,7 @@ await page.addInitScript(()=>{
     },
     from:builder,
     async rpc(name,args){
+      if(name==="list_characters"||name==="list_global_character_links"||name==="list_character_images")return {data:{ok:true,code:"OK",changed:false,data:[]},error:null};
       const db=read(),project=db.projects.find(item=>item.id===args.target_project_id);
       if(name==="get_project_content")return {data:{ok:true,code:"OK",revision:project.revision,changed:false,data:{project:{id:project.id,revision:project.revision},chapters:db.chapters.filter(x=>x.project_id===project.id&&!x.deleted_at),locations:[],tags:[],scenes:db.scenes.filter(x=>x.project_id===project.id&&!x.deleted_at),scene_tags:[]}},error:null};
       if(name==="create_scene"){
@@ -74,6 +76,7 @@ await page.addInitScript(()=>{
         const scene={id:crypto.randomUUID(),project_id:project.id,chapter_id:args.target_chapter_id,location_id:args.target_location_id,title:args.scene_title,scene_text:args.scene_text_value,scene_date:args.scene_date_value,scene_time:args.scene_time_value,placement_status:args.placement_status_value,writing_status:args.writing_status_value,included:args.included_value,date_review:args.date_review_value,position:args.scene_position||1000,deleted_at:null};db.scenes.push(scene);project.revision++;localStorage.setItem("mockBlockingCloud",JSON.stringify(db));return {data:{ok:true,code:"OK",revision:project.revision,changed:true,data:scene},error:null};
       }
       if(name==="set_scene_tags")return {data:{ok:true,code:"OK",revision:project.revision,changed:false,data:[]},error:null};
+      if(name==="set_scene_characters"||name==="set_scene_relation_changes"||name==="set_project_character_relations")return {data:{ok:true,code:"OK",revision:project.revision,changed:false,data:[]},error:null};
       return {data:null,error:null};
     }
   };
@@ -132,7 +135,7 @@ const createSceneThroughDom=async({entry,title})=>{
   await traceState(`${entry}:defaults`,title);
   await page.selectOption("#sceneChapter","chapter-one");await page.selectOption("#sceneWritingStatus","draft");await page.fill("#sceneTitle",title);
   await traceState(`${entry}:selected`,title);
-  await page.click("#saveScene");await page.getByText(title,{exact:true}).waitFor();
+  await page.click("#saveScene");try{await page.getByText(title,{exact:true}).waitFor()}catch(error){const diagnostic=await page.evaluate(name=>({scene:data.scenes.find(item=>item.title===name)||null,revision:cloudProjectSync?.revision,modalVisible:getComputedStyle(document.getElementById("sceneModal")).display,banner:document.getElementById("storageBanner")?.textContent,db:JSON.parse(localStorage.getItem("mockBlockingCloud"))}),title);throw new Error(`${title} save did not render: ${JSON.stringify(diagnostic)}; ${error.message}`)}
   await traceState(`${entry}:saved`,title);
   const sceneId=await page.evaluate(name=>data.scenes.find(item=>item.title===name).id,title);
   await page.locator(`[data-scene-id="${sceneId}"]`).getByRole("button",{name:"Изменить"}).click();await page.waitForSelector("#sceneModal",{state:"visible"});
