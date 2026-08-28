@@ -40,7 +40,7 @@
   .profile-card-actions button{padding:6px 8px;font-size:12px}
   .profile-editor-grid{
     display:grid;
-    grid-template-columns:1fr 1fr;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
     gap:12px;
   }
   .profile-field{
@@ -48,7 +48,9 @@
     border-radius:10px;
     padding:10px;
     background:#fbfaf8;
+    min-width:0;
   }
+  #profilePhotosInput{min-width:0;max-width:100%}
   .profile-field.full{grid-column:1/-1}
   .profile-field-top{
     display:flex;justify-content:space-between;gap:10px;align-items:center;
@@ -73,7 +75,7 @@
   .multi-value-list [role=option]{padding:8px 10px;cursor:pointer;overflow-wrap:anywhere}
   .multi-value-list [role=option]:hover,.multi-value-list [role=option].active{background:#f2eee9}
   .birthday-grid{
-    display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;
   }
   .photos-grid{
     display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:9px;
@@ -104,7 +106,7 @@
     color:var(--muted);font-size:12px;line-height:1.4;
   }
   @media(max-width:800px){
-    .profile-editor-grid{grid-template-columns:1fr}
+    .profile-editor-grid{grid-template-columns:minmax(0,1fr)}
     .profile-field.full{grid-column:auto}
     .initial-relation-row{grid-template-columns:1fr}
     .photo-crop-modal{padding:14px}.photo-crop-viewport{width:100%}.photo-actions button{flex:1 1 auto}

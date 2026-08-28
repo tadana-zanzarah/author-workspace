@@ -12,10 +12,12 @@
     "test:cloud-project-structure": "node tools/cloud-project-structure-browser.test.mjs",
     "test:cloud-characters-real": "node tools/cloud-characters-real-browser.test.mjs",
     "test:cloud-character-images-real": "node tools/cloud-character-images-real-browser.test.mjs",
+    "test:cloud-character-images-security": "node tools/cloud-character-images-cross-user-security.test.mjs",
     "test:blocking-browser": "node tools/blocking-regressions-browser.test.mjs",
     "test:compact-dnd-browser": "node tools/compact-list-dnd-browser.test.mjs",
     "test:multi-value-browser": "node tools/multi-value-profile-browser.test.mjs",
     "test:character-images-browser": "node tools/character-images-browser.test.mjs",
+    "test:character-images-mobile": "node tools/character-images-mobile-browser.test.mjs",
     "test:character-links-browser": "node tools/character-links-browser.test.mjs",
     "test": "npm run test:unit"
   }

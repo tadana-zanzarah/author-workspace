@@ -27,7 +27,9 @@ function resolveFocus(entry){
     const matching=candidates.find(element=>element.textContent.trim()===entry.openerKey.text)||candidates[0];if(matching&&isVisible(matching))return matching;
   }
   if(entry.fallback?.isConnected&&isVisible(entry.fallback)&&!entry.fallback.closest('[inert]'))return entry.fallback;
-  return modalStack.at(-1)?.lastFocus||getFocusableElements(getTopModal())[0]||document.getElementById("addFirst")||document.querySelector("summary,button,input,select,textarea");
+  const lastFocus=modalStack.at(-1)?.lastFocus;
+  if(lastFocus?.isConnected&&isVisible(lastFocus)&&!lastFocus.closest("[inert]"))return lastFocus;
+  return getFocusableElements(getTopModal())[0]||document.getElementById("addFirst")||document.querySelector("summary,button,input,select,textarea");
 }
 
 function syncLayers(){

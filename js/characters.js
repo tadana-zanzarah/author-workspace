@@ -279,7 +279,7 @@ function openPhotoLightboxByCharacter(characterId,id){const p=normalizeProfile(d
 function syncCropPreview(){const crop=photoCropState?.draft;if(!crop)return;const image=document.getElementById("photoCropImage");image.style.objectPosition=`${crop.x*100}% ${crop.y*100}%`;image.style.transform=`scale(${crop.zoom})`;document.getElementById("photoCropZoom").value=crop.zoom}
 function openPhotoCrop(id){const photo=draftPhoto(id);if(!photo)return;photoCropState={id,draft:{...photo.crop}};document.getElementById("photoCropImage").src=photo.source.value;syncCropPreview();showModal("photoCropModal",{initialFocus:"#photoCropZoom"})}
 function nudgePhotoCrop(dx,dy){if(!photoCropState)return;photoCropState.draft.x=Math.max(0,Math.min(1,photoCropState.draft.x+dx));photoCropState.draft.y=Math.max(0,Math.min(1,photoCropState.draft.y+dy));syncCropPreview()}
-function savePhotoCrop(){const photo=draftPhoto(photoCropState?.id);if(photo)photo.crop={...photoCropState.draft};photoCropState=null;forceHideModal("photoCropModal");renderProfilePhotos();syncBeforeUnload()}
+function savePhotoCrop(){const photo=draftPhoto(photoCropState?.id);if(photo)photo.crop={...photoCropState.draft};photoCropState=null;renderProfilePhotos();forceHideModal("photoCropModal");syncBeforeUnload()}
 function cancelPhotoCrop(){photoCropState=null;forceHideModal("photoCropModal")}
 
 function profileDisplayValue(profile,key){
