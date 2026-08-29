@@ -1,0 +1,2 @@
+create index local_project_import_attempts_project_idx
+  on public.local_project_import_attempts(project_id);

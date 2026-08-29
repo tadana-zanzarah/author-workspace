@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import {createClient} from "@supabase/supabase-js";
+import {buildLocalToCloudMigrationPreview} from "../js/local-to-cloud-migration.js";
+import {confirmLocalToCloudMigrationPlan,executeLocalToCloudMigration} from "../js/local-to-cloud-migration-execution.js";
+
+const email=process.env.CLOUD_TEST_EMAIL,password=process.env.CLOUD_TEST_PASSWORD;
+if(!email||!password){console.log("local cloud migration real acceptance skipped: credentials are not configured");process.exit(0)}
+class UnusedRealtimeTransport{}
+const client=createClient("https://crchibwumcuuqhkabmfj.supabase.co","sb_publishable_XF0Jk1qKpK4OgW8NAyaj7g_IuAdH8RT",{auth:{persistSession:false,autoRefreshToken:false},realtime:{transport:UnusedRealtimeTransport}});
+const marker=crypto.randomBytes(6).toString("hex"),title=`AW migration CP2 ${marker}`;
+const cleanup={projectId:null,characterIds:[],imageIds:[],storagePaths:[]};let report=null;
+const must=async promise=>{const result=await promise;if(result.error)throw result.error;return result.data};
+try{
+  const auth=await must(client.auth.signInWithPassword({email,password})),ownerId=auth.user.id;
+  const project=await must(client.from("projects").insert({owner_id:ownerId,title}).select("id,revision").single());cleanup.projectId=project.id;
+  const mapped=await must(client.rpc("create_character",{character_name:`Mapped ${marker}`,character_surname:"",base_profile:{favorites:["existing"],hobbies:[],acceptanceMarker:marker}}));assert.equal(mapped.ok,true,JSON.stringify(mapped));const mappedId=mapped.data.id;cleanup.characterIds.push(mappedId);
+  const local={version:11,characters:[{id:"local-mapped",name:"Local mapped",acceptanceMarker:marker},{id:"local-new",name:"Local new",acceptanceMarker:marker}],profiles:{
+    "local-mapped":{favorites:["local override"],hobbies:["reading"],photos:[],initialRelations:{"local-new":"trust"}},
+    "local-new":{favorites:["tea"],hobbies:["walking"],photos:[{id:"local-photo",scope:"project",source:{kind:"data-url",value:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="},crop:{x:.4,y:.6,zoom:1.3},alt:"fixture",caption:"checkpoint 2",isPrimary:true,acceptanceMarker:marker}],primaryPhotoId:"local-photo",initialRelations:{}}
+  },characterLinks:[{id:"local-link",fromCharacterId:"local-mapped",toCharacterId:"local-new",category:"other",type:"friend",reverseType:"friend",structureKind:"social",scope:"project",metadata:{acceptanceMarker:marker}}],chapters:[{id:"chapter-unassigned",title:"Без главы"},{id:"local-chapter-1",title:"One"},{id:"local-chapter-2",title:"Two"}],locations:[{id:"local-location",name:"Home",description:"Fixture"}],tags:[{id:"local-tag-1",name:"Mystery"},{id:"local-tag-2",name:"Night"}],scenes:[
+    {id:"local-scene-1",chapterId:"local-chapter-1",locationId:"local-location",tags:["local-tag-1"],title:"First",sceneText:"Text 1",date:"2026-08-29",time:"10:15",status:"fixed",writingStatus:"draft",included:true,dateReview:false,people:{"local-mapped":{action:"speaks",relationChanges:{},visibleRelations:[]}}},
+    {id:"local-scene-2",chapterId:"local-chapter-2",locationId:"local-location",tags:["local-tag-2"],title:"Second",sceneText:"Text 2",date:"",time:"",status:"floating",writingStatus:"edit1",included:true,dateReview:true,people:{"local-new":{action:"listens",relationChanges:{"local-mapped":""},visibleRelations:["local-mapped"]}}},
+    {id:"local-scene-3",chapterId:"chapter-unassigned",locationId:"",tags:["local-tag-1","local-tag-2"],title:"Unassigned",sceneText:"Text 3",date:"",time:"",status:"floating",writingStatus:"plan",included:false,dateReview:true,people:{}}
+  ]};
+  const localBefore=JSON.stringify(local),preview=buildLocalToCloudMigrationPreview({localProject:local,sourceProjectId:`acceptance-${marker}`,targetProjectId:project.id,targetProjectRevision:project.revision,targetCloudState:{},existingGlobalCharacters:[mapped.data],characterDecisions:{"local-mapped":{action:"MAP_TO_EXISTING_CHARACTER",existingCharacterId:mappedId},"local-new":{action:"CREATE_NEW_GLOBAL_IDENTITY"}}});
+  assert.equal(preview.ready,true,JSON.stringify(preview.blockingConflicts));const confirmed=confirmLocalToCloudMigrationPlan(preview,{migrationAttemptId:crypto.randomUUID()});const newId=confirmed.entityPlan.characters.find(x=>x.localCharacterId==="local-new").cloudCharacterId,imageId=confirmed.imageUploads[0].cloudImageId;cleanup.characterIds.push(newId);cleanup.imageIds.push(imageId);
+  const result=await executeLocalToCloudMigration({confirmedPlan:confirmed,client,ownerId,localSource:local});assert.equal(result.ok,true,JSON.stringify(result));assert.equal(result.revision,project.revision+1);assert.equal(JSON.stringify(local),localBefore);cleanup.storagePaths.push(...result.uploadedImages);
+  const snapshot=await must(client.rpc("get_local_project_import_snapshot",{target_project_id:project.id}));assert.equal(snapshot.ok,true);const d=snapshot.data;
+  assert.deepEqual({projectCharacters:d.project_characters.length,chapters:d.chapters.length,locations:d.locations.length,tags:d.tags.length,scenes:d.scenes.length,sceneTags:d.scene_tags.length,sceneCharacters:d.scene_characters.length,relations:d.project_character_relations.length,relationChanges:d.scene_relation_changes.length,links:d.character_links.filter(x=>x.id===confirmed.entityPlan.structuralLinks[0].id).length,images:d.character_images.filter(x=>x.id===imageId).length},{projectCharacters:2,chapters:2,locations:1,tags:2,scenes:3,sceneTags:4,sceneCharacters:2,relations:1,relationChanges:1,links:1,images:1});
+  assert.equal(d.scenes.find(x=>x.id===confirmed.entityPlan.scenes.find(x=>x.localId==="local-scene-3").id).chapter_id,null);assert.equal(JSON.stringify(d).includes("base64"),false);assert.deepEqual((await must(client.from("characters").select("base_profile").eq("id",mappedId).single())).base_profile,{favorites:["existing"],hobbies:[],acceptanceMarker:marker});
+  const downloaded=await client.storage.from("character-images").download(result.uploadedImages[0]);assert.equal(downloaded.error,null);assert((await downloaded.data.arrayBuffer()).byteLength>0);
+  report={ok:true,migrationAttemptId:result.migrationAttemptId,revision:{before:project.revision,after:result.revision},counts:{projectCharacters:2,chapters:2,locations:1,tags:2,scenes:3,sceneTags:4,sceneCharacters:2,relations:1,relationChanges:1,links:1,images:1},mappedIdentityPreserved:true,unassignedChapterNull:true,storageBinary:true,postgresBase64:false,localSourceUntouched:true,verification:result.verification.ok};
+}finally{
+  for(const path of cleanup.storagePaths){const removed=await client.storage.from("character-images").remove([path]);if(removed.error)console.error("cleanup storage",removed.error.message)}
+  if(cleanup.imageIds.length){const removed=await client.from("character_images").delete().in("id",cleanup.imageIds);if(removed.error)console.error("cleanup images",removed.error.message)}
+  if(cleanup.projectId){const removed=await client.from("projects").delete().eq("id",cleanup.projectId);if(removed.error)console.error("cleanup project",removed.error.message)}
+  if(cleanup.characterIds.length){const removed=await client.from("characters").delete().in("id",cleanup.characterIds);if(removed.error)console.error("cleanup characters",removed.error.message)}
+  const [projects,characters,images]=await Promise.all([client.from("projects").select("id",{count:"exact",head:true}).eq("title",title),cleanup.characterIds.length?client.from("characters").select("id",{count:"exact",head:true}).in("id",cleanup.characterIds):Promise.resolve({count:0,error:null}),cleanup.imageIds.length?client.from("character_images").select("id",{count:"exact",head:true}).in("id",cleanup.imageIds):Promise.resolve({count:0,error:null})]);
+  let storageObjects=0;for(const path of cleanup.storagePaths){const parts=path.split("/"),listed=await client.storage.from("character-images").list(parts.slice(0,-1).join("/"),{search:parts.at(-1)});if(!listed.error)storageObjects+=listed.data.filter(x=>x.name===parts.at(-1)).length}
+  const cleanupReport={projects:projects.count??-1,characters:characters.count??-1,characterImages:images.count??-1,storageObjects};console.log(JSON.stringify({acceptance:report,cleanup:cleanupReport}));assert.deepEqual(cleanupReport,{projects:0,characters:0,characterImages:0,storageObjects:0});await client.auth.signOut();
+}
