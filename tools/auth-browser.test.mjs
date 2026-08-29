@@ -18,7 +18,7 @@ async function pageFor(scenario="none",suffix=""){
       onAuthStateChange(callback){listeners.push(callback);if(value==="callback-session")queueMicrotask(()=>callback("INITIAL_SESSION",session()));return {data:{subscription:{unsubscribe(){}}}}},
       async signUp(input){globalThis.__authCalls.signUp++;globalThis.__authCalls.redirect=input.options.emailRedirectTo;if(value==="signup-rate")return {data:null,error:{status:429,message:"For security purposes, you can only request this after 52 seconds."}};const current=value==="signup-session"?session():null;if(current){authenticated=true;listeners.forEach(cb=>cb("SIGNED_IN",current))}return {data:{user,session:current},error:null}},
       async signInWithPassword(){globalThis.__authCalls.signIn++;if(value==="invalid-login")return {data:null,error:{message:"Invalid login credentials"}};const current=session();authenticated=true;listeners.forEach(cb=>cb("SIGNED_IN",current));return {data:{user,session:current},error:null}},async signOut(){authenticated=false;return {error:null}}
-    },from(){return query},async rpc(){return {data:null,error:null}}};
+    },storage:{from(){return {}}},from(){return query},async rpc(){return {data:null,error:null}}};
   },scenario);
   await page.goto(base+suffix,{waitUntil:"networkidle"});return {page,context};
 }
