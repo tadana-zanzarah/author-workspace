@@ -1,4 +1,5 @@
 const dirtyTrackers=new Map();
+const saveButtonControllers=new Set();
 let discardResolve=null;
 
 function normalizeSnapshot(value,seen=new WeakSet()){
@@ -21,6 +22,7 @@ function syncBeforeUnload(){
   const needed=[...dirtyTrackers.values()].some(tracker=>tracker.active&&tracker.isDirty());
   if(needed&&!window.__dirtyBeforeUnload){window.addEventListener("beforeunload",handleBeforeUnload);window.__dirtyBeforeUnload=true}
   if(!needed&&window.__dirtyBeforeUnload){window.removeEventListener("beforeunload",handleBeforeUnload);window.__dirtyBeforeUnload=false}
+  saveButtonControllers.forEach(controller=>controller.refresh());
 }
 
 function handleBeforeUnload(event){if(!hasDirtyForms())return;event.preventDefault();event.returnValue=""}
@@ -40,6 +42,21 @@ function createDirtyTracker(id,getState){
 
 function trackerFor(modalId){return dirtyTrackers.get(modalId)}
 function hasDirtyForms(){return [...dirtyTrackers.values()].some(tracker=>tracker.isDirty())}
+
+function createSaveButtonController(buttonId,modalId,{savingLabel="Сохранение…"}={}){
+  const button=document.getElementById(buttonId);
+  const idleLabel=button?.textContent||"";
+  let saving=false;
+  const refresh=()=>{
+    if(!button)return;
+    if(saving){button.disabled=true;button.textContent=savingLabel;return}
+    button.textContent=idleLabel;
+    button.disabled=!trackerFor(modalId)?.isDirty();
+  };
+  const controller={refresh,get saving(){return saving},beginSaving(){saving=true;refresh()},endSaving(){saving=false;refresh()}};
+  saveButtonControllers.add(controller);
+  return controller;
+}
 
 function forceHideModal(modalId){
   if(globalThis.forceCloseModal){globalThis.forceCloseModal(modalId);return}
@@ -91,5 +108,5 @@ if(typeof document!=="undefined"){
   document.addEventListener("input",syncBeforeUnload,true);document.addEventListener("change",syncBeforeUnload,true);
 }
 
-Object.assign(globalThis,{dirtyTrackers,createDirtyTracker,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,showDiscardConfirmation,resolveDiscardConfirmation,serializeForm,syncBeforeUnload});
-export {createDirtyTracker,normalizedEqual,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,resolveDiscardConfirmation,serializeForm,syncBeforeUnload};
+Object.assign(globalThis,{dirtyTrackers,createDirtyTracker,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,showDiscardConfirmation,resolveDiscardConfirmation,serializeForm,syncBeforeUnload,createSaveButtonController});
+export {createDirtyTracker,normalizedEqual,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,resolveDiscardConfirmation,serializeForm,syncBeforeUnload,createSaveButtonController};

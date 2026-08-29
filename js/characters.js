@@ -225,6 +225,7 @@ function editProfileNow(characterId){
   renderProfileCharacterLinks();
   showModal("profileEditorModal");
   trackerFor("profileEditorModal").captureInitialState();
+  globalThis.profileSaveButton?.refresh();
 }
 
 function renderProfilePhotos(){
