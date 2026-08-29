@@ -15,6 +15,7 @@
     "test:cloud-character-images-real": "node tools/cloud-character-images-real-browser.test.mjs",
     "test:cloud-character-images-security": "node tools/cloud-character-images-cross-user-security.test.mjs",
     "test:local-cloud-migration-real": "node tools/local-to-cloud-migration-real.test.mjs",
+    "test:local-cloud-migration-wizard-real": "node tools/local-to-cloud-migration-wizard-real.test.mjs",
     "test:blocking-browser": "node tools/blocking-regressions-browser.test.mjs",
     "test:compact-dnd-browser": "node tools/compact-list-dnd-browser.test.mjs",
     "test:multi-value-browser": "node tools/multi-value-profile-browser.test.mjs",
