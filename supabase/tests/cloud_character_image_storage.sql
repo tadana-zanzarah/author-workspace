@@ -29,4 +29,8 @@ select set_config('request.jwt.claim.sub','b1100000-0000-4000-8000-000000000001'
 do $$ declare n int; begin select count(*) into n from storage.objects where bucket_id='character-images';if n<>0 then raise exception 'foreign storage read visible';end if;end $$;
 reset role;
 do $$ begin if (select count(*) from pg_policies where schemaname='storage' and tablename='objects' and policyname in ('character_images_storage_select','character_images_storage_insert','character_images_storage_update','character_images_storage_delete'))<>4 then raise exception 'storage CRUD policies missing';end if;end $$;
+do $$ declare delete_action "char"; begin
+  select confdeltype into delete_action from pg_constraint where conrelid='public.character_images'::regclass and conname='character_images_character_context_fkey';
+  if delete_action<>'c' then raise exception 'project character image context must cascade on delete';end if;
+end $$;
 rollback;
