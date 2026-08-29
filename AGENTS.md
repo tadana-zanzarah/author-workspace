@@ -72,3 +72,8 @@
 - Неразрешённые ссылки и character mappings блокируют migration, silent loss запрещён.
 - Upload legacy local image всегда требует явного подтверждения и никогда не выполняется молча.
 - Системная local-глава `chapter-unassigned` отображается в cloud как `chapter_id = NULL`; отдельная cloud row для неё не создаётся.
+- Relational local→cloud import обязан быть одной атомарной транзакцией; новые global identities откатываются вместе с project content.
+- Storage partial writes local→cloud migration требуют journal и compensation только объектов текущей попытки.
+- Retry migration обязан быть idempotent; неизвестный результат commit сначала разрешается по attempt marker и не повторяется вслепую.
+- Mapped global identity никогда не перезаписывается неявно local profile данными.
+- Успешный local→cloud import никогда автоматически не удаляет и не переписывает local source.

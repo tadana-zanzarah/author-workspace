@@ -1,6 +1,6 @@
 # Local project → cloud migration
 
-Checkpoint 1 вводит только чистый dry-run: `buildLocalToCloudMigrationPreview()` читает уже подготовленный V11 project и cloud snapshot, но не обращается к `localStorage`, Supabase RPC или Storage. Источник для workspace — `authorWorkspace:project:<cloudProjectId>`; чтение и существующая V10→V11 подготовка остаются отдельными этапами.
+Checkpoint 1 ввёл чистый dry-run: `buildLocalToCloudMigrationPreview()` читает уже подготовленный V11 project и cloud snapshot, но не обращается к `localStorage`, Supabase RPC или Storage. Checkpoint 2 добавляет независимый от DOM execution API; источник для workspace — `authorWorkspace:project:<cloudProjectId>`, а чтение и существующая V10→V11 подготовка остаются отдельными этапами.
 
 ## Mapping
 
@@ -43,6 +43,31 @@ Blockers включают неизвестную schema, отсутствующ�
 
 Non-empty target не merge-ится и не заменяется preview-функцией: результат предлагает выбрать другой project либо отдельный будущий replace flow с явным подтверждением. `expectedProjectRevision` фиксирует concurrency boundary; перед execution snapshot и revision должны быть проверены снова, а `REVISION_CONFLICT` требует reload/resolve.
 
-## Checkpoint 2 outline
+## Execution lifecycle
 
-Execution должен принять завершённый preview, повторно проверить target revision, сохранить исходный local project, выполнить только transactional RPC в согласованном порядке и обновить cache лишь после server confirmation. Storage upload идёт отдельным подтверждённым шагом; при частичном сбое нужны compensation либо явный recoverable orphan record. Local source после успеха не удаляется автоматически. Rollback означает сохранение source и server-side compensation/recovery, а не восстановление из автоматически перезаписанного local cache.
+`confirmLocalToCloudMigrationPlan()` принимает только `ready` preview без blockers и фиксирует UUID `migrationAttemptId`. `prepareLocalToCloudMigrationExecution()` повторно валидирует plan/provenance/mappings/scopes и строит отдельно DB payload и upload journal. Raw local blob executor не принимает, спорные решения не делает.
+
+`executeLocalToCloudMigration()` выполняет:
+
+1. `preflight_local_project_import`: auth, ownership, plan shape, revision, empty target, image paths/primary constraints и attempt collision без mutations.
+2. Декодирование подтверждённых legacy data URL в память и upload в private `character-images` с `upsert:false` по стабильному `<owner>/characters/<character>/<photo>/original.<ext>`.
+3. `import_local_project_content`: один project row lock и одна Postgres transaction для новых identities, memberships, chapters/locations/tags/scenes, adjuncts, relations, links и image metadata.
+4. `get_local_project_import_snapshot` и сравнение planned IDs/counts с authoritative snapshot.
+
+DB payload никогда не содержит data URL/base64 или signed URL. Для mapped identity RPC только проверяет существование/owner и создаёт project membership; `characters.base_profile` не меняется. Local differences сохраняются как project override с различием missing key/inherit и explicit `null`. Для new identity создание character и project content находится в одной транзакции, поэтому relational failure откатывает identity.
+
+`chapter-unassigned` не вставляется: соответствующая scene получает `chapter_id = NULL`. Derived emotional relation state не сохраняется; initial relations и явные scene changes остаются отдельными directed rows. Structural links импортируются только с resolved `global` (`project_id = NULL`) или `project` scope.
+
+## Revision, idempotency and unknown result
+
+RPC блокирует project `FOR UPDATE`, повторно проверяет `projects.revision` и emptiness и увеличивает revision ровно один раз после всех relational writes. `local_project_import_attempts` хранит committed result по stable attempt UUID и fingerprint. Повтор того же payload возвращает тот же result без записей и revision bump; reuse UUID с другим payload отклоняется.
+
+Если RPC вернул определённую Postgres/permission ошибку, executor компенсирует Storage и сообщает safe domain code. Если транспорт оборвался и commit неизвестен, executor сначала вызывает `get_local_project_import_attempt`: committed result продолжает verification; отсутствие marker возвращает `UNKNOWN_IMPORT_RESULT` и запрещает blind retry.
+
+## Storage compensation and verification
+
+Journal различает `uploadedObjects`, byte-compatible `reusedObjects`, warnings и `cleanupFailures`. Collision никогда не перезаписывается: существующий объект переиспользуется только при полном совпадении bytes; иначе `STORAGE_COLLISION`. При DB failure удаляются только objects текущей попытки. Ошибка удаления возвращает `CLEANUP_INCOMPLETE` с recoverable orphan report; pre-existing/reused objects не удаляются.
+
+После commit verification точно сверяет project-scoped rows и проверяет присутствие planned global link/image IDs. Несовпадение возвращает `VERIFICATION_FAILED`; уже committed data автоматически не удаляется. Structured result содержит attempt/source/target IDs, previous/new revision, created counts, mapped characters, uploaded/reused images, verification, warnings и cleanup failures без secrets или binary.
+
+Успех никогда не удаляет, не очищает и не переписывает исходный local project. Cache/cloud-authoritative переключение остаётся задачей будущего wizard checkpoint 3.

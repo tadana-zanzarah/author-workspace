@@ -35,7 +35,7 @@ assert(!JSON.stringify(prepared.dbPayload).includes("aGVsbG8"));
 function fakeClient({preflight={ok:true,code:"OK"},importResult={ok:true,code:"OK",previousRevision:7,revision:8,created:{}},rpcError=null,uploadError=null,removeError=null,snapshot=null,attempt=null}={}){
   const calls=[];
   return {calls,client:{
-    async rpc(name,args){calls.push({kind:"rpc",name,args});if(name==="preflight_local_project_import")return {data:preflight,error:null};if(name==="get_local_project_import_attempt")return {data:attempt,error:null};if(name==="import_local_project_content")return rpcError?{data:null,error:rpcError}:{data:importResult,error:null};if(name==="get_project_content")return {data:{ok:true,revision:8,data:snapshot||prepared.expectedSnapshot},error:null};throw new Error(name)},
+    async rpc(name,args){calls.push({kind:"rpc",name,args});if(name==="preflight_local_project_import")return {data:preflight,error:null};if(name==="get_local_project_import_attempt")return {data:attempt,error:null};if(name==="import_local_project_content")return rpcError?{data:null,error:rpcError}:{data:importResult,error:null};if(name==="get_local_project_import_snapshot")return {data:{ok:true,revision:8,data:snapshot||prepared.expectedSnapshot},error:null};throw new Error(name)},
     storage:{from(){return {async upload(path){calls.push({kind:"upload",path});return uploadError?{error:uploadError}:{data:{path},error:null}},async remove(paths){calls.push({kind:"remove",paths});return removeError?{error:removeError}:{data:paths,error:null}},async download(path){calls.push({kind:"download",path});return {data:new Blob(["hello"],{type:"image/png"}),error:null}}}}}
   }};
 }

@@ -22,3 +22,13 @@ Structural links use `create_character_link`, `update_character_link`, and `dele
 `get_project_content` now returns a single project-revision snapshot containing `project_characters`, `scene_characters`, `project_character_relations`, `scene_relation_changes`, and project `character_links`, in addition to the existing chapter/location/tag/scene data. Global identities and links are loaded separately with their own revisions.
 
 The JS adapter maps SQL results to safe codes and never exposes raw Postgres text: `REVISION_CONFLICT`, `CHARACTER_REVISION_CONFLICT`, `GLOBAL_LINK_REVISION_CONFLICT`, `DEPENDENCIES_EXIST`, `NOT_FOUND`, `FORBIDDEN`, `VALIDATION_ERROR`, `DUPLICATE`, and `UNKNOWN`. Stale writes are never retried automatically.
+# Local project import RPC
+
+Checkpoint 2 добавляет отдельный bulk contract, не заменяющий обычные CRUD RPC:
+
+- `preflight_local_project_import(project, expected_revision, attempt, payload)` — read-only readiness check.
+- `import_local_project_content(project, expected_revision, attempt, source, payload)` — одна atomic relational transaction и один project revision bump.
+- `get_local_project_import_attempt(attempt, project)` — разрешение неизвестного результата до retry.
+- `get_local_project_import_snapshot(project)` — authoritative verification, включая image metadata и applicable global/project structural links.
+
+Все функции `SECURITY INVOKER`, доступны только `authenticated`; `PUBLIC`/`anon` execute отозван. Ownership, revision и empty-target проверяются внутри RPC под project row lock. Binary Storage data в payload запрещён.
