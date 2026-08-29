@@ -70,4 +70,14 @@ Journal различает `uploadedObjects`, byte-compatible `reusedObjects`, w
 
 После commit verification точно сверяет project-scoped rows и проверяет присутствие planned global link/image IDs. Несовпадение возвращает `VERIFICATION_FAILED`; уже committed data автоматически не удаляется. Structured result содержит attempt/source/target IDs, previous/new revision, created counts, mapped characters, uploaded/reused images, verification, warnings и cleanup failures без secrets или binary.
 
-Успех никогда не удаляет, не очищает и не переписывает исходный local project. Cache/cloud-authoritative переключение остаётся задачей будущего wizard checkpoint 3.
+Успех никогда не удаляет, не очищает и не переписывает исходный local project.
+
+## Checkpoint 3A: production wizard
+
+На dashboard действие «Перенести локальный проект в облако» появляется только при наличии читаемого legacy/local проекта. Wizard требует явно выбрать локальный источник и пустой cloud target; непустые проекты недоступны, а backend preflight повторно защищает target перед записью.
+
+После выбора UI вызывает `buildLocalToCloudMigrationPreview(...)` и показывает компактные counts, предупреждения и блокирующие проблемы. Он запрашивает только необходимые решения: создать или сопоставить персонажа (совпадение имени никогда не выбирается автоматически), область структурной связи и область legacy-фотографии. При сопоставлении поясняется, что общая анкета не перезаписывается, а различия сохраняются только для импортируемого проекта.
+
+После решений preview пересобирается из явного UI state и превращается в confirmed plan. Отдельный экран называет источник и назначение, сообщает о сохранении локальной копии и запускает `executeLocalToCloudMigration(...)` только кнопкой «Перенести в облако». Во время операции повторный submit и закрытие заблокированы. Success показывается только после authoritative verification; target открывается без reload через штатный cloud project loader. Execution codes переводятся в безопасные пользовательские сообщения, а неизвестный результат не предлагает слепой retry.
+
+Wizard не удаляет, не переименовывает и не перезаписывает local namespace. Полная real-browser A/B/C acceptance и cross-context proof остаются для Checkpoint 3B.

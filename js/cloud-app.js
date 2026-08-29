@@ -6,9 +6,10 @@ import {createCloudCharacterImageApi} from "./cloud-character-image-api.js";
 import {createCloudProjectSync} from "./cloud-project-sync.js";
 import {activateCloudWorkspace,hasLegacyWorkspace} from "./workspace-storage.js";
 import {AUTH_MESSAGES,authErrorMessage,authReturnUrl,inspectAuthReturn} from "./auth-flow.js";
+import {createLocalToCloudMigrationUi} from "./local-to-cloud-migration-ui.js";
 
 const SUPABASE_BROWSER_MODULE="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm";
-const cloudState={api:null,contentApi:null,characterApi:null,imageApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null,authMode:"login",dashboardSessionId:null};
+const cloudState={client:null,api:null,contentApi:null,characterApi:null,imageApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null,authMode:"login",dashboardSessionId:null,migrationUi:null};
 const byId=id=>document.getElementById(id);
 
 function setAppState(state){
@@ -174,6 +175,7 @@ function renderDashboard(){
   const formSelect=byId("newProjectForm").elements.seriesId;formSelect.replaceChildren(option("","Без цикла"));
   cloudState.series.forEach(series=>formSelect.append(option(series.id,series.title)));
   byId("legacyNotice").hidden=!hasLegacyWorkspace()||sessionStorage.getItem("authorWorkspace:legacy-notice-dismissed")==="true";
+  byId("openLocalCloudMigration").hidden=!hasLegacyWorkspace();
 }
 async function cloudOperation(operation,successMessage=""){
   if(cloudState.busy)return false;
@@ -329,6 +331,7 @@ function bindUi(){
   byId("downloadLegacyBackup").onclick=downloadLegacy;
   byId("dismissLegacyNotice").onclick=()=>{sessionStorage.setItem("authorWorkspace:legacy-notice-dismissed","true");byId("legacyNotice").hidden=true};
   byId("retryDashboard").onclick=loadDashboard;
+  byId("openLocalCloudMigration").onclick=event=>cloudState.migrationUi?.open(event.currentTarget);
 }
 async function initializeCloudApp(){
   setAppState("loading");
@@ -340,7 +343,7 @@ async function initializeCloudApp(){
       if(!startupLoadInfo?.blocked)showStorageMessage("Локальный режим: рабочее пространство доступно без облачного аккаунта. Уберите ?local=1, чтобы открыть облачный вход.","warning");
       return;
     }
-    cloudState.api=createCloudApi(client);cloudState.contentApi=createCloudContentApi(client);cloudState.characterApi=createCloudCharacterApi(client);cloudState.imageApi=createCloudCharacterImageApi(client,{getUserId:async()=>cloudState.session?.user?.id});bindUi();
+    cloudState.client=client;cloudState.api=createCloudApi(client);cloudState.contentApi=createCloudContentApi(client);cloudState.characterApi=createCloudCharacterApi(client);cloudState.imageApi=createCloudCharacterImageApi(client,{getUserId:async()=>cloudState.session?.user?.id});cloudState.migrationUi=createLocalToCloudMigrationUi({cloudState,openCloudProject,loadDashboard});bindUi();
     const authReturn=inspectAuthReturn(location.href);
     cloudState.api.onAuthStateChange((session,event)=>{
       cloudState.authRevision++;

@@ -37,6 +37,7 @@ await page.addInitScript(()=>{
     };return api;
   }
   globalThis.__AUTHOR_WORKSPACE_SUPABASE_CLIENT__={
+    storage:{from(){return {async upload(){return {data:{},error:null}},async download(){return {data:null,error:new Error("missing")}},async remove(){return {data:{},error:null}}}}},
     auth:{
       async getSession(){return {data:{session:localStorage.getItem("mockSession")?{user}:null},error:null}},
       async getUser(){return {data:{user:localStorage.getItem("mockSession")?user:null},error:null}},
@@ -54,6 +55,9 @@ await page.addInitScript(()=>{
       const db=read();
       const project=db.projects.find(item=>item.id===args.target_project_id);
       if(name==="list_characters"||name==="list_global_character_links")return {data:{ok:true,code:"OK",changed:false,data:[]},error:null};
+      if(name==="preflight_local_project_import")return {data:{ok:true,code:"OK"},error:null};
+      if(name==="import_local_project_content"){project.revision++;write(db);return {data:{ok:true,code:"OK",previousRevision:project.revision-1,revision:project.revision,created:{}},error:null}}
+      if(name==="get_local_project_import_snapshot")return {data:{ok:true,code:"OK",data:{project_characters:[],chapters:[],locations:[],tags:[],scenes:[],scene_tags:[],scene_characters:[],project_character_relations:[],scene_relation_changes:[],character_links:[],character_images:[]}},error:null};
       if(name==="get_project_content")return {data:project?{ok:true,code:"OK",revision:project.revision||0,changed:false,data:{project:{id:project.id,revision:project.revision||0,updated_at:project.updated_at},chapters:db.chapters.filter(x=>x.project_id===project.id&&!x.deleted_at),locations:db.locations.filter(x=>x.project_id===project.id&&!x.deleted_at),tags:db.tags.filter(x=>x.project_id===project.id),scenes:db.scenes.filter(x=>x.project_id===project.id&&!x.deleted_at),scene_tags:db.scene_tags.filter(x=>x.project_id===project.id),project_characters:[],scene_characters:[],project_character_relations:[],scene_relation_changes:[],character_links:[]}}:{ok:false,code:"NOT_FOUND",changed:false},error:null};
       if(name==="create_scene"){
         if(project.revision!==args.expected_revision)return {data:{ok:false,code:"REVISION_CONFLICT",actualRevision:project.revision,changed:false},error:null};
@@ -97,6 +101,7 @@ await page.click("#signInButton");await page.waitForSelector("#projectsScreen:no
 if(!await page.getByRole("heading",{name:"Мои проекты"}).isVisible())throw new Error("Dashboard heading is not visible");
 if(!await page.getByRole("button",{name:"＋ Новый проект"}).first().isVisible())throw new Error("New Project button is not visible");
 if(!await page.getByRole("button",{name:"＋ Новый цикл"}).isVisible())throw new Error("New Series button is not visible");
+if(!await page.getByRole("button",{name:"Перенести локальный проект в облако"}).isVisible())throw new Error("Migration entry point is not visible");
 if(!await page.getByText("Создайте свой первый проект",{exact:true}).isVisible())throw new Error("Project empty state is missing");
 
 await page.getByRole("button",{name:"＋ Новый проект"}).first().click();
@@ -114,6 +119,16 @@ await page.click("#cancelNewProject");
 await page.waitForSelector("#discardChangesModal",{state:"visible"});await page.click("#discardChanges");
 
 await createProject("Project A");
+await page.getByRole("button",{name:"Перенести локальный проект в облако"}).click();
+await page.waitForSelector("#localCloudMigrationModal",{state:"visible"});
+await page.selectOption("#migrationSource","novelTimelineV11");
+await page.selectOption("#migrationTarget",{label:"Project A"});
+await page.click("#migrationPreviewButton");
+await page.click("#migrationConfirmStep");
+if(!await page.getByText("Локальная копия проекта останется на этом устройстве.").count())throw new Error("Migration source-preservation message is missing");
+await page.click("#executeMigration");
+await page.getByRole("heading",{name:"Проект перенесён в облако"}).waitFor();
+await page.getByRole("button",{name:"Вернуться к моим проектам"}).click();
 await page.getByRole("button",{name:"＋ Новый цикл"}).click();
 await page.waitForSelector("#newSeriesModal",{state:"visible"});
 if(await page.evaluate(()=>document.activeElement?.getAttribute("name"))!=="title")throw new Error("New Series modal initial focus is incorrect");

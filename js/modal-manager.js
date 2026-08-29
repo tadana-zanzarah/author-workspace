@@ -75,6 +75,7 @@ function forceCloseModal(modalId,{restore=true}={}){
 
 async function requestCloseModal(modalId=getTopModal()?.id,reason="close"){
   if(!modalId)return false;
+  const modal=document.getElementById(modalId);if(modal?.dataset.closeBlocked==="true")return false;
   const tracker=globalThis.trackerFor?.(modalId);
   if(tracker?.isDirty()&&!await globalThis.showDiscardConfirmation?.())return false;
   forceCloseModal(modalId);return true;

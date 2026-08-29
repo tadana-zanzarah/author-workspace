@@ -59,6 +59,7 @@
     <div class="dashboard-actions">
       <button class="primary" id="openNewProject" type="button">＋ Новый проект</button>
       <button id="openNewSeries" type="button">＋ Новый цикл</button>
+      <button id="openLocalCloudMigration" type="button" hidden>Перенести локальный проект в облако</button>
     </div>
     <p id="dashboardMessage" class="account-message" role="status" aria-live="polite"></p>
     <div id="projectsLoadingState" class="cloud-empty-state" role="status" aria-live="polite" hidden>
@@ -88,6 +89,12 @@
         <button id="workspaceLogout" type="button">Выйти</button>
       </div>
     </details>
+  </div>
+</div>
+<div class="modal-backdrop" id="localCloudMigrationModal" role="dialog" aria-modal="true" aria-labelledby="migrationWizardTitle">
+  <div class="modal migration-modal" tabindex="-1">
+    <h2 id="migrationWizardTitle">Перенести локальный проект в облако</h2>
+    <div id="migrationWizardBody" class="migration-wizard"></div>
   </div>
 </div>
 <div class="modal-backdrop" id="newProjectModal" role="dialog" aria-modal="true" aria-labelledby="newProjectTitle">
