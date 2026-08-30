@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:unit": "node tools/data-safety.test.mjs && node tools/character-images-data.test.mjs && node tools/cloud-character-image-api.test.mjs && node tools/character-links-data.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs && node tools/auth-flow.test.mjs && node tools/cloud-foundation.test.mjs && node tools/cloud-content-api.test.mjs && node tools/cloud-character-api.test.mjs && node tools/cloud-project-sync.test.mjs && node tools/local-to-cloud-migration.test.mjs && node tools/local-to-cloud-migration-execution.test.mjs && node tools/local-to-cloud-migration-ui.test.mjs && node tools/character-order.test.mjs && node tools/cloud-scene-participant-search.test.mjs && node tools/scene-chronology.test.mjs",
+    "test:unit": "node tools/data-safety.test.mjs && node tools/character-images-data.test.mjs && node tools/cloud-character-image-api.test.mjs && node tools/character-links-data.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs && node tools/auth-flow.test.mjs && node tools/cloud-foundation.test.mjs && node tools/cloud-content-api.test.mjs && node tools/cloud-character-api.test.mjs && node tools/cloud-project-sync.test.mjs && node tools/local-to-cloud-migration.test.mjs && node tools/local-to-cloud-migration-execution.test.mjs && node tools/local-to-cloud-migration-ui.test.mjs && node tools/character-order.test.mjs && node tools/cloud-scene-participant-search.test.mjs && node tools/scene-chronology.test.mjs && node tools/last-open-project-preference.test.mjs",
     "test:migration-wizard": "node tools/local-to-cloud-migration-ui.test.mjs",
     "test:smoke": "node tools/browser-smoke.mjs",
     "test:dirty-browser": "node tools/dirty-browser.test.mjs",
@@ -36,6 +36,8 @@
     "test:scene-search-filter-cloud-browser": "node tools/scene-search-filter-cloud-browser.test.mjs",
     "test:scene-chronology-browser": "node tools/scene-chronology-browser.test.mjs",
     "test:scene-chronology-cloud-browser": "node tools/scene-chronology-cloud-browser.test.mjs",
+    "test:project-session-delete-browser": "node tools/project-session-delete-browser.test.mjs",
+    "test:stale-warning-clear-browser": "node tools/stale-warning-clear-browser.test.mjs",
     "test": "npm run test:unit"
   },
   "devDependencies": {
