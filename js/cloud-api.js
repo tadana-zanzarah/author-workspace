@@ -71,6 +71,13 @@ function createCloudApi(client){
       throwIfError(await client.rpc("reorder_series_projects",{
         target_series_id:seriesId,ordered_project_ids:projectIds
       }));
+    },
+    async deleteProject(projectId){
+      // Soft-delete: тот же deleted_at-контракт, на котором уже держатся series
+      // и все cloud content RPC (get_project_content отклоняет проект, если
+      // deleted_at не null). RLS (projects_update_own) гарантирует владельца;
+      // .is("deleted_at",null) делает вызов идемпотентным при повторном клике.
+      return throwIfError(await client.from("projects").update({deleted_at:new Date().toISOString()}).eq("id",projectId).is("deleted_at",null).select().single());
     }
   };
 }

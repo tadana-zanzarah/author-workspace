@@ -4,12 +4,12 @@ import {createCloudContentApi} from "./cloud-content-api.js";
 import {createCloudCharacterApi} from "./cloud-character-api.js";
 import {createCloudCharacterImageApi} from "./cloud-character-image-api.js";
 import {createCloudProjectSync} from "./cloud-project-sync.js";
-import {activateCloudWorkspace,hasLegacyWorkspace} from "./workspace-storage.js";
+import {activateCloudWorkspace,hasLegacyWorkspace,getLastOpenProjectId,setLastOpenProjectId} from "./workspace-storage.js";
 import {AUTH_MESSAGES,authErrorMessage,authReturnUrl,inspectAuthReturn} from "./auth-flow.js";
 import {createLocalToCloudMigrationUi} from "./local-to-cloud-migration-ui.js";
 
 const SUPABASE_BROWSER_MODULE="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm";
-const cloudState={client:null,api:null,contentApi:null,characterApi:null,imageApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null,authMode:"login",dashboardSessionId:null,migrationUi:null};
+const cloudState={client:null,api:null,contentApi:null,characterApi:null,imageApi:null,session:null,profile:null,series:[],projects:[],busy:false,authRevision:0,dashboardRequest:0,dashboardStatus:"idle",projectSync:null,authMode:"login",dashboardSessionId:null,migrationUi:null,autoRestoreAttemptedForUserId:null};
 const byId=id=>document.getElementById(id);
 
 function setAppState(state){
@@ -57,9 +57,16 @@ async function createClient(){
     auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
   });
 }
+let dashboardLoadPromise=null;
 async function loadDashboard(){
   if(!cloudState.session)return;
-  if(cloudState.dashboardStatus==="loading"&&cloudState.dashboardSessionId===cloudState.session.user?.id)return;
+  // acceptSession() is invoked both by the auth-state-change listener and directly by the
+  // sign-in/reload call sites, so two calls for the same user routinely race here. The old
+  // guard silently no-op'd the second call instead of waiting for the first's real data —
+  // harmless for callers that only cared about the UI state, but attemptLastProjectRestore
+  // needs cloudState.projects to actually be populated, so the second caller must await the
+  // same in-flight load rather than fall through immediately.
+  if(dashboardLoadPromise&&cloudState.dashboardSessionId===cloudState.session.user?.id)return dashboardLoadPromise;
   cloudState.dashboardSessionId=cloudState.session.user?.id||null;
   const request=++cloudState.dashboardRequest;
   const previousState=document.body.dataset.appState;
@@ -68,25 +75,30 @@ async function loadDashboard(){
     setAppState("projects");
     renderDashboardStatus("loading");
   }
-  try{
-    const account=await cloudState.api.loadAccount();
-    if(request!==cloudState.dashboardRequest||!cloudState.session)return;
-    Object.assign(cloudState,account);
-    renderDashboard();
-    setAppState("projects");
-    renderDashboardStatus("success");
-    clearCloudMessages();
-  }catch(error){
-    if(request!==cloudState.dashboardRequest)return;
-    if(previousState==="workspace"){
-      showStorageMessage(friendlyError(error),"error");
-      setAppState("workspace");
-    }else{
-      showCloudFailure(error);
+  dashboardLoadPromise=(async()=>{
+    try{
+      const account=await cloudState.api.loadAccount();
+      if(request!==cloudState.dashboardRequest||!cloudState.session)return;
+      Object.assign(cloudState,account);
+      renderDashboard();
       setAppState("projects");
-      renderDashboardStatus("error",error);
+      renderDashboardStatus("success");
+      clearCloudMessages();
+    }catch(error){
+      if(request!==cloudState.dashboardRequest)return;
+      if(previousState==="workspace"){
+        showStorageMessage(friendlyError(error),"error");
+        setAppState("workspace");
+      }else{
+        showCloudFailure(error);
+        setAppState("projects");
+        renderDashboardStatus("error",error);
+      }
+    }finally{
+      dashboardLoadPromise=null;
     }
-  }
+  })();
+  return dashboardLoadPromise;
 }
 function sortedSeriesProjects(seriesId){
   return cloudState.projects.filter(project=>project.series_id===seriesId)
@@ -138,6 +150,21 @@ function projectRow(project,seriesProjects=[]){
       actions.append(button);
     }
   }
+  const remove=document.createElement("button");remove.type="button";remove.className="danger";remove.textContent="Удалить проект";
+  remove.setAttribute("aria-label",`Удалить проект «${project.title}»`);
+  remove.onclick=async()=>{
+    const confirmed=await showConfirmAction({
+      title:`Удалить проект «${project.title}»?`,
+      description:"Главы, сцены, персонажи и весь текст этого проекта будут удалены. Отменить это действие через интерфейс нельзя.",
+      confirmLabel:"Удалить проект",cancelLabel:"Отмена"
+    });
+    if(!confirmed||remove.disabled)return;
+    const idleLabel=remove.textContent;remove.disabled=true;remove.textContent="Удаление…";
+    const ok=await cloudOperation(()=>cloudState.api.deleteProject(project.id),`Проект «${project.title}» удалён.`);
+    if(ok){if(getLastOpenProjectId(cloudState.session?.user?.id)===project.id)setLastOpenProjectId(cloudState.session?.user?.id,null)}
+    else{remove.disabled=false;remove.textContent=idleLabel}
+  };
+  actions.append(remove);
   row.append(identity,seriesControl,actions);return row;
 }
 function seriesCard(series){
@@ -187,6 +214,7 @@ async function cloudOperation(operation,successMessage=""){
 async function openCloudProject(project){
   if(!(await requestEditorTransition(()=>true)))return;
   activateCloudWorkspace(project.id);
+  setLastOpenProjectId(cloudState.session?.user?.id,project.id);
   storageWriteEnabled=false;
   const localBeforeLoad=loadDataSafe();
   data=localBeforeLoad;
@@ -197,7 +225,10 @@ async function openCloudProject(project){
   byId("board").innerHTML='<div class="section-empty-state" role="status"><strong>Загрузка проекта…</strong></div>';
   const sync=createCloudProjectSync({projectId:project.id,api:cloudState.contentApi,characterApi:cloudState.characterApi,imageApi:cloudState.imageApi,onState:(status,payload)=>{
     if(status==="loading")byId("saveStatus").textContent="Синхронизация…";
-    else if(status==="saved")byId("saveStatus").textContent="Сохранено";
+    // A successful mutation must clear a save-error banner left by an earlier failed one —
+    // otherwise it keeps showing a now-resolved problem until the page is reloaded, which made
+    // it look like a stray leftover rather than tied to the save that actually failed.
+    else if(status==="saved"){byId("saveStatus").textContent="Сохранено";clearStaleErrorBanner()}
     else if(status==="conflict")showStorageMessage("Проект изменился в другом окне или на другом устройстве. Форма и черновик сохранены; загрузите актуальную версию или отмените операцию.","error");
     else if(status==="save-error")showStorageMessage(payload?.message||"Не удалось сохранить облачные изменения.","error");
   },onConflict:()=>setTimeout(async()=>{
@@ -237,10 +268,25 @@ function showSignupSuccess(email){
   byId("signupSuccessText").textContent=`Мы отправили письмо со ссылкой подтверждения на ${email}. После подтверждения адреса вернитесь сюда и войдите.`;
   byId("signupSuccessLogin").focus();
 }
+async function attemptLastProjectRestore(session){
+  const userId=session?.user?.id;
+  // One-shot per signed-in session: последующие обновления dashboard (создание
+  // проекта, retry, cloudOperation) не должны заново открывать прошлый проект —
+  // иначе явный Back на dashboard превратился бы в auto-reopen loop.
+  if(!userId||cloudState.autoRestoreAttemptedForUserId===userId)return;
+  cloudState.autoRestoreAttemptedForUserId=userId;
+  if(document.body.dataset.appState==="workspace")return;
+  const lastProjectId=getLastOpenProjectId(userId);
+  if(!lastProjectId)return;
+  const project=cloudState.projects.find(item=>item.id===lastProjectId);
+  if(!project){setLastOpenProjectId(userId,null);return}
+  await openCloudProject(project);
+}
 async function acceptSession(session,{forceDashboard=false}={}){
   if(!session)return false;
   cloudState.session=session;clearConsumedAuthUrl();
   if(forceDashboard||cloudState.dashboardSessionId!==session.user?.id||cloudState.dashboardStatus!=="success")await loadDashboard();
+  await attemptLastProjectRestore(session);
   return true;
 }
 async function returnToProjects(){
@@ -248,6 +294,9 @@ async function returnToProjects(){
   byId("workspaceAccountMenu").open=false;
   cloudState.session=await cloudState.api.getSession();
   if(!cloudState.session){setAppState("unauthenticated");return}
+  // Явный переход на dashboard — это выбор пользователя "сейчас без проекта",
+  // поэтому last-open preference очищается, а не auto-reopen'ится при следующей загрузке.
+  setLastOpenProjectId(cloudState.session.user?.id,null);
   await loadDashboard();
 }
 
@@ -350,7 +399,7 @@ async function initializeCloudApp(){
       cloudState.session=session;
       if(session)clearConsumedAuthUrl();
       if(session&&(event==="INITIAL_SESSION"||event==="SIGNED_IN"))queueMicrotask(()=>acceptSession(session));
-      else if(!session){cloudState.dashboardRequest++;cloudState.dashboardSessionId=null;cloudState.dashboardStatus="idle";setAppState("unauthenticated");setAuthMode("login",{focus:false})}
+      else if(!session){cloudState.dashboardRequest++;cloudState.dashboardSessionId=null;cloudState.dashboardStatus="idle";cloudState.autoRestoreAttemptedForUserId=null;setAppState("unauthenticated");setAuthMode("login",{focus:false})}
     });
     const authRevision=cloudState.authRevision;
     const initialSession=await cloudState.api.getSession();

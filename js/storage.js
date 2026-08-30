@@ -115,11 +115,21 @@ function commitDataChange(mutator,{renderAfter=true,onSuccess,onError}={}){
   data=result.data;
   const status=document.getElementById("saveStatus");
   if(status)status.textContent=`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  clearStaleErrorBanner();
   onSuccess?.(data);if(renderAfter)render();return result;
 }
 function showStorageMessage(message,type="warning"){
   const banner=document.getElementById("storageBanner");if(!banner)return;
   banner.textContent=message;banner.className=`storage-banner ${type}`;
+}
+// A save failure shows an "error" banner; a later successful save must clear it, otherwise the
+// banner is left showing a resolved problem as if it were still happening (it only disappears on
+// reload, which made it look transient/left-over rather than tied to the save that actually failed).
+// Only the "error" class is cleared here — real non-error warnings (legacy/migration notices) are
+// unrelated to a save succeeding and must keep being shown.
+function clearStaleErrorBanner(){
+  const banner=document.getElementById("storageBanner");
+  if(banner?.classList.contains("error")){banner.textContent="";banner.className="storage-banner"}
 }
 function saveData(){
   if(!storageWriteEnabled){showStorageMessage("Автосохранение отключено: проблемная база защищена от перезаписи.","error");return false}
@@ -127,6 +137,7 @@ function saveData(){
   if(!result.ok){showStorageMessage(result.userMessage,"error");return false}
   const status=document.getElementById("saveStatus");
   if(status)status.textContent=`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  clearStaleErrorBanner();
   return true;
 }
 function downloadProblemRaw(){
@@ -229,5 +240,5 @@ function toggleSidebarSection(key){
   saveUiState();
 }
 
-Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,applySidebarSectionState,toggleSidebarSection});
-export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,applySidebarSectionState,toggleSidebarSection};
+Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,applySidebarSectionState,toggleSidebarSection});
+export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,applySidebarSectionState,toggleSidebarSection};

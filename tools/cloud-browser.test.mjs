@@ -203,7 +203,14 @@ const namespacesAfterLogout=await page.evaluate(()=>Array.from({length:localStor
 if(JSON.stringify(namespacesAfterLogout)!==JSON.stringify(namespacesBeforeLogout))throw new Error("Logout changed local project namespaces");
 
 await page.fill("#authEmail","author@example.test");await page.fill("#authPassword","password");
-await page.click("#signInButton");await page.waitForSelector("#projectsScreen:not([hidden])");
+await page.click("#signInButton");
+// Project A was the last project open before logout, so login now restores straight into it
+// (see fix/project-session-delete-warning-ux: last-opened-project restore). Return to the
+// dashboard to check the rest of the original assertion — all three projects still listed.
+await page.waitForSelector('body[data-app-state="workspace"]');
+if(await page.locator("#workspaceProjectTitle").innerText()!=="Project A")throw new Error("Login did not restore the last-open project (Project A)");
+await page.click("#backToProjects");
+await page.waitForSelector("#projectsScreen:not([hidden])");
 for(const title of ["Project A","Project B","Project C"])if(!await page.getByText(title,{exact:true}).count())throw new Error(`${title} missing after re-login`);
 await page.locator("#dashboardAccountMenu > summary").click();
 if(!await page.getByRole("button",{name:"Выйти"}).first().isVisible())throw new Error("Dashboard logout is not visible");

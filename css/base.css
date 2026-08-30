@@ -54,9 +54,17 @@
   .hint{color:var(--muted);font-size:13px;margin-left:auto}
   [hidden]{display:none!important}
   body[data-app-state]:not([data-app-state="workspace"]) > header,
-  body[data-app-state]:not([data-app-state="workspace"]) > #storageBanner,
   body[data-app-state]:not([data-app-state="workspace"]) > .app-shell,
-  body[data-app-state]:not([data-app-state="workspace"]) > .modal-backdrop:not(#newProjectModal):not(#newSeriesModal):not(#localCloudMigrationModal):not(#discardChangesModal){display:none!important}
+  body[data-app-state]:not([data-app-state="workspace"]) > .modal-backdrop:not(#newProjectModal):not(#newSeriesModal):not(#localCloudMigrationModal):not(#discardChangesModal):not(#confirmActionModal){display:none!important}
+  /* Unlike the rule above, this one has no `[data-app-state]` existence prerequisite: it also
+     covers the gap before cloud-app.js's async bootstrap sets the attribute for the first time,
+     where a legacy-local storage warning set synchronously by initializeStorageNotice() could
+     otherwise flash on top of the auth/dashboard screens for a moment before disappearing again
+     once state became "unauthenticated"/"projects" — looking like a stray leftover from an old
+     version. Modals (recoveryModal in particular) are deliberately excluded from this early-gap
+     treatment: they still need to open and receive focus correctly during that same gap in local
+     mode, before cloud-app.js has run at all. */
+  body:not([data-app-state="workspace"]) > #storageBanner{display:none!important}
   .state-screen{min-height:100vh;display:grid;place-items:center;padding:24px}
   .account-card{
     width:min(520px,100%);display:grid;gap:14px;padding:24px;
