@@ -26,6 +26,8 @@ await freshPage.click("#saveProfile");
 await freshPage.click("#closeChars");
 await freshPage.evaluate(()=>openChaptersManager());
 await freshPage.click("#addChapter");
+await freshPage.click("#saveChapters");
+await freshPage.waitForFunction(()=>!trackerFor("chaptersModal").isDirty());
 await freshPage.click("#closeChapters");
 await freshPage.click("#addFirst");
 await freshPage.fill("#sceneTitle","Первая сцена");

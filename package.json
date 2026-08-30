@@ -6,6 +6,7 @@
     "test:migration-wizard": "node tools/local-to-cloud-migration-ui.test.mjs",
     "test:smoke": "node tools/browser-smoke.mjs",
     "test:dirty-browser": "node tools/dirty-browser.test.mjs",
+    "test:manager-save-ux-browser": "node tools/manager-save-ux-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",
     "test:cloud-browser": "node tools/cloud-browser.test.mjs",
     "test:auth-browser": "node tools/auth-browser.test.mjs",
