@@ -101,17 +101,22 @@ function writeConfirmedCache(projectId,revision,project,storage=globalThis.local
   return {project,metadata:JSON.parse(metadata)};
 }
 function createProjectMutationQueue({projectId,api,getRevision,setRevision,onConfirmed,onFailure}){
-  let tail=Promise.resolve(),failed=false;
+  let tail=Promise.resolve(),blocked=false;
+  // Only REVISION_CONFLICT latches the queue: the cached revision is now known-stale and any
+  // further mutation needs an explicit reload (see the interactive onConflict prompt) before it
+  // can safely carry a real expected_revision again. Every other failure (network error, fetch
+  // failure, unknown backend error, validation, etc.) leaves the last-confirmed revision intact,
+  // so the queue must stay usable for the next explicit mutation instead of rejecting it outright.
   const enqueue=(name,operation)=>{
     const run=async()=>{
-      if(failed)throw Object.assign(new Error("Очередь остановлена после ошибки."),{code:"QUEUE_STOPPED"});
+      if(blocked)throw Object.assign(new Error("Проект изменён в другом сеансе. Перезагрузите данные перед сохранением."),{code:"QUEUE_STOPPED"});
       const result=await operation(getRevision());
-      if(!result?.ok){failed=true;onFailure?.(result,name);throw Object.assign(new Error(result?.message||"Cloud mutation failed"),result)}
+      if(!result?.ok){if(result?.code==="REVISION_CONFLICT")blocked=true;onFailure?.(result,name);throw Object.assign(new Error(result?.message||"Cloud mutation failed"),result)}
       setRevision(result.revision);await onConfirmed?.(result,name);return result;
     };
     const pending=tail.then(run);tail=pending.catch(()=>{});return pending;
   };
-  return {projectId,enqueue,reset(){failed=false},idle(){return tail}};
+  return {projectId,enqueue,reset(){blocked=false},idle(){return tail}};
 }
 async function loadImageRows(imageApi,characters,projectCharacters){
   if(!imageApi)return [];

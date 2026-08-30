@@ -138,11 +138,12 @@ const browser=await chromium.launch({headless:true,executablePath:"C:/Program Fi
   await page.fill("#sceneTitle","Warn Scene");await page.click("#saveScene");
   await page.getByText("Warn Scene",{exact:true}).waitFor();
 
-  // The mutation queue intentionally latches "failed" after any error (AGENTS.md: a failure must
-  // not be retried automatically) — so the realistic recovery path is cloudProjectSync.reload(),
-  // exactly like the app's own REVISION_CONFLICT recovery prompt does, before the next edit can
-  // go through at all. That reload does not itself touch the banner — only a genuinely successful
-  // save afterwards should clear it.
+  // The mutation queue only latches after REVISION_CONFLICT (that one keeps its own interactive
+  // reload prompt — see the onConflict handler in cloud-app.js). A non-conflict failure (offline /
+  // fetch failure / unknown backend error, simulated here as "offline") must NOT permanently latch
+  // the queue: the very next explicit Save attempt has to actually reach the server again, with no
+  // cloudProjectSync.reload() required in between. That is the "cloud UI no longer goes
+  // silently-dead" contract this test protects.
   const reloadAndRerender=()=>page.evaluate(async()=>{const loaded=await cloudProjectSync.reload();if(loaded.ok){data=loaded.data;render()}else throw new Error("reload failed: "+loaded.message)});
 
   await page.evaluate(()=>{globalThis.__mockFailures.update_scene="offline"});
@@ -151,14 +152,41 @@ const browser=await chromium.launch({headless:true,executablePath:"C:/Program Fi
   const failedBannerText=await page.textContent("#storageBanner");
   if(!failedBannerText)throw new Error("cloud: a failed mutation did not show an error banner");
 
+  // The failed attempt (included:false) must not have been silently treated as saved.
+  const sceneAfterFailure=await page.evaluate(()=>data.scenes.find(x=>x.title==="Warn Scene").included);
+  if(sceneAfterFailure!==true)throw new Error("cloud: a failed mutation must not appear to have applied — draft/state must not pretend to be saved");
+
+  // No reload() here on purpose: clear the transient cause and retry the SAME intended change
+  // directly, exactly like a user clicking the same toggle again after the first attempt failed.
   await page.evaluate(()=>{delete globalThis.__mockFailures.update_scene});
-  await reloadAndRerender();
-  const stillErrorAfterReload=await page.evaluate(()=>document.getElementById("storageBanner").className);
-  if(!stillErrorAfterReload.includes("error"))throw new Error("cloud: reload alone cleared the error banner (it should only clear on an actual successful save)");
-  await page.evaluate(()=>toggleIncluded(data.scenes.find(x=>x.title==="Warn Scene").id,true));
-  await page.waitForFunction(()=>!document.getElementById("storageBanner").className.includes("error"));
+  await page.evaluate(()=>toggleIncluded(data.scenes.find(x=>x.title==="Warn Scene").id,false));
+  await page.waitForFunction(()=>document.getElementById("saveStatus").textContent==="Сохранено");
   const clearedBannerText=await page.textContent("#storageBanner");
-  if(clearedBannerText)throw new Error("cloud: a successful mutation did not clear the earlier stale error banner text");
+  const clearedBannerClass=await page.evaluate(()=>document.getElementById("storageBanner").className);
+  if(clearedBannerClass.includes("error")||clearedBannerText)throw new Error("cloud: a successful retry (no reload in between) did not clear the earlier stale error banner — the queue is still latched after a non-conflict failure");
+  const sceneAfterRetry=await page.evaluate(()=>data.scenes.find(x=>x.title==="Warn Scene").included);
+  if(sceneAfterRetry!==false)throw new Error("cloud: the retried mutation did not actually apply the intended value — the queue must accept and execute it after the transient cause is gone");
+
+  // Flip it back to true so the later REVISION_CONFLICT/"offline" scenarios below start from the
+  // same known state as before this addition.
+  await page.evaluate(()=>toggleIncluded(data.scenes.find(x=>x.title==="Warn Scene").id,true));
+  await page.waitForFunction(()=>document.getElementById("saveStatus").textContent==="Сохранено");
+
+  // A REVISION_CONFLICT, unlike a plain network error, must still block the queue until the
+  // existing interactive reload prompt (window.confirm) is resolved — that separate contract must
+  // keep working after the non-conflict recovery fix above.
+  await page.evaluate(()=>{
+    const db=JSON.parse(localStorage.getItem("mockCloud"));
+    db.projects.find(p=>p.id===cloudProjectSync.projectId).revision+=1;
+    localStorage.setItem("mockCloud",JSON.stringify(db));
+  });
+  let conflictDialogSeen=false;
+  page.once("dialog",dialog=>{conflictDialogSeen=true;dialog.accept()});
+  await page.evaluate(()=>toggleIncluded(data.scenes.find(x=>x.title==="Warn Scene").id,false));
+  await page.waitForFunction(()=>document.getElementById("storageBanner").className.includes("warning"));
+  if(!conflictDialogSeen)throw new Error("cloud: a REVISION_CONFLICT did not trigger the existing interactive reload prompt");
+  const conflictWarningClass=await page.evaluate(()=>document.getElementById("storageBanner").className);
+  if(!conflictWarningClass.includes("warning"))throw new Error("cloud: confirming the conflict reload prompt did not show the expected recovery notice");
 
   await page.evaluate(()=>{globalThis.__mockFailures.update_scene="offline"});
   await page.evaluate(()=>toggleIncluded(data.scenes.find(x=>x.title==="Warn Scene").id,false));
