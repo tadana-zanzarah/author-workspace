@@ -65,6 +65,15 @@ function hydrateProjectFromCloudSnapshot(snapshot,localProject={}){
     writingStatus:CLOUD_TO_LOCAL_WRITING[row.writing_status]||"draft",sceneText:row.scene_text||"",included:row.included!==false,
     status:row.placement_status==="placed"?"fixed":"floating",dateReview:row.date_review===true,position:Number(row.position),people:participantsByScene[row.id]||{}
   }));
+  // scenes.position — единственный canonical порядок на сервере и не группируется по главе
+  // (chapter_id — атрибут группировки, см. docs/cloud-content-architecture.md). Но список глав
+  // и табличный вид всегда группируют сцены по главе, и хронология должна сравнивать сцену
+  // только с тем, что реально соседствует с ней в этом отображаемом порядке — так же, как в
+  // local-режиме, где data.scenes всегда физически сгруппирован по главам. Поэтому здесь сцены
+  // пересортировываются в главо-группированный порядок (позиция остаётся тай-брейкером внутри
+  // главы); сам position на сервере не меняется.
+  const chapterOrder=new Map([...cloudChapters,{id:UNASSIGNED_CHAPTER_ID}].map((chapter,index)=>[chapter.id,index]));
+  scenes.sort((a,b)=>(chapterOrder.get(a.chapterId)??Infinity)-(chapterOrder.get(b.chapterId)??Infinity)||a.position-b.position);
   return {
     ...localProject,version:11,
     characters:cloudCharacters.characters,profiles:cloudCharacters.profiles,
