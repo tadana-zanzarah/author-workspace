@@ -59,6 +59,15 @@
     --text-2xs:11px;   /* label / caption / system status */
   }
   *{box-sizing:border-box}
+  /* Document scroll is now the one natural vertical scroll surface for the workspace
+     (see .viewport / .project-sidebar for the two remaining, deliberately-kept
+     internal scrollers). A thin warm-neutral scrollbar everywhere instead of the
+     default chunky browser bar; the thumb keeps enough contrast to stay discoverable. */
+  html{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  html::-webkit-scrollbar{width:11px}
+  html::-webkit-scrollbar-track{background:transparent}
+  html::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px;border:3px solid var(--bg)}
+  html::-webkit-scrollbar-thumb:hover{background:var(--muted)}
   body{
     margin:0;
     font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -75,42 +84,48 @@
     background:rgba(245,241,233,.97);
     backdrop-filter:blur(8px);
     border-bottom:1px solid var(--border-subtle);
-    /* Safety net, not the primary layout: at generous widths nothing overflows and
-       this is inert. Only at extreme widths (well past the 1440/1200/900 desktop
-       checks) does the row scroll instead of letting the project title get squeezed
-       to nothing by the action cluster's fixed-size buttons. */
-    overflow-x:auto;
-    scrollbar-width:thin;
+    /* One row, no exceptions — a horizontally-scrollable header reads as a second
+       navigation surface, not chrome. Every child below is sized/shrunk so the row
+       fits at 1440/1200/1024/900 instead of falling back to scroll or wrapping. */
+    overflow:hidden;
   }
-  /* Single application row: quiet brand mark, then (in cloud mode) the project
-     identity, then the action cluster pinned to the far edge. In local mode
-     #workspaceCloudBar stays hidden and the brand mark is the only identity shown.
-     The project title is the row's highest-priority element — it gets first claim
-     on space; the brand mark and the legacy local-only notice are capped/ellipsized
-     instead of squeezing the title down to nothing. */
-  header .brand-mark{
-    font-size:var(--text-2xs);font-weight:650;letter-spacing:.02em;color:var(--text-secondary);
-    white-space:nowrap;flex:none;overflow:hidden;text-overflow:ellipsis;max-width:190px;
-  }
-  body:has(#workspaceCloudBar:not([hidden])) header .brand-mark{text-transform:uppercase;letter-spacing:.06em;opacity:.7;max-width:130px}
-  header .workspace-identity{display:flex;align-items:baseline;gap:var(--space-2);min-width:200px;flex:1 1 auto}
-  header .workspace-identity #backToProjects{flex:none}
+  /* Single application row: project identity (in cloud/workspace mode) takes first
+     claim on space since it identifies *what the user is looking at*; the quiet brand
+     mark is secondary chrome and comes after it, capped/ellipsized rather than pushing
+     the title around. The action cluster is pinned to the far edge. */
+  header .workspace-identity{display:flex;align-items:baseline;gap:var(--space-2);min-width:0;flex:1 1 auto}
   header .workspace-identity .project-title{
     font-size:var(--text-2xl);font-weight:700;letter-spacing:-.01em;color:var(--text-primary);
-    margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px;min-width:120px;
+    margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px;min-width:60px;
   }
-  header .local-only-indicator{
-    font-size:var(--text-2xs);color:var(--text-secondary);white-space:nowrap;
-    overflow:hidden;text-overflow:ellipsis;flex:none;max-width:150px;
+  header .brand-mark{
+    font-size:var(--text-2xs);font-weight:600;letter-spacing:.04em;color:var(--text-secondary);
+    text-transform:uppercase;opacity:.65;
+    white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;max-width:160px;
+  }
+  body:not(:has(#workspaceCloudBar:not([hidden]))) header .brand-mark{
+    opacity:1;text-transform:none;font-size:15px;font-weight:700;letter-spacing:-.01em;color:var(--text-primary);max-width:none;
   }
   header .header-actions{display:flex;align-items:center;gap:6px;margin-left:auto;flex:none}
   header .header-actions button,header .header-actions summary,header .header-actions .hint{padding:6px 10px;font-size:13px}
-  /* Save status carries its own state dot (below); the text is a nice-to-have detail,
-     not the primary signal, so it's allowed to ellipsize rather than compete with the
-     project title for space. Same reasoning for the account email. */
-  header #saveStatus{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;padding-left:14px;position:relative}
-  header #saveStatus::before{position:absolute;left:0;top:50%;transform:translateY(-50%)}
-  header #workspaceAccountMenu>summary{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+  /* Idle state renders nothing (no permanent "Сохранено"); active/transient text still
+     needs its own reserved slot so it doesn't shift neighboring controls when it
+     appears. The state dot only shows once there is text to anchor it to. */
+  header #saveStatus{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;position:relative}
+  header #saveStatus.is-active{padding-left:14px}
+  header #saveStatus::before{content:none;position:absolute;left:0;top:50%;transform:translateY(-50%)}
+  header #saveStatus.is-active::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--sage)}
+  header #workspaceAccountMenu>summary{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-flex;align-items:center;gap:7px}
+  .account-avatar{
+    flex:none;width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:700;letter-spacing:.02em;background:var(--brand-tint);color:var(--brand-strong);
+    border:1px solid var(--border-subtle);
+  }
+  .account-name-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .visually-hidden{
+    position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0;
+  }
   .header-btn-group{display:flex;gap:1px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden}
   .header-btn-group button{border:0;border-radius:0;background:var(--surface)}
   .header-btn-group button:not(:last-child){border-right:1px solid var(--border-subtle)}
@@ -215,16 +230,18 @@
      the header rules above for its layout. Only cross-cutting responsive rules live here. */
   @media(max-width:1200px){
     header{gap:var(--space-3)}
-    header .local-only-indicator{display:none}
   }
   @media(max-width:1024px){
     header{padding-left:12px;padding-right:12px}
     header .header-actions{gap:6px}
     header .header-actions button,header .top-menu summary{padding:6px 8px;font-size:12px}
     header .workspace-identity .project-title{max-width:22vw}
+    header #workspaceAccountMenu>summary{max-width:120px}
   }
   @media(max-width:900px){
     header .brand-mark{display:none}
+    header #saveStatus{max-width:0;padding-left:0}
+    header #saveStatus.is-active{max-width:90px;padding-left:14px}
   }
   @media(max-width:760px){
     .cloud-project,.series-editor{grid-template-columns:1fr}

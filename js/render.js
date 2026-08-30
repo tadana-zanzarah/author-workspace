@@ -9,12 +9,12 @@ function renderDashboard(){
   const counts=WRITING_STATUSES.map(status=>[status,data.scenes.filter(s=>s.writingStatus===status.id).length]);
   document.getElementById("projectDashboard").innerHTML=`
     <div class="dashboard-top">
-      <span class="dashboard-eyebrow">Стадии</span>
       <div class="pipeline-strip">${counts.map(([s,n])=>`<span class="pipeline-stage ${s.id} ${n?"has-scenes":""}">${s.label} <span class="pipeline-stage-count">${n}</span></span>`).join("")}</div>
-    </div>
-    <div class="progress-wrap">
-      <div class="progress-label"><span>Общая готовность</span><strong>${readiness}%</strong></div>
-      <div class="progress-track"><div class="progress-bar" style="width:${readiness}%"></div></div>
+      <div class="readiness-compact" role="status" aria-label="Общая готовность проекта: ${readiness}%">
+        <span class="readiness-compact-label">Готовность</span>
+        <div class="progress-track"><div class="progress-bar" style="width:${readiness}%"></div></div>
+        <strong class="readiness-compact-value">${readiness}%</strong>
+      </div>
     </div>`;
 }
 
@@ -44,14 +44,21 @@ function renderSceneInfo(){
     <div class="row-actions" style="margin-top:10px"><button onclick="openSceneText('${jsq(scene.id)}')">Текст</button><button onclick="editScene('${jsq(scene.id)}')">Редактировать</button></div>`;
 }
 
+// Native <select> can only ever show its *selected option's own text* in the closed
+// box — there is no separate "placeholder vs value" rendering to hook into without
+// replacing the control. Encoding the category into every option's label ("Глава: X")
+// gets a self-explaining closed box in both states (empty selection reads "Глава",
+// an active one reads "Глава: X") without introducing a custom dropdown widget.
 function refreshControls(){
-  const preserve=(id)=>document.getElementById(id)?.value||"";
-  const opts=(items,value,label)=>`<option value="">Все</option>`+items.map(x=>`<option value="${esc(value(x))}">${esc(label(x))}</option>`).join("");
-  document.getElementById("filterChapter").innerHTML=opts(data.chapters,x=>x.id,x=>x.title);
-  document.getElementById("filterCharacter").innerHTML=opts(data.characters,x=>x.id,x=>x.name);
-  document.getElementById("filterLocation").innerHTML=opts(data.locations,x=>x.id,x=>x.name);
-  document.getElementById("filterTag").innerHTML=opts(data.tags,x=>x.id,x=>"#"+x.name);
-  document.getElementById("filterWriting").innerHTML=opts(WRITING_STATUSES,x=>x.id,x=>x.label);
+  const opts=(categoryLabel,items,value,label)=>`<option value="">${esc(categoryLabel)}</option>`+
+    items.map(x=>`<option value="${esc(value(x))}">${esc(categoryLabel)}: ${esc(label(x))}</option>`).join("");
+  document.getElementById("filterChapter").innerHTML=opts("Глава",data.chapters,x=>x.id,x=>x.title);
+  document.getElementById("filterCharacter").innerHTML=opts("Персонаж",data.characters,x=>x.id,x=>x.name);
+  document.getElementById("filterLocation").innerHTML=opts("Локация",data.locations,x=>x.id,x=>x.name);
+  document.getElementById("filterTag").innerHTML=opts("Тег",data.tags,x=>x.id,x=>"#"+x.name);
+  document.getElementById("filterWriting").innerHTML=opts("Написание",WRITING_STATUSES,x=>x.id,x=>x.label);
+  document.getElementById("filterPlacement").innerHTML=opts("Расположение",
+    [{id:"fixed",label:"На своём месте"},{id:"floating",label:"Нужно разместить"}],x=>x.id,x=>x.label);
   document.getElementById("filterChapter").value=filters.chapter;
   document.getElementById("filterCharacter").value=filters.character;
   document.getElementById("filterLocation").value=filters.location;
@@ -65,13 +72,41 @@ function refreshControls(){
   });
 }
 
+// The sidebar is entity NAVIGATION (jump to a chapter, open a character/location),
+// not a second filter control — filtering lives in the filter bar. Long lists default
+// to a handful of items with a "show more" control instead of a nested per-section
+// scrollbar, and Tags has no entry here at all: it is classification/search metadata
+// already covered by the filter bar and Tags manager, not an entity with its own view.
+const SIDEBAR_VISIBLE_COUNT=5;
+
+function sidebarSectionHtml(key,itemsHtml,emptyMessage){
+  if(!itemsHtml.length)return `<div class="profile-note">${emptyMessage}</div>`;
+  const expanded=!!sidebarExpanded[key];
+  const visible=expanded?itemsHtml:itemsHtml.slice(0,SIDEBAR_VISIBLE_COUNT);
+  const remaining=itemsHtml.length-visible.length;
+  let html=visible.join("");
+  if(remaining>0)html+=`<button type="button" class="sidebar-show-more" onclick="toggleSidebarExpanded('${key}')">Показать ещё (${remaining})</button>`;
+  else if(expanded&&itemsHtml.length>SIDEBAR_VISIBLE_COUNT)html+=`<button type="button" class="sidebar-show-more" onclick="toggleSidebarExpanded('${key}')">Свернуть</button>`;
+  return html;
+}
+
+function toggleSidebarExpanded(key){
+  sidebarExpanded={...sidebarExpanded,[key]:!sidebarExpanded[key]};
+  render();
+}
+
 function renderSidebar(){
   const countBy=predicate=>data.scenes.filter(predicate).length;
   const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
-  document.getElementById("sideChapters").innerHTML=userChapters.map(c=>`<button class="sidebar-item ${filters.chapter===c.id?"active":""}" onclick="setFilter('chapter','${jsq(c.id)}')">${esc(c.title)}<span class="sidebar-count">${countBy(s=>s.chapterId===c.id)}</span></button>`).join("")||'<div class="profile-note">Глав пока нет</div>';
-  document.getElementById("sideCharacters").innerHTML=data.characters.map(c=>`<button class="sidebar-item ${filters.character===c.id?"active":""}" onclick="setFilter('character','${jsq(c.id)}')">${esc(c.name)}<span class="sidebar-count">${countBy(s=>sceneHasParticipant(s,c.id))}</span></button>`).join("")||'<div class="profile-note">Персонажей пока нет</div>';
-  document.getElementById("sideLocations").innerHTML=data.locations.map(l=>`<button class="sidebar-item ${filters.location===l.id?"active":""}" onclick="setFilter('location','${jsq(l.id)}')">${esc(l.name)}<span class="sidebar-count">${countBy(s=>s.locationId===l.id)}</span></button>`).join("")||'<div class="profile-note">Локаций пока нет</div>';
-  document.getElementById("sideTags").innerHTML=data.tags.slice(0,80).map(t=>`<button class="sidebar-item ${filters.tag===t.id?"active":""}" onclick="setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}<span class="sidebar-count">${countBy(s=>s.tags.includes(t.id))}</span></button>`).join("")||'<div class="profile-note">Тегов пока нет</div>';
+  document.getElementById("sideChapters").innerHTML=sidebarSectionHtml("chapters",
+    userChapters.map(c=>`<button type="button" class="sidebar-item" onclick="navigateToChapter('${jsq(c.id)}')" aria-label="Перейти к главе «${esc(c.title)}»">${esc(c.title)}<span class="sidebar-count">${countBy(s=>s.chapterId===c.id)}</span></button>`),
+    "Глав пока нет");
+  document.getElementById("sideCharacters").innerHTML=sidebarSectionHtml("characters",
+    data.characters.map(c=>`<button type="button" class="sidebar-item" onclick="editProfile('${jsq(c.id)}')" aria-label="Открыть анкету персонажа «${esc(c.name)}»">${esc(c.name)}<span class="sidebar-count">${countBy(s=>sceneHasParticipant(s,c.id))}</span></button>`),
+    "Персонажей пока нет");
+  document.getElementById("sideLocations").innerHTML=sidebarSectionHtml("locations",
+    data.locations.map(l=>`<button type="button" class="sidebar-item" onclick="openLocationEntity('${jsq(l.id)}')" aria-label="Открыть локацию «${esc(l.name)}»">${esc(l.name)}<span class="sidebar-count">${countBy(s=>s.locationId===l.id)}</span></button>`),
+    "Локаций пока нет");
 }
 
 // Project-global counts only. Readiness% and the "final" count already live in the
@@ -229,7 +264,7 @@ function renderTableView(board){
 
 function renderChapterDivider(chapter,count,matchedCount=null){
   const summary=matchedCount===null||matchedCount===count?`${count} сцен`:`${matchedCount} из ${count} сцен`;
-  return `<div class="insert-row"><div class="chapter-divider">
+  return `<div class="insert-row" data-chapter-id="${esc(chapter.id)}"><div class="chapter-divider">
     <button aria-label="${chapter.collapsed?"Развернуть":"Свернуть"} главу ${esc(chapter.title)}" onclick="toggleChapter('${jsq(chapter.id)}')">${chapter.collapsed?"▸":"▾"}</button>
     <button class="entity-link" onclick="setFilter('chapter','${jsq(chapter.id)}')"><strong>${esc(chapter.title)}</strong></button>
     <span class="chapter-summary">${summary}</span>
@@ -240,14 +275,18 @@ function renderChapterDivider(chapter,count,matchedCount=null){
   </div></div>`;
 }
 
-function sceneMetadataHtml(scene,chapter,loc,ws){
+// Deliberately no chapter chip here: the chapter is already the group header this
+// row lives under, so repeating it in every row would be pure duplication. Tags are
+// summarised as a single count chip (full names on hover/focus via title/aria-label)
+// instead of listed out, so a heavily-tagged scene can't push the row taller — the
+// full list stays reachable via scene edit.
+function sceneMetadataHtml(scene,loc,ws){
   const tags=scene.tags.map(id=>tagById(id)).filter(Boolean);
   return `<div class="scene-meta">
-    <button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditChapter('${jsq(scene.id)}')" onclick="event.stopPropagation();setFilter('chapter','${jsq(chapter.id)}')">📚 ${esc(chapter.title)}</button>
     ${loc?`<button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditLocation('${jsq(scene.id)}')" onclick="event.stopPropagation();setFilter('location','${jsq(loc.id)}')">📍 ${esc(loc.name)}</button>`:`<button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditLocation('${jsq(scene.id)}')">📍 не указана</button>`}
     <button class="meta-chip writing-chip ${ws.id} entity-link" ondblclick="event.stopPropagation();quickEditWriting('${jsq(scene.id)}')">📝 ${esc(ws.label)}</button>
-  </div>
-  ${tags.length?`<div class="scene-meta">${tags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">🏷 #${esc(t.name)}</button>`).join("")}</div>`:""}`;
+    ${tags.length?`<button type="button" class="meta-chip tag-count-chip" title="${esc(tags.map(t=>"#"+t.name).join(", "))}" aria-label="Теги сцены: ${esc(tags.map(t=>t.name).join(", "))}" onclick="event.stopPropagation();editScene('${jsq(scene.id)}')">🏷 ${tags.length}</button>`:""}
+  </div>`;
 }
 
 function renderMatrixCell(scene,character,relationState){
@@ -285,37 +324,46 @@ function renderMatrixCell(scene,character,relationState){
 }
 
 // First column: VIEW state only — a compact, readable summary (title, chronology,
-// chapter/location/status/tags, participants). Raw date/time inputs, the include
-// checkbox and other form controls live in the scene modal (EDIT state, reached via
-// the always-visible "Изменить" button) instead of sitting permanently in the row.
+// location/status/tags). Chapter and participants are deliberately NOT repeated here:
+// the chapter is already the group header above every row, and participation is
+// already visible as the character columns to the right of this cell — restating
+// either in text form was the main reason a scene row used to need several times its
+// current height. Placement (fixed/floating) is carried by the row's left-edge accent
+// (.scene-row.fixed/.floating, in timeline.css) rather than a permanent text badge; a
+// visually-hidden label keeps that state available to screen readers. Raw date/time
+// inputs, the include checkbox and other form controls live in the scene modal (EDIT
+// state, reached via the always-visible edit action) instead of sitting in the row.
 function renderTableScene(scene,i,chapter){
   const relationState=relationshipsAt(i);
-  const needsDateReview=!!scene.dateReview;
+  const hasDate=!!readableDate(scene);
+  const needsDateReview=hasDate&&!!scene.dateReview;
   const hasDateConflict=chronologicalWarning(i);
   const loc=locationById(scene.locationId);
   const ws=writingStatusById(scene.writingStatus);
   const sceneTitle=scene.title||"Без названия";
+  const placementLabel=scene.status==="fixed"?"Сцена на своём месте":"Сцену нужно разместить в хронологии";
   let html=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" data-scene-id="${esc(scene.id)}"
     onclick="selectScene('${jsq(scene.id)}')" ondragover="dragOver(event,'${jsq(scene.id)}')"
     ondragleave="dragLeave(event)" ondrop="dropScene(event,'${jsq(scene.id)}')" ondragend="dragEnd(event)">`;
   html+=`<div class="cell time-cell sticky-cell">
+    <span class="visually-hidden">${esc(placementLabel)}</span>
     <div class="scene-row-head">
       <div class="drag-handle" draggable="true" aria-label="Перетащить сцену ${esc(sceneTitle)}" title="${hasActiveFilters()?"Чтобы менять порядок сцен, сбросьте фильтры.":"Перетащить сцену"}" ondragstart="dragStart(event,'${jsq(scene.id)}')">↕</div>
       <div class="scene-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(sceneTitle)}</div>
     </div>
     <div class="scene-meta">
       <span class="meta-chip scene-chronology-chip ${hasDateConflict?"conflict":needsDateReview?"review":""}">🕒 ${esc(readableDate(scene)||"без даты")}</span>
-      <span class="scene-kind ${scene.status==="fixed"?"fixed":"floating"}">${scene.status==="fixed"?"На месте":"Разместить"}</span>
+      ${hasDate?(needsDateReview
+        ?`<button type="button" class="date-review-toggle needs-review" title="Дата не проверена" aria-label="Дата сцены «${esc(sceneTitle)}» не проверена. Подтвердить дату." onclick="event.stopPropagation();confirmSceneDate('${jsq(scene.id)}')">!</button>`
+        :`<span class="date-review-toggle reviewed" title="Дата проверена" aria-label="Дата проверена">✓</span>`):""}
       ${scene.included===false?'<span class="meta-chip excluded-badge">Исключена из текста</span>':""}
     </div>
-    ${sceneMetadataHtml(scene,chapter,loc,ws)}
-    <div class="scene-meta"><span class="meta-chip">👥 ${sceneCharacters(scene).map(esc).join(", ")||"нет участников"}</span></div>
-    ${needsDateReview?`<div class="date-status-note review">Дата ещё не проверена <button class="date-confirm-btn" onclick="event.stopPropagation();confirmSceneDate('${jsq(scene.id)}')">✓ Дата проверена</button></div>`:""}
+    ${sceneMetadataHtml(scene,loc,ws)}
     ${hasDateConflict?'<div class="date-status-note conflict">Дата конфликтует с хронологией соседних сцен</div>':""}
     <div class="row-actions">
       ${sceneReorderButtonsHtml(scene)}
-      <button onclick="event.stopPropagation();openSceneText('${jsq(scene.id)}')">Текст</button>
-      <button onclick="event.stopPropagation();editScene('${jsq(scene.id)}')">Изменить</button>
+      <button class="row-action-icon" aria-label="Редактировать текст сцены «${esc(sceneTitle)}»" title="Текст сцены" onclick="event.stopPropagation();openSceneText('${jsq(scene.id)}')">T</button>
+      <button class="row-action-icon" aria-label="Изменить сцену «${esc(sceneTitle)}»" title="Изменить сцену" onclick="event.stopPropagation();editScene('${jsq(scene.id)}')">✎</button>
       <button class="row-action-quiet danger-quiet" aria-label="Удалить сцену «${esc(sceneTitle)}»" title="Удалить сцену" onclick="event.stopPropagation();deleteScene('${jsq(scene.id)}')">🗑</button>
     </div>
   </div>`;
@@ -375,28 +423,36 @@ function cardEdgeInsert(position,edge){
   </button>`;
 }
 
+// Chapter name is deliberately not repeated here: the card already sits inside its
+// chapter's group heading. Placement (fixed/floating) is a left-edge accent instead of
+// a permanent "На месте" text badge (paired with a visually-hidden label, since a card
+// grid — unlike the table's left accent column — has no dedicated sticky metadata
+// strip to attach the color-plus-text pairing to). Tags are capped so a heavily-tagged
+// scene can't stretch the card indefinitely; the rest stay reachable via scene edit.
 function renderCompactCard(scene,index){
-  const chapter=chapterById(scene.chapterId),loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
-  const charIds=sceneCharacterIds(scene),chars=charIds.map(characterName),tags=scene.tags.map(id=>tagById(id)).filter(Boolean);
+  const loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
+  const charIds=sceneCharacterIds(scene),chars=charIds.map(characterName);
+  const tags=scene.tags.map(id=>tagById(id)).filter(Boolean);
+  const visibleTags=tags.slice(0,2),extraTags=tags.slice(2);
   const description=chars.map(c=>scene.people?.[c]?.action||"").filter(Boolean).join(" ");
   const disabled=hasActiveFilters();
   const sceneTitle=scene.title||"Без названия";
+  const placementLabel=scene.status==="fixed"?"Сцена на своём месте":"Сцену нужно разместить в хронологии";
   return `<article class="compact-scene-card ${scene.status} ${selectedSceneIndex===index?"selected-scene":""}" data-scene-id="${esc(scene.id)}"
     draggable="${disabled?"false":"true"}" title="${disabled?"Чтобы менять порядок сцен, сбросьте фильтры.":""}"
     ondragstart="cardDragStart(event,'${jsq(scene.id)}')" ondragend="cardDragEnd()"
     onclick="selectScene('${jsq(scene.id)}')" ondblclick="editScene('${jsq(scene.id)}')">
+    <span class="visually-hidden">${esc(placementLabel)}</span>
     <div class="compact-card-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(sceneTitle)}</div>
     <div class="scene-meta">
-      <button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('chapter','${jsq(chapter?.id||"")}')">📚 ${esc(chapter?.title||"Без главы")}</button>
       <span class="meta-chip">🕒 ${esc(readableDate(scene)||"без даты")}</span>
       ${loc?`<button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('location','${jsq(loc.id)}')">📍 ${esc(loc.name)}</button>`:""}
       <span class="meta-chip writing-chip ${ws.id}">📝 ${esc(ws.label)}</span>
-      <span class="scene-kind ${scene.status==="fixed"?"fixed":"floating"}">${scene.status==="fixed"?"На месте":"Разместить"}</span>
     </div>
-    <div class="scene-meta">${charIds.map(id=>`<button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('character','${jsq(id)}')">👤 ${esc(characterName(id))}</button>`).join("")}</div>
-    ${tags.length?`<div class="scene-meta">${tags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}</button>`).join("")}</div>`:""}
+    ${charIds.length?`<div class="scene-meta">${charIds.map(id=>`<button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('character','${jsq(id)}')">👤 ${esc(characterName(id))}</button>`).join("")}</div>`:""}
+    ${tags.length?`<div class="scene-meta">${visibleTags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}</button>`).join("")}${extraTags.length?`<span class="tag-chip tag-chip-more" title="${esc(extraTags.map(t=>"#"+t.name).join(", "))}" aria-label="Ещё ${extraTags.length} тегов: ${esc(extraTags.map(t=>t.name).join(", "))}">+${extraTags.length}</span>`:""}</div>`:""}
     ${description?`<div class="compact-card-description">${esc(description)}</div>`:""}
-    <div class="card-actions">${sceneReorderButtonsHtml(scene)}</div>
+    <div class="card-actions">${cardReorderButtonsHtml(scene)}</div>
   </article>`;
 }
 
@@ -452,5 +508,5 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
-export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
+export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};

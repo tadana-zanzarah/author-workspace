@@ -2,10 +2,22 @@
     margin:16px;
     border:1px solid var(--border-subtle);
     border-radius:var(--radius-lg);
-    overflow:auto;
+    /* Horizontal scroll only — the matrix can be genuinely wider than the viewport
+       (many character columns) and that scroll is real UX, kept deliberately. Vertical
+       scrolling used to be double-booked: this container capped itself to ~100vh
+       *and* the page below it could also grow past the viewport, producing two
+       stacked scrollbars for the same content. Letting vertical overflow flow to the
+       one page/document scroll removes that duplication. */
+    overflow-x:auto;
     background:var(--surface);
-    max-height:calc(100vh - 100px);
+    scrollbar-width:thin;
+    scrollbar-color:var(--border-subtle) transparent;
   }
+  .viewport::-webkit-scrollbar{height:10px;width:10px}
+  .viewport::-webkit-scrollbar-track{background:transparent}
+  .viewport::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px;border:2px solid var(--surface)}
+  .viewport::-webkit-scrollbar-thumb:hover{background:var(--text-secondary)}
+  .chapter-nav-highlight{outline:2px solid var(--brand);outline-offset:-2px;transition:outline-color 1.4s ease}
   .board{min-width:max-content;--cols:4}
   .board-grid,.scene-row,.insert-row{
     display:grid;
@@ -155,16 +167,12 @@
   .matrix-relation-target{font-weight:650;color:var(--text-primary)}
   .matrix-relation-value{color:var(--text-secondary);overflow-wrap:anywhere}
 
-  /* Matrix toolbar — content-layer toggle. */
-  .matrix-toolbar{margin:0 16px 10px}
+  /* View toolbar — matrix content-layer toggle, same row as the view switch (table
+     only; hidden for Cards/Compact where there is no matrix to configure). */
   .matrix-content-toggle{
     display:inline-flex;align-items:center;gap:14px;
     border:1px solid var(--border-faint);border-radius:var(--radius-md);
-    background:var(--surface);padding:8px 14px;margin:0;
-  }
-  .matrix-content-toggle legend{
-    font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);
-    font-weight:700;padding:0 6px 0 0;
+    background:var(--surface);padding:7px 14px;margin:0;flex:none;
   }
   .matrix-toggle-option{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-primary);cursor:pointer}
   .matrix-toggle-option input{width:auto;flex:none}

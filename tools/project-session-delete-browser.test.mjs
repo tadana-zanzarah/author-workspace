@@ -112,7 +112,7 @@ if(await page.locator("#workspaceProjectTitle").innerText()!=="Project A")throw 
 if(await page.locator("#projectsScreen").isVisible())throw new Error("1: dashboard flashed visible during restore");
 
 // ---- 5. Explicit Back to dashboard must not cause an auto-reopen loop on reload. ----
-await page.click("#backToProjects");
+await page.click("#workspaceAccountMenu > summary");await page.click("#workspaceProjects");
 await page.waitForSelector("#projectsScreen:not([hidden])");
 if(await lastProjectPreference(userAId)!==null)throw new Error("5: explicit Back did not clear the last-open preference");
 await page.reload({waitUntil:"networkidle"});
@@ -146,7 +146,7 @@ await page.click("#dashboardLogout");
 await page.waitForSelector("#authScreen:not([hidden])");
 await login("author@example.test");
 await page.waitForSelector('body[data-app-state="workspace"]');
-await page.click("#backToProjects");
+await page.click("#workspaceAccountMenu > summary");await page.click("#workspaceProjects");
 await page.waitForSelector("#projectsScreen:not([hidden])");
 
 // ---- 7. Cancel delete must not remove the project or use browser confirm(). ----
@@ -196,7 +196,7 @@ if(await page.locator('body[data-app-state="workspace"]').count())throw new Erro
 await createProject("Project B");
 await projectRow("Project B").getByRole("button",{name:"Открыть"}).click();
 await page.waitForSelector('body[data-app-state="workspace"]');
-await page.click("#backToProjects");
+await page.click("#workspaceAccountMenu > summary");await page.click("#workspaceProjects");
 await page.waitForSelector("#projectsScreen:not([hidden])");
 await page.evaluate(()=>{globalThis.__mockFailures["projects:update"]="offline"});
 await projectRow("Project B").getByRole("button",{name:"Удалить проект"}).click();

@@ -50,14 +50,18 @@ try{
   if(idAudit.searchInputs!==1)throw new Error(`Expected exactly one #projectSearch field, found ${idAudit.searchInputs}`);
   if(idAudit.headerHasSearch)throw new Error("A second global search field leaked into the header");
 
-  // 3) Back/projects action, new-scene action and account/project-menu triggers are present,
-  //    enabled and keyboard-reachable (not hover-only, not removed).
+  // 3) "My projects" (now in the account menu, not a standalone header button),
+  //    new-scene action and account/project-menu triggers are present, enabled and
+  //    keyboard-reachable (not hover-only, not removed). ?local=1 keeps the account
+  //    menu hidden (no cloud dashboard concept in local mode), same as backToProjects
+  //    was always inert there under the old shell — this only checks DOM presence.
   const reachable=await page.evaluate(()=>{
     const check=id=>{const el=document.getElementById(id);return el?{present:true,enabled:!el.disabled,tabbable:el.tabIndex>=0}:{present:false}};
-    return {backToProjects:check("backToProjects"),addFirst:check("addFirst"),projectMenuSummary:!!document.querySelector("#projectMenu summary"),toggleNavigation:check("toggleNavigation")};
+    return {workspaceProjects:check("workspaceProjects"),noBackToProjects:!document.getElementById("backToProjects"),addFirst:check("addFirst"),projectMenuSummary:!!document.querySelector("#projectMenu summary"),toggleNavigation:check("toggleNavigation")};
   });
   if(!reachable.addFirst.present||!reachable.addFirst.enabled||!reachable.addFirst.tabbable)throw new Error(`+Новая сцена action not reachable: ${JSON.stringify(reachable.addFirst)}`);
-  if(!reachable.backToProjects.present)throw new Error("backToProjects control missing from DOM");
+  if(!reachable.workspaceProjects.present)throw new Error("workspaceProjects (Мои проекты) control missing from DOM");
+  if(!reachable.noBackToProjects)throw new Error("Legacy standalone backToProjects header control should be removed");
   if(!reachable.projectMenuSummary)throw new Error("Project menu trigger missing");
   if(!reachable.toggleNavigation.present||!reachable.toggleNavigation.enabled)throw new Error("Sidebar toggle not reachable");
 

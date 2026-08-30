@@ -40,7 +40,7 @@
     <div class="projects-head">
       <div><h1>Мои проекты</h1><p class="account-note">Здесь хранятся ваши произведения и циклы.</p></div>
       <details class="account-menu" id="dashboardAccountMenu">
-        <summary id="accountName">Аккаунт</summary>
+        <summary id="dashboardAccountSummary"><span id="dashboardAccountAvatar" class="account-avatar" aria-hidden="true"></span><span id="accountName" class="account-name-text"></span></summary>
         <div class="account-menu-panel">
           <button id="accountProjects" type="button">Мои проекты</button>
           <button id="dashboardLogout" type="button">Выйти</button>
@@ -111,12 +111,10 @@
   </form>
 </div>
 <header>
-  <h1 class="brand-mark">Рабочее пространство автора</h1>
   <div id="workspaceCloudBar" class="workspace-identity" hidden>
-    <button id="backToProjects" type="button" class="btn-quiet">← Проекты</button>
     <h2 id="workspaceProjectTitle" class="project-title"></h2>
-    <span class="local-only-indicator">Рабочие данные пока сохраняются локально на устройстве</span>
   </div>
+  <h1 class="brand-mark">Рабочее пространство автора</h1>
   <div class="header-actions">
     <div class="header-btn-group">
       <button id="allScenesBtn">Весь текст</button>
@@ -139,9 +137,9 @@
       </div>
     </details>
     <button class="primary" id="addFirst">＋ Новая сцена</button>
-    <div class="hint" id="saveStatus" role="status" aria-live="polite">Автосохранение включено</div>
+    <div class="hint" id="saveStatus" role="status" aria-live="polite"></div>
     <details class="account-menu" id="workspaceAccountMenu" hidden>
-      <summary id="workspaceAccountName">Аккаунт</summary>
+      <summary id="workspaceAccountSummary"><span id="workspaceAccountAvatar" class="account-avatar" aria-hidden="true"></span><span id="workspaceAccountName" class="account-name-text"></span></summary>
       <div class="account-menu-panel">
         <button id="workspaceProjects" type="button">Мои проекты</button>
         <button id="workspaceLogout" type="button">Выйти</button>
@@ -154,74 +152,65 @@
 <div class="app-shell">
   <button type="button" id="toggleNavigation" class="sidebar-edge-toggle" aria-expanded="true" aria-controls="projectSidebar" aria-label="Свернуть навигацию" title="Свернуть навигацию"><span class="sidebar-edge-toggle-icon" aria-hidden="true">‹</span></button>
   <aside class="project-sidebar" id="projectSidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-header-label">Навигация</span>
+    </div>
     <div class="sidebar-section" data-sidebar-section="chapters">
       <div class="sidebar-title">
         <button type="button" class="sidebar-toggle" data-sidebar-toggle="chapters" aria-expanded="true" aria-controls="sideChapters" onclick="toggleSidebarSection('chapters')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Главы</button>
-        <button class="nav-manage" onclick="openChaptersManager()">настроить</button>
+        <button class="nav-manage" type="button" aria-label="Управление главами" title="Управление главами" onclick="openChaptersManager()">•••</button>
       </div>
       <div id="sideChapters" class="sidebar-list"></div>
     </div>
     <div class="sidebar-section" data-sidebar-section="characters">
       <div class="sidebar-title">
         <button type="button" class="sidebar-toggle" data-sidebar-toggle="characters" aria-expanded="true" aria-controls="sideCharacters" onclick="toggleSidebarSection('characters')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Персонажи</button>
-        <button class="nav-manage" id="sidebarManageChars" type="button">настроить</button>
+        <button class="nav-manage" id="sidebarManageChars" type="button" aria-label="Управление персонажами" title="Управление персонажами">•••</button>
       </div>
       <div id="sideCharacters" class="sidebar-list"></div>
     </div>
     <div class="sidebar-section" data-sidebar-section="locations">
       <div class="sidebar-title">
         <button type="button" class="sidebar-toggle" data-sidebar-toggle="locations" aria-expanded="true" aria-controls="sideLocations" onclick="toggleSidebarSection('locations')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Локации</button>
-        <button class="nav-manage" onclick="openLocationsManager()">настроить</button>
+        <button class="nav-manage" type="button" aria-label="Управление локациями" title="Управление локациями" onclick="openLocationsManager()">•••</button>
       </div>
       <div id="sideLocations" class="sidebar-list"></div>
-    </div>
-    <div class="sidebar-section" data-sidebar-section="tags">
-      <div class="sidebar-title">
-        <button type="button" class="sidebar-toggle" data-sidebar-toggle="tags" aria-expanded="true" aria-controls="sideTags" onclick="toggleSidebarSection('tags')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Теги</button>
-        <button class="nav-manage" onclick="openTagsManager()">настроить</button>
-      </div>
-      <div id="sideTags" class="sidebar-list"></div>
     </div>
   </aside>
   <main class="main-workspace">
     <section id="projectDashboard" class="project-dashboard"></section>
     <div id="statsStrip" class="stats-strip"></div>
     <section class="toolbar-panel">
-      <div class="dashboard-top" style="margin-bottom:9px">
+      <div class="dashboard-top view-toolbar-row" style="margin-bottom:9px">
         <div class="view-switch" id="viewSwitch">
           <button data-view="table" class="active">Таблица</button>
           <button data-view="cards">Карточки</button>
           <button data-view="list">Компактный список</button>
         </div>
+        <div id="matrixToolbar" class="matrix-content-toggle" hidden>
+          <label class="matrix-toggle-option">
+            <input type="checkbox" id="matrixShowActions" checked>
+            Действия
+          </label>
+          <label class="matrix-toggle-option">
+            <input type="checkbox" id="matrixShowRelations">
+            Отношения
+          </label>
+        </div>
       </div>
       <div class="search-row">
-        <label class="filter-field filter-field-search"><span class="filter-label">Поиск</span><input id="projectSearch" class="search-input" placeholder="Сцена, текст, персонаж, глава, локация или тег"></label>
-        <label class="filter-field"><span class="filter-label">Глава</span><select id="filterChapter"></select></label>
-        <label class="filter-field"><span class="filter-label">Персонаж</span><select id="filterCharacter"></select></label>
-        <label class="filter-field"><span class="filter-label">Локация</span><select id="filterLocation"></select></label>
-        <label class="filter-field"><span class="filter-label">Тег</span><select id="filterTag"></select></label>
-        <label class="filter-field"><span class="filter-label">Написание</span><select id="filterWriting"></select></label>
-        <label class="filter-field"><span class="filter-label">Расположение</span><select id="filterPlacement">
-          <option value="">Все</option><option value="fixed">На своём месте</option><option value="floating">Нужно разместить</option>
-        </select></label>
-        <button id="clearFilters" class="btn-quiet" hidden>Сбросить</button>
+        <label class="filter-field filter-field-search"><span class="visually-hidden">Поиск сцен</span><input id="projectSearch" class="search-input" placeholder="Поиск сцен: текст, персонаж, глава, локация, тег…"></label>
+        <label class="filter-field"><span class="visually-hidden">Глава</span><select id="filterChapter" aria-label="Глава"></select></label>
+        <label class="filter-field"><span class="visually-hidden">Персонаж</span><select id="filterCharacter" aria-label="Персонаж"></select></label>
+        <label class="filter-field"><span class="visually-hidden">Локация</span><select id="filterLocation" aria-label="Локация"></select></label>
+        <label class="filter-field"><span class="visually-hidden">Тег</span><select id="filterTag" aria-label="Тег"></select></label>
+        <label class="filter-field"><span class="visually-hidden">Написание</span><select id="filterWriting" aria-label="Написание"></select></label>
+        <label class="filter-field"><span class="visually-hidden">Расположение</span><select id="filterPlacement" aria-label="Расположение"></select></label>
+        <button id="clearFilters" class="btn-quiet filter-reset" type="button" hidden>Сбросить ×</button>
       </div>
       <div id="activeFilterChips" class="active-filter-chips" aria-live="polite"></div>
       <div id="filterSummary" class="filter-summary" role="status" aria-live="polite" hidden></div>
     </section>
-    <div id="matrixToolbar" class="matrix-toolbar" hidden>
-      <fieldset class="matrix-content-toggle">
-        <legend>Содержимое ячеек</legend>
-        <label class="matrix-toggle-option">
-          <input type="checkbox" id="matrixShowActions" checked>
-          Действия
-        </label>
-        <label class="matrix-toggle-option">
-          <input type="checkbox" id="matrixShowRelations">
-          Отношения
-        </label>
-      </fieldset>
-    </div>
     <div class="viewport workspace-viewport">
       <div id="board" class="board"></div>
     </div>

@@ -6,7 +6,8 @@ const initialState={
   filters:{search:"",chapter:"",character:"",location:"",tag:"",writing:"",placement:""},
   currentView:"table",infoPanelCollapsed:true,navigationVisible:true,
   renderQueued:false,quickFieldState:null,sortDraggedSceneId:null,searchTimer:null,
-  draggedCharacterId:null,sidebarSections:{chapters:true,characters:true,locations:true,tags:true},
+  draggedCharacterId:null,sidebarSections:{chapters:true,characters:true,locations:true},
+  sidebarExpanded:{chapters:false,characters:false,locations:false},
   sceneParticipantDraft:{},sceneBuildIndex:0,
   matrixContentMode:{actions:true,relations:false}
 };

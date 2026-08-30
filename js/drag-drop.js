@@ -22,16 +22,26 @@ function dragOver(event,targetSceneId){
   row.classList.toggle("drop-after",after);
 }
 
+// Vertical scene-list scrolling now flows to the page/document (workspace-density-
+// navigation removed the workspace viewport's own vertical scroll to stop double-
+// booking a scrollbar for the same content — see css/timeline.css). Autoscroll during
+// drag follows that: it scrolls the document's scrolling element based on proximity to
+// the *window* edges, not a no-longer-vertically-scrollable .workspace-viewport box.
 function autoscrollSceneViewport(clientY){
-  const viewport=document.querySelector(".workspace-viewport");
-  if(!viewport||!draggedSceneId)return 0;
-  const rect=viewport.getBoundingClientRect();
-  if(clientY<rect.top||clientY>rect.bottom)return 0;
-  const edge=Math.min(90,rect.height/3);
+  if(!draggedSceneId)return 0;
+  const height=window.innerHeight;
+  // Guard mirrors the old "pointer must be within the scrollable box" check: a real
+  // drag's clientY can never leave [0,innerHeight], but a scripted/synthetic dragover
+  // built from a target row's own (possibly far off-screen, now that the page can grow
+  // taller than one viewport) getBoundingClientRect() can — without this, such an event
+  // reads as "far past the edge" and triggers a large, unintended autoscroll.
+  if(clientY<0||clientY>height)return 0;
+  const scroller=document.scrollingElement||document.documentElement;
+  const edge=Math.min(90,height/3);
   let delta=0;
-  if(clientY<rect.top+edge)delta=-Math.ceil(4+24*(1-(clientY-rect.top)/edge));
-  else if(clientY>rect.bottom-edge)delta=Math.ceil(4+24*(1-(rect.bottom-clientY)/edge));
-  if(delta)viewport.scrollTop+=delta;
+  if(clientY<edge)delta=-Math.ceil(4+24*(1-clientY/edge));
+  else if(clientY>height-edge)delta=Math.ceil(4+24*(1-(height-clientY)/edge));
+  if(delta)scroller.scrollTop+=delta;
   return delta;
 }
 

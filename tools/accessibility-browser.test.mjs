@@ -33,13 +33,13 @@ if(modalContract.hiddenActive.length)throw new Error(`Скрытые модал�
 const staticNames=await page.evaluate(()=>{
   const hasName=control=>!!(control.getAttribute("aria-label")||control.getAttribute("aria-labelledby")||control.labels?.length||control.title);
   const controls=[...document.querySelectorAll(".modal-backdrop input:not([type=hidden]),.modal-backdrop select,.modal-backdrop textarea")];
-  const iconButtons=[...document.querySelectorAll("button")].filter(button=>/^[×↑↓←→‹›▸▾✓+＋\s]+$/.test(button.textContent.trim()));
+  const iconButtons=[...document.querySelectorAll("button")].filter(button=>/^[×↑↓←→‹›▸▾✓!+＋T✎•\s]+$/.test(button.textContent.trim()));
   return {unnamed:controls.filter(control=>!hasName(control)).map(control=>control.id||control.className),unnamedIcons:iconButtons.filter(button=>!hasName(button)).map(button=>button.outerHTML.slice(0,100))};
 });
 if(staticNames.unnamed.length)throw new Error(`Нет accessible name у полей: ${staticNames.unnamed.join(", ")}`);
 if(staticNames.unnamedIcons.length)throw new Error(`Нет accessible name у icon-only кнопок: ${staticNames.unnamedIcons.join(", ")}`);
 
-await page.locator('[data-scene-id="scene-a"] button').filter({hasText:"Изменить"}).focus();
+await page.locator('[data-scene-id="scene-a"] button[aria-label*="Изменить сцену"]').focus();
 const opener=await activeId();
 await page.keyboard.press("Enter");
 if(!await activeInside("sceneModal"))throw new Error("Фокус не переведён в scene modal");
@@ -53,7 +53,7 @@ if(!await page.evaluate(()=>document.querySelector("header")?.inert===true&&docu
 await page.click("#cancelScene");
 if(await activeId()!==opener)throw new Error("Фокус не вернулся к opener сцены");
 
-await page.locator('[data-scene-id="scene-a"] button').filter({hasText:"Изменить"}).focus();await page.keyboard.press("Enter");
+await page.locator('[data-scene-id="scene-a"] button[aria-label*="Изменить сцену"]').focus();await page.keyboard.press("Enter");
 await page.fill("#sceneTitle","Черновик");await page.keyboard.press("Escape");
 if(!await activeInside("discardChangesModal"))throw new Error("Фокус не перешёл в discard confirmation");
 if(await activeId()!=="continueEditing")throw new Error("Discard confirmation не выбрал безопасное действие");
@@ -82,7 +82,7 @@ for(const [openerSelector,modalId,closerSelector] of modalReturnCases){
   await page.click(closerSelector);const actual=await activeId();if(actual!=="SUMMARY")throw new Error(`Фокус не вернулся из ${modalId} к Navigation summary: ${actual}`);
 }
 
-await page.locator('[data-scene-id="scene-a"] button').filter({hasText:"Текст"}).focus();const textOpener=await activeId();await page.keyboard.press("Enter");
+await page.locator('[data-scene-id="scene-a"] button[aria-label*="Редактировать текст сцены"]').focus();const textOpener=await activeId();await page.keyboard.press("Enter");
 if(await activeId()!=="fullSceneText")throw new Error("Полный текст не получил initial focus");await page.click("#closeText");if(await activeId()!==textOpener)throw new Error("Полный текст не вернул focus");
 await page.evaluate(()=>quickEditChapter("scene-a"));if(!await activeInside("quickFieldModal"))throw new Error("Quick field не получил focus");await page.click("#cancelQuickField");
 

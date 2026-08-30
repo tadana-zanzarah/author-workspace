@@ -93,6 +93,23 @@ function sceneReorderButtonsHtml(scene){
   </span>`;
 }
 
+// Cards flow left-to-right and wrap, so a literal ↑/↓ ("move up/down") misreads as
+// vertical movement that doesn't match the grid's actual reading order. Same
+// moveSceneUp/moveSceneDown destination and same one-step-within-chapter semantics as
+// the table's reorder buttons — only the icon and accessible label change to the
+// chapter-order-relative "earlier/later" a grid can actually communicate.
+function cardReorderButtonsHtml(scene){
+  const disabled=hasActiveFilters();
+  const canEarlier=!disabled&&!!siblingMoveUpTarget(scene.id);
+  const canLater=!disabled&&!!siblingMoveDownTarget(scene.id);
+  const title=disabled?"Чтобы менять порядок сцен, сбросьте фильтры.":"";
+  const sceneTitle=scene.title||"Без названия";
+  return `<span class="scene-reorder-buttons">
+    <button type="button" class="scene-reorder-btn" ${canEarlier?"":"disabled"} title="${esc(title)}" aria-label="Переместить сцену «${esc(sceneTitle)}» раньше" onclick="event.stopPropagation();moveSceneUp('${jsq(scene.id)}')">‹</button>
+    <button type="button" class="scene-reorder-btn" ${canLater?"":"disabled"} title="${esc(title)}" aria-label="Переместить сцену «${esc(sceneTitle)}» позже" onclick="event.stopPropagation();moveSceneDown('${jsq(scene.id)}')">›</button>
+  </span>`;
+}
+
 function normalizeSceneOrder(){
   const order=new Map(data.chapters.map((c,i)=>[c.id,i]));
   data.scenes=data.scenes.map((scene,i)=>({scene,i})).sort((a,b)=>{
@@ -442,5 +459,5 @@ async function deleteScene(sceneId){
   render();
 }
 
-Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
-export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};
+Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
+export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};

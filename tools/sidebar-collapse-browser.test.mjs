@@ -12,19 +12,24 @@ try{
   await page.addInitScript(value=>{if(sessionStorage.getItem("sidebar-collapse-seeded"))return;sessionStorage.setItem("sidebar-collapse-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
   for(let attempt=0;attempt<30;attempt++){try{await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
 
-  const readState=()=>page.evaluate(()=>Object.fromEntries(["chapters","characters","locations","tags"].map(key=>{
-    const toggle=document.querySelector(`[data-sidebar-toggle="${key}"]`),list=document.getElementById({chapters:"sideChapters",characters:"sideCharacters",locations:"sideLocations",tags:"sideTags"}[key]);
+  // Tags has no sidebar section any more (workspace-density-navigation: tags are
+  // classification/search metadata already covered by the filter bar + Tags manager,
+  // not a navigation entity) — only chapters/characters/locations remain here.
+  const readState=()=>page.evaluate(()=>Object.fromEntries(["chapters","characters","locations"].map(key=>{
+    const toggle=document.querySelector(`[data-sidebar-toggle="${key}"]`),list=document.getElementById({chapters:"sideChapters",characters:"sideCharacters",locations:"sideLocations"}[key]);
     return [key,{expanded:toggle.getAttribute("aria-expanded"),listVisible:getComputedStyle(list).display!=="none"}];
   })));
 
   let state=await readState();
   if(Object.values(state).some(x=>x.expanded!=="true"||!x.listVisible))throw new Error(`Sections should default to expanded: ${JSON.stringify(state)}`);
+  const sideTagsAbsent=await page.evaluate(()=>!document.getElementById("sideTags")&&!document.querySelector('[data-sidebar-toggle="tags"]'));
+  if(!sideTagsAbsent)throw new Error("Tags sidebar section should be removed entirely, not just collapsible");
 
   // Each section collapses independently; manage buttons stay reachable.
   await page.click('[data-sidebar-toggle="characters"]');
   state=await readState();
   if(state.characters.expanded!=="false"||state.characters.listVisible)throw new Error("Characters section did not collapse");
-  if(state.chapters.expanded!=="true"||!state.chapters.listVisible||state.locations.expanded!=="true"||state.tags.expanded!=="true")throw new Error(`Collapsing one section affected another: ${JSON.stringify(state)}`);
+  if(state.chapters.expanded!=="true"||!state.chapters.listVisible||state.locations.expanded!=="true")throw new Error(`Collapsing one section affected another: ${JSON.stringify(state)}`);
   if(!await page.isVisible("#sidebarManageChars"))throw new Error("Manage button became unreachable while section is collapsed");
 
   await page.click('[data-sidebar-toggle="chapters"]');
@@ -34,7 +39,7 @@ try{
   // Persists across reload as a local UI preference (not project content).
   await page.reload({waitUntil:"networkidle"});
   state=await readState();
-  if(state.chapters.expanded!=="false"||state.characters.expanded!=="false"||state.locations.expanded!=="true"||state.tags.expanded!=="true")throw new Error(`Collapse state did not persist across reload: ${JSON.stringify(state)}`);
+  if(state.chapters.expanded!=="false"||state.characters.expanded!=="false"||state.locations.expanded!=="true")throw new Error(`Collapse state did not persist across reload: ${JSON.stringify(state)}`);
   const projectRaw=await page.evaluate(()=>localStorage.getItem("novelTimelineV11"));
   if(projectRaw.includes("sidebarSections"))throw new Error("Sidebar UI preference leaked into project content storage");
 

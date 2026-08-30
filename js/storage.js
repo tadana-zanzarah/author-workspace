@@ -113,10 +113,22 @@ function commitDataChange(mutator,{renderAfter=true,onSuccess,onError}={}){
   const result=commitProjectChange(data,mutator,{key:activeWorkspaceContext().storageKey});
   if(!result.ok){showStorageMessage(result.userMessage,"error");onError?.(result);return result}
   data=result.data;
-  const status=document.getElementById("saveStatus");
-  if(status)status.textContent=`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  setSaveStatus(`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`,{transient:true});
   clearStaleErrorBanner();
   onSuccess?.(data);if(renderAfter)render();return result;
+}
+// Save status is transient, on-demand feedback (spec: "workspace-density-navigation"),
+// not a permanent header fixture. A healthy idle project shows nothing here — the
+// underlying save/error state machine (storageBanner, dirty-trackers, cloud onState)
+// is unchanged; only how long the *text* lingers in the header changes.
+let saveStatusClearTimer=null;
+function setSaveStatus(text,{transient=false}={}){
+  const status=document.getElementById("saveStatus");
+  if(!status)return;
+  clearTimeout(saveStatusClearTimer);
+  status.textContent=text||"";
+  status.classList.toggle("is-active",!!text);
+  if(transient&&text)saveStatusClearTimer=setTimeout(()=>{status.textContent="";status.classList.remove("is-active")},2200);
 }
 function showStorageMessage(message,type="warning"){
   const banner=document.getElementById("storageBanner");if(!banner)return;
@@ -135,8 +147,7 @@ function saveData(){
   if(!storageWriteEnabled){showStorageMessage("Автосохранение отключено: проблемная база защищена от перезаписи.","error");return false}
   const result=persistProject(data,{key:activeWorkspaceContext().storageKey});
   if(!result.ok){showStorageMessage(result.userMessage,"error");return false}
-  const status=document.getElementById("saveStatus");
-  if(status)status.textContent=`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  setSaveStatus(`Сохранено ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`,{transient:true});
   clearStaleErrorBanner();
   return true;
 }
@@ -209,7 +220,7 @@ function initializeStorageNotice(){
     showStorageMessage(`Старая база ${startupLoadInfo.source} проверена и безопасно подготовлена для актуальной версии.`,"warning");
   }
 }
-const SIDEBAR_SECTION_KEYS=["chapters","characters","locations","tags"];
+const SIDEBAR_SECTION_KEYS=["chapters","characters","locations"];
 function loadUiState(){
   let storedSections={},storedMatrixContentMode={};
   try{
@@ -258,5 +269,5 @@ function toggleSidebarSection(key){
   saveUiState();
 }
 
-Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,syncSidebarEdgeToggle,applySidebarSectionState,toggleSidebarSection});
-export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,syncSidebarEdgeToggle,applySidebarSectionState,toggleSidebarSection};
+Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,setSaveStatus,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,syncSidebarEdgeToggle,applySidebarSectionState,toggleSidebarSection});
+export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,setSaveStatus,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,syncSidebarEdgeToggle,applySidebarSectionState,toggleSidebarSection};

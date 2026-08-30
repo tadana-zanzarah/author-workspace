@@ -144,12 +144,16 @@ async function saveChapterDraft(){
 
 /* ---------- Locations ---------- */
 
-function openLocationsManager(){
+function openLocationsManager(focusLocationId=null){
   closeProjectMenu();
   return requestEditorTransition(()=>{
     locationBaseline=data.locations.map(l=>({id:l.id,name:l.name,description:l.description}));
     locationDraft=locationBaseline.map(l=>({draftId:l.id,id:l.id,name:l.name,description:l.description}));
-    renderLocationsManager();showModal("locationsModal");trackerFor("locationsModal").captureInitialState();locationsSaveButton.refresh();
+    renderLocationsManager();
+    const initialFocus=focusLocationId?`.location-name-input[data-draft-id="${cssEscape(focusLocationId)}"]`:undefined;
+    showModal("locationsModal",{initialFocus});
+    if(initialFocus)document.querySelector(initialFocus)?.closest(".manager-row")?.scrollIntoView({block:"center"});
+    trackerFor("locationsModal").captureInitialState();locationsSaveButton.refresh();
   });
 }
 
@@ -362,5 +366,31 @@ function toggleChapter(id){
   commitDataChange(next=>{const chapter=next.chapters.find(c=>c.id===id);chapter.collapsed=!chapter.collapsed});
 }
 
-Object.assign(globalThis,{chapterById,locationById,tagById,writingStatusById,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openLocationsManager,renderLocationsManager,addLocationDraftRow,deleteLocationDraft,saveLocationDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter});
-export {chapterById,locationById,tagById,writingStatusById,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openLocationsManager,renderLocationsManager,addLocationDraftRow,deleteLocationDraft,saveLocationDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter};
+// Sidebar chapter navigation: the sidebar is entity access, not a filter control —
+// clicking a chapter scrolls the current chapter-grouped view (table/cards/list all
+// group by chapter, each carrying a stable [data-chapter-id] anchor) to that section
+// instead of narrowing scenes down to it. scrollIntoView reaches into whichever
+// ancestor actually scrolls, so this works regardless of viewport/scroll-container
+// changes elsewhere in this phase.
+function navigateToChapter(chapterId){
+  const target=document.querySelector(`[data-chapter-id="${cssEscape(chapterId)}"]`);
+  if(!target)return false;
+  const reduceMotion=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({behavior:reduceMotion?"auto":"smooth",block:"start"});
+  target.classList.add("chapter-nav-highlight");
+  setTimeout(()=>target.classList.remove("chapter-nav-highlight"),1600);
+  if(!target.hasAttribute("tabindex"))target.setAttribute("tabindex","-1");
+  target.focus({preventScroll:true});
+  return true;
+}
+
+// Sidebar location navigation: there is no standalone Location Profile surface yet
+// (deferred — see workspace-density-navigation report), so the "most concrete existing
+// context" is the Locations manager scrolled/focused to that specific row, instead of
+// silently reusing the location click as a scene filter.
+function openLocationEntity(locationId){
+  return openLocationsManager(locationId);
+}
+
+Object.assign(globalThis,{chapterById,locationById,tagById,writingStatusById,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openLocationsManager,renderLocationsManager,addLocationDraftRow,deleteLocationDraft,saveLocationDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter,openLocationEntity});
+export {chapterById,locationById,tagById,writingStatusById,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openLocationsManager,renderLocationsManager,addLocationDraftRow,deleteLocationDraft,saveLocationDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter,openLocationEntity};

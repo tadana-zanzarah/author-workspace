@@ -190,9 +190,25 @@ function seriesCard(series){
   else ordered.forEach(project=>projects.append(projectRow(project,ordered)));
   card.append(head,editor,projects);return card;
 }
+// Display name is a future field (nickname); email is today's fallback. Either way the
+// summary must accommodate a reasonably long string instead of clipping after a few
+// characters, and carries a small avatar so the account control reads as an identity,
+// not just a menu button — using the same initials-fallback convention as character
+// avatars in the matrix header (no new persisted avatar data; see report).
+function accountInitials(label){
+  const clean=String(label||"").replace(/@.*/,"").trim();
+  const parts=clean.split(/[\s._-]+/).filter(Boolean);
+  const initials=(parts[0]?.[0]||"")+(parts[1]?.[0]||"");
+  return (initials||clean[0]||"?").toUpperCase();
+}
+function renderAccountIdentity(avatarId,nameId){
+  const accountLabel=cloudState.profile?.display_name||cloudState.session?.user?.email||"Аккаунт";
+  const avatar=byId(avatarId);if(avatar)avatar.textContent=accountInitials(accountLabel);
+  const name=byId(nameId);if(name)name.textContent=accountLabel;
+}
 function renderDashboard(){
-  const accountLabel=cloudState.session?.user?.email||cloudState.profile?.display_name||"Аккаунт";
-  byId("accountName").textContent=`${accountLabel} ▾`;byId("workspaceAccountName").textContent=`${accountLabel} ▾`;
+  renderAccountIdentity("dashboardAccountAvatar","accountName");
+  renderAccountIdentity("workspaceAccountAvatar","workspaceAccountName");
   const seriesList=byId("seriesList");seriesList.replaceChildren();
   if(cloudState.series.length)cloudState.series.forEach(series=>seriesList.append(seriesCard(series)));
   else{const empty=document.createElement("p");empty.className="account-note";empty.textContent="Циклов пока нет.";seriesList.append(empty)}
@@ -225,11 +241,11 @@ async function openCloudProject(project){
   clearCloudMessages();
   byId("board").innerHTML='<div class="section-empty-state" role="status"><strong>Загрузка проекта…</strong></div>';
   const sync=createCloudProjectSync({projectId:project.id,api:cloudState.contentApi,characterApi:cloudState.characterApi,imageApi:cloudState.imageApi,onState:(status,payload)=>{
-    if(status==="loading")byId("saveStatus").textContent="Синхронизация…";
+    if(status==="loading")setSaveStatus("Синхронизация…");
     // A successful mutation must clear a save-error banner left by an earlier failed one —
     // otherwise it keeps showing a now-resolved problem until the page is reloaded, which made
     // it look like a stray leftover rather than tied to the save that actually failed.
-    else if(status==="saved"){byId("saveStatus").textContent="Сохранено";clearStaleErrorBanner()}
+    else if(status==="saved"){setSaveStatus("Сохранено",{transient:true});clearStaleErrorBanner()}
     else if(status==="conflict")showStorageMessage("Проект изменился в другом окне или на другом устройстве. Форма и черновик сохранены; загрузите актуальную версию или отмените операцию.","error");
     else if(status==="save-error")showStorageMessage(payload?.message||"Не удалось сохранить облачные изменения.","error");
   },onConflict:()=>setTimeout(async()=>{
@@ -245,7 +261,7 @@ async function openCloudProject(project){
       return;
     }
     data=loaded.data;storageWriteEnabled=true;normalizeSceneOrder();loadUiState();render();clearCloudMessages();
-    byId("saveStatus").textContent="Сохранено";
+    setSaveStatus("Сохранено",{transient:true});
   }catch(error){
     data=localBeforeLoad;storageWriteEnabled=false;normalizeSceneOrder();loadUiState();render();
     showStorageMessage("Не удалось загрузить облачный проект. Локальная копия показана только для восстановления; изменения не синхронизируются.","error");
@@ -376,7 +392,7 @@ function bindUi(){
   byId("newProjectModal").onclick=event=>{if(event.target.id==="newProjectModal")requestCloseModal("newProjectModal","backdrop")};
   byId("newSeriesModal").onclick=event=>{if(event.target.id==="newSeriesModal")requestCloseModal("newSeriesModal","backdrop")};
   byId("dashboardLogout").onclick=logout;byId("workspaceLogout").onclick=logout;
-  byId("backToProjects").onclick=returnToProjects;byId("workspaceProjects").onclick=returnToProjects;
+  byId("workspaceProjects").onclick=returnToProjects;
   byId("accountProjects").onclick=()=>{byId("dashboardAccountMenu").open=false};
   byId("downloadLegacyBackup").onclick=downloadLegacy;
   byId("dismissLegacyNotice").onclick=()=>{sessionStorage.setItem("authorWorkspace:legacy-notice-dismissed","true");byId("legacyNotice").hidden=true};

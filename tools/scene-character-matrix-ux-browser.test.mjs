@@ -220,7 +220,7 @@ try{
   await page.waitForTimeout(50);
 
   // 18) Existing edit path remains reachable from the redesigned matrix (row-level "Изменить").
-  await page.click('.scene-row[data-scene-id="scene-quarrel"] button:has-text("Изменить")');
+  await page.click('.scene-row[data-scene-id="scene-quarrel"] button[aria-label*="Изменить сцену"]');
   await page.waitForSelector("#sceneModal .modal");
   const editingSceneTitle=await page.evaluate(()=>document.getElementById("sceneTitle").value);
   if(editingSceneTitle!=="Ссора")throw new Error(`Edit path opened the wrong scene: "${editingSceneTitle}"`);

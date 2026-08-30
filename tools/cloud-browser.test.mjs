@@ -182,7 +182,7 @@ await page.fill("#sceneTitle","Scene only in A");await page.click("#saveScene");
 await page.getByText("Scene only in A",{exact:true}).waitFor();
 
 await page.evaluate(()=>{const node=document.getElementById("cloudFailure");node.hidden=false;node.textContent="old failure";document.getElementById("storageBanner").className="storage-banner error"});
-await page.click("#backToProjects");await page.waitForSelector("#projectsScreen:not([hidden])");
+await page.click("#workspaceAccountMenu > summary");await page.click("#workspaceProjects");await page.waitForSelector("#projectsScreen:not([hidden])");
 if(await page.locator("#cloudFailure").isVisible()||await page.locator("#storageBanner").isVisible())throw new Error("Successful top-left navigation kept stale cloud error");
 await projectRow("Project B").getByRole("button",{name:"Открыть"}).click();
 await page.waitForSelector('body[data-app-state="workspace"]');
@@ -211,7 +211,7 @@ await page.click("#signInButton");
 // dashboard to check the rest of the original assertion — all three projects still listed.
 await page.waitForSelector('body[data-app-state="workspace"]');
 if(await page.locator("#workspaceProjectTitle").innerText()!=="Project A")throw new Error("Login did not restore the last-open project (Project A)");
-await page.click("#backToProjects");
+await page.click("#workspaceAccountMenu > summary");await page.click("#workspaceProjects");
 await page.waitForSelector("#projectsScreen:not([hidden])");
 for(const title of ["Project A","Project B","Project C"])if(!await page.getByText(title,{exact:true}).count())throw new Error(`${title} missing after re-login`);
 await page.locator("#dashboardAccountMenu > summary").click();

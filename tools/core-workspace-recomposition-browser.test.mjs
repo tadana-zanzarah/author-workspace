@@ -243,7 +243,7 @@ try{
   }
   // 32) Edit action still reaches the existing scene modal (view/edit split).
   {
-    await page.click('.scene-row[data-scene-id="s1"] button:has-text("Изменить")');
+    await page.click('.scene-row[data-scene-id="s1"] button[aria-label*="Изменить сцену"]');
     await page.waitForSelector("#sceneModal .modal");
     const title=await page.evaluate(()=>document.getElementById("sceneTitle").value);
     if(title!=="Сцена А")throw new Error(`Edit path opened the wrong scene: ${title}`);
