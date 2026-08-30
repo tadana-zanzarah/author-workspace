@@ -198,18 +198,25 @@ function renderTableView(board){
     ${data.characters.map(c=>`<div class="head-cell matrix-head-cell"><button class="entity-link matrix-head-link" onclick="setFilter('character','${jsq(c.id)}')">${characterAvatarHtml(c)}<span class="matrix-head-name">${esc(c.name)}</span></button></div>`).join("")}
   </div>`;
   let shown=0;
+  const filtered=hasActiveFilters();
   data.chapters.forEach(chapter=>{
     const chapterScenes=data.scenes.map((scene,index)=>({scene,index})).filter(x=>x.scene.chapterId===chapter.id&&sceneMatches(x.scene));
     const allCount=data.scenes.filter(s=>s.chapterId===chapter.id).length;
-    if(!chapterScenes.length&&hasActiveFilters())return;
-    html+=renderChapterDivider(chapter,allCount,hasActiveFilters()?chapterScenes.length:null);
+    if(!chapterScenes.length&&filtered)return;
+    html+=renderChapterDivider(chapter,allCount,filtered?chapterScenes.length:null);
     if(chapter.collapsed)return;
     if(!chapterScenes.length){
-      html+=`<div class="insert-row"><div class="chapter-empty">В этой главе пока нет сцен<br><button data-action="insert-scene" data-before-scene-id="${esc(firstSceneIdAfterChapter(chapter.id)||"")}" data-chapter-id="${esc(chapter.id)}">＋ Добавить сцену</button></div></div>`;
+      const emptyPosition=buildChapterInsertionPositions(chapter.id)[0];
+      html+=`<div class="insert-row"><div class="chapter-empty">В этой главе пока нет сцен<br><button data-action="insert-scene" data-before-scene-id="${esc(emptyPosition.beforeSceneId||"")}" data-chapter-id="${esc(chapter.id)}" aria-label="${esc(describeInsertionPosition(emptyPosition))}">＋ Добавить сцену</button></div></div>`;
       return;
     }
-    chapterScenes.forEach(({scene,index})=>{shown++;html+=renderTableScene(scene,index,chapter)});
-    html+=insertBar(firstSceneIdAfterChapter(chapter.id),chapter.id,"＋ добавить в конец главы");
+    const positions=filtered?null:buildChapterInsertionPositions(chapter.id);
+    chapterScenes.forEach(({scene,index})=>{
+      shown++;
+      if(positions)html+=insertBar(positions.find(p=>p.beforeSceneId===scene.id)||positions[0]);
+      html+=renderTableScene(scene,index,chapter);
+    });
+    if(positions)html+=insertBar(positions[positions.length-1]);
   });
   if(!shown&&hasActiveFilters())html+=emptySearchMessage();
   board.innerHTML=html;
@@ -279,8 +286,7 @@ function renderTableScene(scene,i,chapter){
   const hasDateConflict=chronologicalWarning(i);
   const loc=locationById(scene.locationId);
   const ws=writingStatusById(scene.writingStatus);
-  let html=insertBar(scene.id,chapter.id);
-  html+=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" data-scene-id="${esc(scene.id)}"
+  let html=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" data-scene-id="${esc(scene.id)}"
     onclick="selectScene('${jsq(scene.id)}')" ondragover="dragOver(event,'${jsq(scene.id)}')"
     ondragleave="dragLeave(event)" ondrop="dropScene(event,'${jsq(scene.id)}')" ondragend="dragEnd(event)">`;
   html+=`<div class="cell time-cell sticky-cell">
@@ -296,6 +302,7 @@ function renderTableScene(scene,i,chapter){
     ${hasDateConflict?'<div class="date-status-note conflict">Дата конфликтует с хронологией соседних сцен</div>':""}
     <label class="include-toggle"><input type="checkbox" ${scene.included!==false?"checked":""} onchange="toggleIncluded('${jsq(scene.id)}',this.checked)"> включить в работу</label>
     <div class="row-actions">
+      ${sceneReorderButtonsHtml(scene)}
       <button onclick="event.stopPropagation();openSceneText('${jsq(scene.id)}')">Текст</button>
       <button onclick="event.stopPropagation();editScene('${jsq(scene.id)}')">Изменить</button>
       <button class="danger" onclick="event.stopPropagation();deleteScene('${jsq(scene.id)}')">Удалить</button>
@@ -307,10 +314,41 @@ function renderTableScene(scene,i,chapter){
   return html+`</div>`;
 }
 
+// Cards keep their existing flat card look (no drag here — cards never had it),
+// but now group by chapter and expose the same N+1 click-to-create positions and
+// keyboard move buttons as the other two views, so the position model reads the
+// same everywhere.
 function renderCardsView(board){
-  const entries=getVisibleSceneEntries();
   board.style.removeProperty("--cols");
-  board.innerHTML=entries.length?`<div class="scene-cards-grid">${entries.map(({scene,index})=>renderCompactCard(scene,index)).join("")}</div>`:emptySceneMessage();
+  const filtered=hasActiveFilters();
+  const sections=data.chapters.map(chapter=>{
+    const chapterEntries=data.scenes.map((scene,index)=>({scene,index})).filter(x=>x.scene.chapterId===chapter.id&&sceneMatches(x.scene));
+    const allCount=data.scenes.filter(s=>s.chapterId===chapter.id).length;
+    if(!chapterEntries.length&&filtered)return "";
+    let cards;
+    if(!chapterEntries.length){
+      const emptyPosition=buildChapterInsertionPositions(chapter.id)[0];
+      cards=`<div class="card-position-empty"><span>Сцен пока нет</span><button type="button" data-action="insert-scene" data-before-scene-id="${esc(emptyPosition.beforeSceneId||"")}" data-chapter-id="${esc(chapter.id)}" aria-label="${esc(describeInsertionPosition(emptyPosition))}">＋ Добавить сцену</button></div>`;
+    }else{
+      const positions=filtered?null:buildChapterInsertionPositions(chapter.id);
+      cards=(positions?cardPositionTile(positions[0]):"")+chapterEntries.map(({scene,index},i)=>renderCompactCard(scene,index)+(positions?cardPositionTile(positions[i+1]):"")).join("");
+    }
+    const countNote=filtered&&allCount!==chapterEntries.length?` <span class="compact-chapter-count">(${chapterEntries.length} из ${allCount})</span>`:"";
+    return `<section class="card-chapter-group" data-chapter-id="${esc(chapter.id)}">
+      <h3 class="compact-chapter-title">${esc(chapter.title)}${countNote}</h3>
+      <div class="scene-cards-grid">${cards}</div>
+    </section>`;
+  }).join("");
+  board.innerHTML=sections||emptySceneMessage();
+}
+
+function cardPositionTile(position){
+  const label=describeInsertionPosition(position);
+  const dropLabel=describeDropPosition(position);
+  return `<button type="button" class="card-position-insert" data-action="insert-scene" data-before-scene-id="${esc(position.beforeSceneId||"")}" data-chapter-id="${esc(position.chapterId)}" aria-label="${esc(label)}">
+    <span class="position-plus" aria-hidden="true">＋</span>
+    <span class="position-drop-label" aria-hidden="true">↓ ${esc(dropLabel)}</span>
+  </button>`;
 }
 
 function renderCompactCard(scene,index){
@@ -328,6 +366,7 @@ function renderCompactCard(scene,index){
     <div class="scene-meta">${charIds.map(id=>`<button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('character','${jsq(id)}')">👤 ${esc(characterName(id))}</button>`).join("")}</div>
     ${tags.length?`<div class="scene-meta">${tags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}</button>`).join("")}</div>`:""}
     ${description?`<div class="compact-card-description">${esc(description)}</div>`:""}
+    <div class="card-actions">${sceneReorderButtonsHtml(scene)}</div>
   </article>`;
 }
 
@@ -337,7 +376,7 @@ function renderListView(board){
   const row=(scene,index)=>{
     const loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
     return `<tr data-scene-id="${esc(scene.id)}" class="compact-scene-row ${selectedSceneIndex===index?"selected-scene":""}" onclick="selectScene('${jsq(scene.id)}')" ondblclick="editScene('${jsq(scene.id)}')">
-      <td class="compact-handle-cell"><button type="button" class="compact-drag-handle" draggable="${disabled?"false":"true"}" ${disabled?"disabled":""} aria-label="Перетащить сцену ${esc(scene.title||"Без названия")}" title="${disabled?"Чтобы менять порядок сцен, сбросьте фильтры.":"Перетащить сцену"}" ondragstart="compactDragStart(event,'${jsq(scene.id)}')" ondragend="compactDragEnd()">↕</button></td>
+      <td class="compact-handle-cell"><button type="button" class="compact-drag-handle" draggable="${disabled?"false":"true"}" ${disabled?"disabled":""} aria-label="Перетащить сцену ${esc(scene.title||"Без названия")}" title="${disabled?"Чтобы менять порядок сцен, сбросьте фильтры.":"Перетащить сцену"}" ondragstart="compactDragStart(event,'${jsq(scene.id)}')" ondragend="compactDragEnd()">↕</button>${sceneReorderButtonsHtml(scene)}</td>
       <td>${esc(readableDate(scene)||"—")}</td>
       <td class="title-cell quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(scene.title||"Без названия")}</td>
       <td>${sceneCharacterIds(scene).map(id=>`<button class="entity-link" onclick="event.stopPropagation();setFilter('character','${jsq(id)}')">${esc(characterName(id))}</button>`).join(", ")||"—"}</td>
@@ -348,8 +387,8 @@ function renderListView(board){
   const groups=data.chapters.map(chapter=>{
     const entries=data.scenes.map((scene,index)=>({scene,index})).filter(({scene})=>scene.chapterId===chapter.id&&sceneMatches(scene));
     const allCount=data.scenes.filter(s=>s.chapterId===chapter.id).length;
-    const positions=entries.map(({scene,index})=>`${compactDropPosition(chapter.id,scene.id)}${row(scene,index)}`).join("");
-    const tailRow=entries.length?compactDropPosition(chapter.id,null,false):allCount?compactFilteredEmptyRow(chapter.id,allCount):compactDropPosition(chapter.id,null,true);
+    const positions=entries.map(({scene,index})=>`${compactDropPosition(chapter.id,scene.id,false,disabled)}${row(scene,index)}`).join("");
+    const tailRow=entries.length?compactDropPosition(chapter.id,null,false,disabled):allCount?compactFilteredEmptyRow(chapter.id,allCount):compactDropPosition(chapter.id,null,true,disabled);
     const countNote=disabled&&allCount!==entries.length?` <span class="compact-chapter-count">(${entries.length} из ${allCount})</span>`:"";
     return `<section class="compact-chapter-group" data-chapter-id="${esc(chapter.id)}">
       <h3 class="compact-chapter-title">${esc(chapter.title)}${countNote}</h3>
@@ -364,8 +403,16 @@ function renderListView(board){
   board.innerHTML=`${notice}<div class="compact-list-wrap">${groups}</div>`;
 }
 
-function compactDropPosition(chapterId,beforeSceneId=null,empty=false){
-  return `<tr class="compact-drop-position ${empty?"compact-empty-drop":""}" data-compact-drop-chapter-id="${esc(chapterId)}" data-before-scene-id="${esc(beforeSceneId||"")}" ondragover="compactDragOver(event)" ondragleave="compactDragLeave(event)" ondrop="compactDropScene(event,{chapterId:'${jsq(chapterId)}',beforeSceneId:${beforeSceneId?`'${jsq(beforeSceneId)}'`:"null"}})"><td colspan="6"><span>${empty?"Сцен пока нет · Вставить сюда":"Вставить сюда"}</span></td></tr>`;
+// Same {chapterId,beforeSceneId} destination doubles as a click-to-create position
+// (rendered as a quiet "+") and a drag-and-drop target (highlighted via .active by
+// compactDragOver, unchanged) — one row, two ways to land a scene at that spot.
+function compactDropPosition(chapterId,beforeSceneId=null,empty=false,disabled=false){
+  const positions=buildChapterInsertionPositions(chapterId);
+  const position=positions.find(p=>p.beforeSceneId===(beforeSceneId||null)&&(p.kind==="empty")===empty)||positions[positions.length-1];
+  const insertLabel=describeInsertionPosition(position);
+  const dropLabel=describeDropPosition(position);
+  const insertButton=disabled?"":`<button type="button" class="compact-position-insert ${empty?"compact-position-insert-empty":""}" data-action="insert-scene" data-before-scene-id="${esc(beforeSceneId||"")}" data-chapter-id="${esc(chapterId)}" aria-label="${esc(insertLabel)}" onclick="event.stopPropagation()">＋${empty?" Добавить сцену":""}</button>`;
+  return `<tr class="compact-drop-position ${empty?"compact-empty-drop":""}" data-compact-drop-chapter-id="${esc(chapterId)}" data-before-scene-id="${esc(beforeSceneId||"")}" ondragover="compactDragOver(event)" ondragleave="compactDragLeave(event)" ondrop="compactDropScene(event,{chapterId:'${jsq(chapterId)}',beforeSceneId:${beforeSceneId?`'${jsq(beforeSceneId)}'`:"null"}})"><td colspan="6">${empty?'<span class="compact-empty-note">Сцен пока нет</span>':""}${insertButton}<span class="compact-position-drop-label" aria-hidden="true">↓ ${esc(dropLabel)}</span></td></tr>`;
 }
 
 function compactFilteredEmptyRow(chapterId,totalCount){
@@ -375,5 +422,5 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
-export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardPositionTile,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
+export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardPositionTile,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};

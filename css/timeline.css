@@ -170,3 +170,41 @@
   }
   .matrix-toggle-option{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-primary);cursor:pointer}
   .matrix-toggle-option input{width:auto;flex:none}
+
+  /* Scene position model — quiet N+1 insertion gaps + move-here drop state (table view). */
+  .scene-position-row{min-height:9px;background:transparent;border-bottom:0}
+  .scene-position-row .insert-content{padding:0;height:100%}
+  .scene-position-btn{
+    width:100%;min-height:9px;border:0;background:transparent;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;position:relative;padding:3px 0;border-radius:0;
+  }
+  .scene-position-btn::before{
+    content:"";position:absolute;left:14px;right:14px;top:50%;height:1px;
+    background:var(--border-faint);transform:translateY(-50%);transition:background var(--motion-base,.12s ease);
+  }
+  .position-plus{
+    position:relative;z-index:1;width:20px;height:20px;border-radius:999px;
+    display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1;
+    color:var(--brand);background:var(--surface-elevated);border:1px solid var(--border-subtle);
+    opacity:0;transform:scale(.55);transition:opacity var(--motion-base,.12s ease),transform var(--motion-base,.12s ease);
+  }
+  .position-drop-label{
+    display:none;position:relative;z-index:1;font-size:11px;font-weight:700;color:#fff;
+    background:var(--brand);border-radius:999px;padding:3px 10px;white-space:nowrap;
+  }
+  .scene-position-row:hover,.scene-position-row:focus-within{min-height:26px}
+  .scene-position-row:hover .position-plus,.scene-position-row:focus-within .position-plus{opacity:1;transform:scale(1)}
+  .scene-position-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  body.scene-drag-active .scene-position-row{min-height:16px}
+  body.scene-drag-active .scene-position-btn::before{background:var(--border-subtle)}
+  body.scene-drag-active .position-plus{display:none}
+  body.scene-drag-active .position-drop-label{display:block}
+
+  /* Keyboard reorder alternative to drag: one step within the scene's chapter. */
+  .scene-reorder-buttons{display:inline-flex;gap:3px}
+  .scene-reorder-btn{padding:3px 6px!important;font-size:11px!important;line-height:1}
+  .scene-reorder-btn:disabled{opacity:.35;cursor:not-allowed}
+
+  @media(prefers-reduced-motion:reduce){
+    .scene-position-row,.position-plus,.scene-position-btn::before{transition:none!important}
+  }

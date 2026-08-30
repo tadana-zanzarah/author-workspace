@@ -60,10 +60,37 @@ function selectScene(sceneId){
   document.querySelectorAll("[data-scene-id]").forEach(el=>el.classList.toggle("selected-scene",el.dataset.sceneId===sceneId));
 }
 
-function insertBar(beforeSceneId,chapterId,label="＋ вставить сцену здесь"){
-  return `<div class="insert-row"><div class="insert-content">
-    <button data-action="insert-scene" data-before-scene-id="${esc(beforeSceneId||"")}" data-chapter-id="${esc(chapterId)}">${label}</button>
-  </div></div>`;
+// Quiet-by-default N+1 insertion control: a thin divider that expands into a
+// clickable "+" on hover/focus, and swaps to a "move here" affordance while a
+// scene drag is in progress (see body.scene-drag-active in css/timeline.css).
+// The accessible name always names the concrete neighbor scene(s), even though
+// the visible label stays a plain "+".
+function insertBar(position){
+  const label=describeInsertionPosition(position);
+  const dropLabel=describeDropPosition(position);
+  return `<div class="insert-row scene-position-row" data-position-kind="${esc(position.kind)}">
+    <div class="insert-content">
+      <button type="button" class="scene-position-btn" data-action="insert-scene" data-before-scene-id="${esc(position.beforeSceneId||"")}" data-chapter-id="${esc(position.chapterId)}" aria-label="${esc(label)}">
+        <span class="position-plus" aria-hidden="true">＋</span>
+        <span class="position-drop-label" aria-hidden="true">↓ ${esc(dropLabel)}</span>
+      </button>
+    </div>
+  </div>`;
+}
+
+// Accessible alternative to drag-and-drop reorder: move one step within the
+// scene's own chapter. Present in every view (table, compact list, cards) so
+// reorder never depends on drag support or a pointer device.
+function sceneReorderButtonsHtml(scene){
+  const disabled=hasActiveFilters();
+  const canUp=!disabled&&!!siblingMoveUpTarget(scene.id);
+  const canDown=!disabled&&!!siblingMoveDownTarget(scene.id);
+  const title=disabled?"Чтобы менять порядок сцен, сбросьте фильтры.":"";
+  const sceneTitle=scene.title||"Без названия";
+  return `<span class="scene-reorder-buttons">
+    <button type="button" class="scene-reorder-btn" ${canUp?"":"disabled"} title="${esc(title)}" aria-label="Переместить сцену «${esc(sceneTitle)}» выше" onclick="event.stopPropagation();moveSceneUp('${jsq(scene.id)}')">↑</button>
+    <button type="button" class="scene-reorder-btn" ${canDown?"":"disabled"} title="${esc(title)}" aria-label="Переместить сцену «${esc(sceneTitle)}» ниже" onclick="event.stopPropagation();moveSceneDown('${jsq(scene.id)}')">↓</button>
+  </span>`;
 }
 
 function normalizeSceneOrder(){
@@ -415,5 +442,5 @@ async function deleteScene(sceneId){
   render();
 }
 
-Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
-export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};
+Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
+export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};
