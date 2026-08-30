@@ -7,6 +7,7 @@ function dragStart(event,sceneId){
   draggedSceneId=sceneId;
   const row=event.currentTarget.closest(".scene-row");
   row?.classList.add("dragging");
+  document.body.classList.add("scene-drag-active");
   event.dataTransfer.effectAllowed="move";
   event.dataTransfer.setData("text/plain",sceneId);
 }
@@ -36,6 +37,11 @@ function autoscrollSceneViewport(clientY){
 
 function dragLeave(event){event.currentTarget.classList.remove("drop-before","drop-after")}
 
+// Resolve a table-view "dropped on this row, above/below its midpoint" gesture into
+// the same {chapterId,beforeSceneId} destination shape every other move/insert path
+// uses, then hand off to compactMoveScene — the one place that already knows how to
+// detect a genuine no-op and skip the mutation/save (previously this view mutated
+// unconditionally even when the drop was a true no-op).
 async function dropScene(event,targetSceneId){
   event.preventDefault();
   const row=event.currentTarget;
@@ -44,29 +50,19 @@ async function dropScene(event,targetSceneId){
   row.classList.remove("drop-before","drop-after");
   if(!draggedSceneId||draggedSceneId===targetSceneId)return;
   const movedId=draggedSceneId;
-  if(isCloudWorkspace()){
-    const targetScene=sceneById(targetSceneId);if(!targetScene)return;
-    const sameChapter=data.scenes.filter(scene=>scene.chapterId===targetScene.chapterId&&scene.id!==movedId);
-    const targetIndex=sameChapter.findIndex(scene=>scene.id===targetSceneId);
-    const beforeSceneId=after?(sameChapter[targetIndex+1]?.id||null):targetSceneId;
-    const result=await runCloudMutation("moveScene",(api,revision)=>api.moveScene(cloudProjectSync.projectId,movedId,revision,{chapterId:targetScene.chapterId==="chapter-unassigned"?null:targetScene.chapterId,beforeSceneId}));
-    if(result.ok)draggedSceneId=null;return result;
-  }
-  const result=commitDataChange(next=>{
-    const movedIndex=next.scenes.findIndex(s=>s.id===movedId);
-    const targetScene=next.scenes.find(s=>s.id===targetSceneId);
-    if(movedIndex<0||!targetScene)throw new Error("scene missing");
-    const [moved]=next.scenes.splice(movedIndex,1);
-    moved.chapterId=targetScene.chapterId;
-    let targetIndex=next.scenes.findIndex(s=>s.id===targetSceneId);if(after)targetIndex++;
-    moved.dateReview=true;
-    next.scenes.splice(targetIndex,0,moved);
-  },{renderAfter:false});
-  if(result.ok){draggedSceneId=null;render()}
+  const targetScene=sceneById(targetSceneId);
+  if(!targetScene)return;
+  const siblings=data.scenes.filter(scene=>scene.chapterId===targetScene.chapterId&&scene.id!==movedId);
+  const targetIndex=siblings.findIndex(scene=>scene.id===targetSceneId);
+  const beforeSceneId=after?(siblings[targetIndex+1]?.id||null):targetSceneId;
+  const result=await compactMoveScene(movedId,{chapterId:targetScene.chapterId,beforeSceneId});
+  if(result.ok){draggedSceneId=null;if(!result.unchanged)render()}
+  return result;
 }
 
 function dragEnd(){
   draggedSceneId=null;
+  document.body.classList.remove("scene-drag-active");
   document.querySelectorAll(".scene-row").forEach(r=>r.classList.remove("dragging","drop-before","drop-after"));
 }
 
@@ -78,6 +74,7 @@ function compactDragStart(event,sceneId){
   }
   draggedSceneId=sceneId;
   event.currentTarget.closest(".compact-scene-row")?.classList.add("dragging");
+  document.body.classList.add("scene-drag-active");
   event.dataTransfer.effectAllowed="move";
   event.dataTransfer.setData("text/plain",sceneId);
 }
@@ -149,6 +146,7 @@ async function compactDropScene(event,position,sceneId=draggedSceneId){
 
 function compactDragEnd(){
   draggedSceneId=null;
+  document.body.classList.remove("scene-drag-active");
   document.querySelectorAll(".compact-scene-row.dragging,.compact-drop-position.active").forEach(node=>node.classList.remove("dragging","active"));
 }
 
@@ -220,6 +218,7 @@ function sortDragStart(event){
   if(!row)return;
   sortDraggedSceneId=row.dataset.sortSceneId;
   row.classList.add("dragging");
+  document.body.classList.add("scene-drag-active");
   event.dataTransfer.effectAllowed="move";
   event.dataTransfer.setData("text/plain",sortDraggedSceneId);
 }
@@ -246,22 +245,16 @@ async function sortDrop(event){
   const after=event.clientY>rect.top+rect.height/2;
   if(targetId!==sortDraggedSceneId){
     const movedId=sortDraggedSceneId;
-    if(isCloudWorkspace()){
-      const target=sceneById(targetId);if(!target)return;
-      const siblings=data.scenes.filter(scene=>scene.chapterId===target.chapterId&&scene.id!==movedId);
-      const index=siblings.findIndex(scene=>scene.id===targetId),beforeSceneId=after?(siblings[index+1]?.id||null):targetId;
-      const result=await runCloudMutation("moveScene",(api,revision)=>api.moveScene(cloudProjectSync.projectId,movedId,revision,{chapterId:target.chapterId==="chapter-unassigned"?null:target.chapterId,beforeSceneId}));
-      if(!result.ok)return;sortDraggedSceneId=null;renderSortScenes();return;
-    }
-    const result=commitDataChange(next=>{
-      const movedIndex=next.scenes.findIndex(s=>s.id===movedId);
-      const targetScene=next.scenes.find(s=>s.id===targetId);
-      if(movedIndex<0||!targetScene)throw new Error("scene missing");
-      const [moved]=next.scenes.splice(movedIndex,1);moved.chapterId=targetScene.chapterId;
-      let targetIndex=next.scenes.findIndex(s=>s.id===targetId);if(after)targetIndex++;
-      moved.dateReview=true;next.scenes.splice(targetIndex,0,moved);
-    },{renderAfter:false});
+    const target=sceneById(targetId);
+    if(!target)return;
+    const siblings=data.scenes.filter(scene=>scene.chapterId===target.chapterId&&scene.id!==movedId);
+    const index=siblings.findIndex(scene=>scene.id===targetId),beforeSceneId=after?(siblings[index+1]?.id||null):targetId;
+    const result=await compactMoveScene(movedId,{chapterId:target.chapterId,beforeSceneId});
     if(!result.ok)return;
+    sortDraggedSceneId=null;
+    renderSortScenes();
+    if(!result.unchanged)render();
+    return;
   }
   sortDraggedSceneId=null;
   renderSortScenes();
@@ -270,6 +263,7 @@ async function sortDrop(event){
 
 function sortDragEnd(){
   sortDraggedSceneId=null;
+  document.body.classList.remove("scene-drag-active");
   document.querySelectorAll(".sort-scene-row").forEach(row=>row.classList.remove("dragging","drop-before","drop-after"));
 }
 

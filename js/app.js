@@ -14,6 +14,7 @@ import "./scenes.js";
 import "./characters.js";
 import "./chapters.js";
 import "./filters.js";
+import "./scene-positions.js";
 import "./render.js";
 import "./drag-drop.js";
 import "./import-export.js";
@@ -405,6 +406,18 @@ document.getElementById("board").addEventListener("click",event=>{
   openNewSceneAt(button.dataset.beforeSceneId||null,button.dataset.chapterId||"");
 });
 document.getElementById("addFirst").onclick=()=>openNewSceneAt(null,filters.chapter||data.chapters[0]?.id||"chapter-unassigned");
+// A positional create ("insert before scene X" in chapter A) carries insertBeforeSceneId
+// that only makes sense in chapter A. If the user then changes the chapter dropdown to B,
+// reusing that stale id would save a scene in B with a position derived from A's neighbors
+// (docs/cloud-content-architecture.md's move_scene semantics don't apply to create, so this
+// silently produces an arbitrary in-chapter position). Reset to the safe append policy for
+// whichever chapter ends up selected instead of attempting a cross-chapter remap.
+document.getElementById("sceneChapter").onchange=function(){
+  if(editingSceneId)return;
+  const target=resolveCreateInsertionTarget(insertChapterId,insertBeforeSceneId,this.value);
+  insertChapterId=target.chapterId;
+  insertBeforeSceneId=target.beforeSceneId;
+};
 document.getElementById("cancelScene").onclick=()=>requestCloseModal("sceneModal","button");
 document.getElementById("sceneModal").onclick=e=>{if(e.target.id==="sceneModal")requestCloseModal("sceneModal","backdrop")};
 
