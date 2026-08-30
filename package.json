@@ -22,6 +22,7 @@
     "test:blocking-browser": "node tools/blocking-regressions-browser.test.mjs",
     "test:compact-dnd-browser": "node tools/compact-list-dnd-browser.test.mjs",
     "test:character-order-browser": "node tools/character-order-browser.test.mjs",
+    "test:character-order-real": "node tools/character-order-real-browser.test.mjs",
     "test:sidebar-collapse-browser": "node tools/sidebar-collapse-browser.test.mjs",
     "test:scene-participants-browser": "node tools/scene-participants-browser.test.mjs",
     "test:scene-modal-scroll-browser": "node tools/scene-modal-scroll-browser.test.mjs",
