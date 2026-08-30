@@ -36,6 +36,45 @@ try{
   assert(conflicts.global==="CHARACTER_REVISION_CONFLICT"&&conflicts.override==="REVISION_CONFLICT"&&conflicts.participation==="REVISION_CONFLICT"&&conflicts.relation==="REVISION_CONFLICT"&&conflicts.link==="GLOBAL_LINK_REVISION_CONFLICT",`conflict matrix failed: ${JSON.stringify(conflicts)}`);
   const removal=await b.evaluate(async({pa,pc})=>{const ca=cloudState.characterApi,s=await cloudState.contentApi.loadProjectContent(pa),blocked=await ca.removeProjectCharacter(pa,pc.id,s.revision),cleaned=await ca.removeProjectCharacter(pa,pc.id,s.revision,{cleanupDependencies:true}),chars=await ca.listCharacters();return {blocked,cleaned,stillGlobal:chars.data.some(x=>x.id===pc.character_id)}},{pa:projects.a.id,pc:created.pcA});
   assert(removal.blocked.code==="DEPENDENCIES_EXIST"&&removal.cleaned.ok&&removal.stillGlobal,"dependency cleanup contract failed");
-  report={browserA:true,browserB:true,oneIdentity:true,projectOverrideIsolation:true,sceneParticipation:true,emotionalRelations:true,linkScopes:true,conflicts,dependencyCleanup:true};
+
+  // fix/project-character-reattach acceptance: the character removed above (with dependency
+  // cleanup) must be re-attachable to the same project by reactivating the same row, not blocked
+  // as DUPLICATE forever and not creating a second row.
+  const reattach=await b.evaluate(async({pa,pb,characterId})=>{
+    const ca=cloudState.characterApi,content=cloudState.contentApi;
+    const before=await content.loadProjectContent(pa);
+    const stale=await ca.attachProjectCharacter(pa,characterId,before.revision-1,{role:"newrole",sortOrder:5000,overrides:{age:"99"}});
+    const fresh=await ca.attachProjectCharacter(pa,characterId,before.revision,{role:"newrole",sortOrder:5000,overrides:{age:"99"}});
+    const dup=await ca.attachProjectCharacter(pa,characterId,fresh.revision,{});
+    const afterFirst=await content.loadProjectContent(pa);
+    const removedAgain=await ca.removeProjectCharacter(pa,fresh.data.id,dup.revision);
+    const [race1,race2]=await Promise.all([
+      ca.attachProjectCharacter(pa,characterId,removedAgain.revision,{sortOrder:1}),
+      ca.attachProjectCharacter(pa,characterId,removedAgain.revision,{sortOrder:2})
+    ]);
+    const finalA=await content.loadProjectContent(pa),finalB=await content.loadProjectContent(pb);
+    return {stale,fresh,dup,afterFirst,removedAgain,race1,race2,finalA,finalB};
+  },{pa:projects.a.id,pb:projects.b.id,characterId:created.A.id});
+  assert(reattach.stale.code==="REVISION_CONFLICT"&&!reattach.stale.ok,"stale expected_revision on attach_project_character must return REVISION_CONFLICT");
+  assert(reattach.fresh.ok&&reattach.fresh.code==="OK",`reattach after cleanup-remove must succeed: ${JSON.stringify(reattach.fresh)}`);
+  const reactivated=reattach.fresh.data;
+  assert(reactivated.id===created.pcA.id,"reattach must reactivate the same project_characters row, not insert a new one");
+  assert(reactivated.removed_at===null,"reactivated row must have removed_at cleared");
+  assert(reactivated.role==="newrole"&&Number(reactivated.sort_order)===5000&&reactivated.overrides.age==="99","reattach must apply the fresh call arguments, replacing the dormant pre-removal overrides/role/sort_order");
+  assert(reattach.dup.code==="DUPLICATE"&&reattach.dup.revision===reattach.fresh.revision,"attaching the now-active character again must be a true no-mutation duplicate");
+  const pcRowsAfterFirst=reattach.afterFirst.data.project_characters.filter(x=>x.character_id===created.A.id);
+  assert(pcRowsAfterFirst.length===1,"exactly one participation row must exist for the project/character pair after reattach");
+  assert(!reattach.afterFirst.data.scene_characters.some(x=>x.project_character_id===reactivated.id),"reattach must not resurrect cleaned-up scene_characters");
+  assert(!reattach.afterFirst.data.project_character_relations.some(x=>x.from_project_character_id===reactivated.id||x.to_project_character_id===reactivated.id),"reattach must not resurrect cleaned-up relations");
+  assert(!reattach.afterFirst.data.scene_relation_changes.some(x=>x.from_project_character_id===reactivated.id||x.to_project_character_id===reactivated.id),"reattach must not resurrect cleaned-up scene relation changes");
+  assert(reattach.removedAgain.ok,"second remove (no lingering dependencies expected after cleanup) must succeed");
+  const raceResults=[reattach.race1,reattach.race2],winners=raceResults.filter(x=>x.ok&&x.code==="OK"),losers=raceResults.filter(x=>!(x.ok&&x.code==="OK"));
+  assert(winners.length===1&&losers.length===1&&losers[0].code==="REVISION_CONFLICT",`concurrent reattach with the same expected_revision must let exactly one succeed and reject the other with REVISION_CONFLICT: ${JSON.stringify(raceResults)}`);
+  const finalPcRows=reattach.finalA.data.project_characters.filter(x=>x.character_id===created.A.id);
+  assert(finalPcRows.length===1&&finalPcRows[0].removed_at===null,"exactly one active participation row must remain after concurrent reattach");
+  const pbRow=reattach.finalB.data.project_characters.find(x=>x.character_id===created.A.id);
+  assert(pbRow&&pbRow.overrides.age==="27","project B's own participation/overrides for the shared character must be unaffected by project A's remove/reattach churn");
+
+  report={browserA:true,browserB:true,oneIdentity:true,projectOverrideIsolation:true,sceneParticipation:true,emotionalRelations:true,linkScopes:true,conflicts,dependencyCleanup:true,reattachStaleRevisionConflict:true,reattachReactivatesSameRow:true,reattachAppliesFreshState:true,reattachActiveDuplicateNoOp:true,reattachNoDependencyResurrection:true,concurrentReattachSingleWinner:true,reattachProjectBIsolation:true};
 }finally{try{const page=b||a;if(page){const counts=await cleanup(page);assert(Object.values(counts).every(x=>x===0),`fixture cleanup incomplete: ${JSON.stringify(counts)}`)}}finally{for(const context of contexts)await context.close();await browser.close()}}
 console.log(JSON.stringify({ok:true,...report,fixtures:0,orphans:0}));
