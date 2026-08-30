@@ -92,7 +92,7 @@ function renderProfiles(){
 }
 
 function characterSceneEntries(characterId){
-  return data.scenes.map((scene,index)=>({scene,index})).filter(x=>personHasContent(x.scene.people?.[characterId]));
+  return data.scenes.map((scene,index)=>({scene,index})).filter(x=>sceneHasParticipant(x.scene,characterId));
 }
 
 function characterLocations(characterId){

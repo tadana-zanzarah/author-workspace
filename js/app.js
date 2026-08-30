@@ -286,9 +286,8 @@ document.getElementById("saveScene").onclick=async()=>{
     const relationChanges=Object.fromEntries(Object.entries(p.relationChanges||{}).map(([target,value])=>[target,(value||"").trim()]));
     const visibleRelations=[...(p.visibleRelations||[])];
 
-    if(action||legacyState||Object.keys(relationChanges).length||visibleRelations.length){
-      scene.people[charId]={action,relationChanges,visibleRelations,legacyState};
-    }
+    // Ключ в sceneParticipantDraft — явное решение "персонаж в сцене"; сохраняем его даже без текста.
+    scene.people[charId]={action,relationChanges,visibleRelations,legacyState};
   });
 
   if(isCloudWorkspace()){

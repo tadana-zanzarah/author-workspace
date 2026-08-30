@@ -68,7 +68,7 @@ function renderSidebar(){
   const countBy=predicate=>data.scenes.filter(predicate).length;
   const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
   document.getElementById("sideChapters").innerHTML=userChapters.map(c=>`<button class="sidebar-item ${filters.chapter===c.id?"active":""}" onclick="setFilter('chapter','${jsq(c.id)}')">${esc(c.title)}<span class="sidebar-count">${countBy(s=>s.chapterId===c.id)}</span></button>`).join("")||'<div class="profile-note">Глав пока нет</div>';
-  document.getElementById("sideCharacters").innerHTML=data.characters.map(c=>`<button class="sidebar-item ${filters.character===c.id?"active":""}" onclick="setFilter('character','${jsq(c.id)}')">${esc(c.name)}<span class="sidebar-count">${countBy(s=>personHasContent(s.people?.[c.id]))}</span></button>`).join("")||'<div class="profile-note">Персонажей пока нет</div>';
+  document.getElementById("sideCharacters").innerHTML=data.characters.map(c=>`<button class="sidebar-item ${filters.character===c.id?"active":""}" onclick="setFilter('character','${jsq(c.id)}')">${esc(c.name)}<span class="sidebar-count">${countBy(s=>sceneHasParticipant(s,c.id))}</span></button>`).join("")||'<div class="profile-note">Персонажей пока нет</div>';
   document.getElementById("sideLocations").innerHTML=data.locations.map(l=>`<button class="sidebar-item ${filters.location===l.id?"active":""}" onclick="setFilter('location','${jsq(l.id)}')">${esc(l.name)}<span class="sidebar-count">${countBy(s=>s.locationId===l.id)}</span></button>`).join("")||'<div class="profile-note">Локаций пока нет</div>';
   document.getElementById("sideTags").innerHTML=data.tags.slice(0,80).map(t=>`<button class="sidebar-item ${filters.tag===t.id?"active":""}" onclick="setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}<span class="sidebar-count">${countBy(s=>s.tags.includes(t.id))}</span></button>`).join("")||'<div class="profile-note">Тегов пока нет</div>';
 }
@@ -85,12 +85,26 @@ function renderStats(){
   ].map(([k,v])=>`<span class="stat-pill">${k}: <strong>${v}</strong></span>`).join("");
 }
 
+function renderFilterSummary(){
+  const el=document.getElementById("filterSummary");
+  if(!el)return;
+  if(!hasActiveFilters()){el.hidden=true;el.textContent="";el.classList.remove("no-results");return}
+  const total=data.scenes.length;
+  const visible=getVisibleSceneEntries().length;
+  el.hidden=false;
+  el.classList.toggle("no-results",visible===0);
+  el.innerHTML=visible
+    ?`<span>Найдено сцен: <strong>${visible}</strong> из ${total}</span><span>Порядок сцен временно не редактируется, пока активен поиск или фильтр.</span>`
+    :`<span>По текущему поиску и фильтрам ничего не найдено.</span>`;
+}
+
 function render(){
   if(selectedSceneId){
     const resolved=data.scenes.findIndex(s=>s.id===selectedSceneId);
     selectedSceneIndex=resolved>=0?resolved:null;
   }
   refreshControls();
+  renderFilterSummary();
   renderSidebar();
   renderDashboard();
   renderStats();
@@ -138,7 +152,7 @@ function renderTableView(board){
     const chapterScenes=data.scenes.map((scene,index)=>({scene,index})).filter(x=>x.scene.chapterId===chapter.id&&sceneMatches(x.scene));
     const allCount=data.scenes.filter(s=>s.chapterId===chapter.id).length;
     if(!chapterScenes.length&&hasActiveFilters())return;
-    html+=renderChapterDivider(chapter,allCount);
+    html+=renderChapterDivider(chapter,allCount,hasActiveFilters()?chapterScenes.length:null);
     if(chapter.collapsed)return;
     if(!chapterScenes.length){
       html+=`<div class="insert-row"><div class="chapter-empty">В этой главе пока нет сцен<br><button data-action="insert-scene" data-before-scene-id="${esc(firstSceneIdAfterChapter(chapter.id)||"")}" data-chapter-id="${esc(chapter.id)}">＋ Добавить сцену</button></div></div>`;
@@ -151,11 +165,12 @@ function renderTableView(board){
   board.innerHTML=html;
 }
 
-function renderChapterDivider(chapter,count){
+function renderChapterDivider(chapter,count,matchedCount=null){
+  const summary=matchedCount===null||matchedCount===count?`${count} сцен`:`${matchedCount} из ${count} сцен`;
   return `<div class="insert-row"><div class="chapter-divider">
     <button aria-label="${chapter.collapsed?"Развернуть":"Свернуть"} главу ${esc(chapter.title)}" onclick="toggleChapter('${jsq(chapter.id)}')">${chapter.collapsed?"▸":"▾"}</button>
     <button class="entity-link" onclick="setFilter('chapter','${jsq(chapter.id)}')"><strong>${esc(chapter.title)}</strong></button>
-    <span class="chapter-summary">${count} сцен</span>
+    <span class="chapter-summary">${summary}</span>
     <div class="chapter-actions">
       <button onclick="openNewSceneInChapter('${jsq(chapter.id)}')">＋ сцена</button>
       <button onclick="openChaptersManager()">Настроить</button>
@@ -185,7 +200,7 @@ function renderTableScene(scene,i,chapter){
     onclick="selectScene('${jsq(scene.id)}')" ondragover="dragOver(event,'${jsq(scene.id)}')"
     ondragleave="dragLeave(event)" ondrop="dropScene(event,'${jsq(scene.id)}')" ondragend="dragEnd(event)">`;
   html+=`<div class="cell time-cell sticky-cell">
-    <div class="drag-handle" draggable="true" aria-label="Перетащить сцену ${esc(scene.title||"Без названия")}" ondragstart="dragStart(event,'${jsq(scene.id)}')">↕ Перетащить сцену</div>
+    <div class="drag-handle" draggable="true" aria-label="Перетащить сцену ${esc(scene.title||"Без названия")}" title="${hasActiveFilters()?"Чтобы менять порядок сцен, сбросьте фильтры.":"Перетащить сцену"}" ondragstart="dragStart(event,'${jsq(scene.id)}')">↕ Перетащить сцену</div>
     <div class="scene-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(scene.title||"Без названия")}</div>
     ${sceneMetadataHtml(scene,chapter,loc,ws)}
     <div class="scene-meta"><span class="meta-chip">👥 ${sceneCharacters(scene).map(esc).join(", ")||"нет участников"}</span></div>
@@ -218,7 +233,8 @@ function renderTableScene(scene,i,chapter){
       }
       if(!(p.action||"").trim()&&!(p.legacyState||"").trim()&&!visible.length)html+=`<div class="empty" style="padding-top:38px">отношения скрыты</div>`;
       html+=`</div>`;
-    }else html+=`<div class="empty">не участвует</div>`;
+    }else if(sceneHasParticipant(scene,charId))html+=`<div class="empty">участвует, без описания</div>`;
+    else html+=`<div class="empty">не участвует</div>`;
     html+=`</div>`;
   });
   return html+`</div>`;
@@ -264,12 +280,15 @@ function renderListView(board){
   };
   const groups=data.chapters.map(chapter=>{
     const entries=data.scenes.map((scene,index)=>({scene,index})).filter(({scene})=>scene.chapterId===chapter.id&&sceneMatches(scene));
+    const allCount=data.scenes.filter(s=>s.chapterId===chapter.id).length;
     const positions=entries.map(({scene,index})=>`${compactDropPosition(chapter.id,scene.id)}${row(scene,index)}`).join("");
+    const tailRow=entries.length?compactDropPosition(chapter.id,null,false):allCount?compactFilteredEmptyRow(chapter.id,allCount):compactDropPosition(chapter.id,null,true);
+    const countNote=disabled&&allCount!==entries.length?` <span class="compact-chapter-count">(${entries.length} из ${allCount})</span>`:"";
     return `<section class="compact-chapter-group" data-chapter-id="${esc(chapter.id)}">
-      <h3 class="compact-chapter-title">${esc(chapter.title)}</h3>
+      <h3 class="compact-chapter-title">${esc(chapter.title)}${countNote}</h3>
       <div class="compact-chapter-drop-area">
         <table class="compact-list"><thead><tr><th aria-label="Перетаскивание"></th><th>Дата</th><th>Название</th><th>Персонажи</th><th>Локация</th><th>Статус</th></tr></thead><tbody>
-          ${positions}${compactDropPosition(chapter.id,null,!entries.length)}
+          ${positions}${tailRow}
         </tbody></table>
       </div>
     </section>`;
@@ -282,8 +301,12 @@ function compactDropPosition(chapterId,beforeSceneId=null,empty=false){
   return `<tr class="compact-drop-position ${empty?"compact-empty-drop":""}" data-compact-drop-chapter-id="${esc(chapterId)}" data-before-scene-id="${esc(beforeSceneId||"")}" ondragover="compactDragOver(event)" ondragleave="compactDragLeave(event)" ondrop="compactDropScene(event,{chapterId:'${jsq(chapterId)}',beforeSceneId:${beforeSceneId?`'${jsq(beforeSceneId)}'`:"null"}})"><td colspan="6"><span>${empty?"Сцен пока нет · Вставить сюда":"Вставить сюда"}</span></td></tr>`;
 }
 
+function compactFilteredEmptyRow(chapterId,totalCount){
+  return `<tr class="compact-drop-position compact-filtered-empty" data-compact-drop-chapter-id="${esc(chapterId)}"><td colspan="6"><span>В главе есть сцены (${totalCount}), но они скрыты текущим поиском или фильтром</span></td></tr>`;
+}
+
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,emptySearchMessage,emptySceneMessage});
-export {projectReadiness,renderDashboard,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,emptySearchMessage,emptySceneMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
+export {projectReadiness,renderDashboard,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};

@@ -40,6 +40,10 @@ function personHasContent(p){
   ));
 }
 
+function sceneHasParticipant(scene,characterId){
+  return !!characterId&&Object.prototype.hasOwnProperty.call(scene?.people||{},characterId);
+}
+
 function renderInitialRelations(initial,characterId){
   document.getElementById("profileInitialRelations").innerHTML=data.characters
     .filter(other=>other.id!==characterId)
@@ -51,5 +55,5 @@ function renderInitialRelations(initial,characterId){
     </div>`).join("");
 }
 
-Object.assign(globalThis,{relationshipsBefore,relationshipsAt,personHasContent,renderInitialRelations});
-export {relationshipsBefore,relationshipsAt,personHasContent,renderInitialRelations};
+Object.assign(globalThis,{relationshipsBefore,relationshipsAt,personHasContent,sceneHasParticipant,renderInitialRelations});
+export {relationshipsBefore,relationshipsAt,personHasContent,sceneHasParticipant,renderInitialRelations};

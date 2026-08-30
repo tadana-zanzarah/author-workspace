@@ -4,7 +4,7 @@ function sceneMatches(scene){
   if(filters.tag&&!scene.tags.includes(filters.tag))return false;
   if(filters.writing&&scene.writingStatus!==filters.writing)return false;
   if(filters.placement&&scene.status!==filters.placement)return false;
-  if(filters.character&&!personHasContent(scene.people?.[filters.character]))return false;
+  if(filters.character&&!sceneHasParticipant(scene,filters.character))return false;
   const q=filters.search.trim().toLocaleLowerCase("ru");
   if(q){
     const chapter=chapterById(scene.chapterId)?.title||"";

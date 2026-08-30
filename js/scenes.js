@@ -3,7 +3,7 @@ function sceneById(id){return data.scenes.find(s=>s.id===id)}
 function sceneIndexById(id){return data.scenes.findIndex(s=>s.id===id)}
 
 function sceneCharacterIds(scene){
-  return data.characters.map(c=>c.id).filter(id=>personHasContent(scene.people?.[id]));
+  return data.characters.map(c=>c.id).filter(id=>sceneHasParticipant(scene,id));
 }
 
 function sceneCharacters(scene){
