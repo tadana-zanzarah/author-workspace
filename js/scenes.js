@@ -396,19 +396,23 @@ async function quickUpdate(sceneId,key,value){
 async function deleteScene(sceneId){
   const scene=sceneById(sceneId);
   if(!scene)return;
-  if(confirm(`Удалить сцену «${scene.title||"Без названия"}»?`)){
-    if(isCloudWorkspace()){
-      const result=await runCloudMutation("deleteScene",(api,revision)=>api.deleteScene(cloudProjectSync.projectId,sceneId,revision));
-      if(result.ok&&sceneId===selectedSceneId){selectedSceneId=null;selectedSceneIndex=null;render()}return result;
-    }
-    const result=commitDataChange(next=>{
-      const index=next.scenes.findIndex(item=>item.id===sceneId);
-      if(index>=0)next.scenes.splice(index,1);
-    },{renderAfter:false});
-    if(!result.ok)return;
-    if(sceneId===selectedSceneId){selectedSceneId=null;selectedSceneIndex=null}
-    render();
+  const confirmed=await showConfirmAction({
+    title:"Удалить сцену?",
+    description:`Сцена «${scene.title||"Без названия"}» будет удалена без возможности отмены.`,
+    confirmLabel:"Удалить",cancelLabel:"Отмена"
+  });
+  if(!confirmed)return;
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("deleteScene",(api,revision)=>api.deleteScene(cloudProjectSync.projectId,sceneId,revision));
+    if(result.ok&&sceneId===selectedSceneId){selectedSceneId=null;selectedSceneIndex=null;render()}return result;
   }
+  const result=commitDataChange(next=>{
+    const index=next.scenes.findIndex(item=>item.id===sceneId);
+    if(index>=0)next.scenes.splice(index,1);
+  },{renderAfter:false});
+  if(!result.ok)return;
+  if(sceneId===selectedSceneId){selectedSceneId=null;selectedSceneIndex=null}
+  render();
 }
 
 Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
