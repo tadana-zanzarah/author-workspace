@@ -33,6 +33,7 @@ await freshPage.click("#addFirst");
 await freshPage.fill("#sceneTitle","Первая сцена");
 await freshPage.selectOption("#sceneChapter",{label:"Глава 1"});
 await freshPage.selectOption("#sceneWritingStatus","draft");
+await freshPage.click("#addSceneParticipant");
 await freshPage.fill(".p-action","Участвует в первой сцене");
 await freshPage.click("#saveScene");
 const freshBeforeReload=await freshPage.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
