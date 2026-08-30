@@ -66,6 +66,32 @@ begin
   if r->>'code'<>'DEPENDENCIES_EXIST' then raise exception 'dependency guard %',r; end if;
   r:=public.get_project_content('a2000000-0000-4000-8000-000000000001');
   if jsonb_array_length(r#>'{data,project_characters}')<>2 or jsonb_array_length(r#>'{data,scene_characters}')<>2 or jsonb_array_length(r#>'{data,project_character_relations}')<>2 or jsonb_array_length(r#>'{data,scene_relation_changes}')<>1 then raise exception 'snapshot %',r; end if;
+
+  -- Remove with cleanup, then re-attach the same global character to the same project: this must
+  -- reactivate the soft-removed row (same id, since (project_id,character_id) is unique regardless
+  -- of removed_at) rather than fail DUPLICATE forever or resurrect the cleaned-up dependencies.
+  r:=public.remove_project_character('a2000000-0000-4000-8000-000000000001',pa,7,true);
+  if r->>'code'<>'OK' or not (r->>'changed')::boolean or (r->>'revision')::bigint<>8 then raise exception 'cleanup remove %',r; end if;
+  if (select removed_at from public.project_characters where id=pa) is null then raise exception 'removed_at not set after cleanup remove'; end if;
+  if exists(select 1 from public.scene_characters where project_character_id=pa) then raise exception 'scene_characters not cleaned up on remove'; end if;
+  if exists(select 1 from public.project_character_relations where from_project_character_id=pa or to_project_character_id=pa) then raise exception 'relations not cleaned up on remove'; end if;
+  if exists(select 1 from public.scene_relation_changes where from_project_character_id=pa or to_project_character_id=pa) then raise exception 'scene relation changes not cleaned up on remove'; end if;
+
+  r:=public.attach_project_character('a2000000-0000-4000-8000-000000000001',a,8,'newrole',999,'{"fresh":true}');
+  if r->>'code'<>'OK' or not (r->>'changed')::boolean or (r->>'revision')::bigint<>9 then raise exception 'reattach after remove %',r; end if;
+  if (r#>>'{data,id}')::uuid<>pa then raise exception 'reattach created a new row instead of reactivating the removed one %',r; end if;
+  if (r#>>'{data,removed_at}') is not null then raise exception 'reattach left removed_at set %',r; end if;
+  if (r#>>'{data,role}')<>'newrole' or (r#>>'{data,sort_order}')::numeric<>999 or (r#>'{data,overrides}')<>'{"fresh":true}'::jsonb then raise exception 'reattach did not apply the fresh call state %',r; end if;
+  if (select count(*) from public.project_characters where project_id='a2000000-0000-4000-8000-000000000001' and character_id=a)<>1 then raise exception 'reattach left more than one participation row for the same pair'; end if;
+  if exists(select 1 from public.scene_characters where project_character_id=pa) then raise exception 'reattach resurrected scene_characters'; end if;
+  if exists(select 1 from public.project_character_relations where from_project_character_id=pa or to_project_character_id=pa) then raise exception 'reattach resurrected relations'; end if;
+
+  -- The character is active again, so attaching it a second time must go back to being a true
+  -- no-mutation duplicate rather than creating another row.
+  r:=public.attach_project_character('a2000000-0000-4000-8000-000000000001',a,9,null,0,'{}');
+  if r->>'code'<>'DUPLICATE' then raise exception 'active duplicate after reattach %',r; end if;
+  if (select count(*) from public.project_characters where project_id='a2000000-0000-4000-8000-000000000001' and character_id=a)<>1 then raise exception 'duplicate attach created a second row'; end if;
+  if (select revision from public.projects where id='a2000000-0000-4000-8000-000000000001')<>9 then raise exception 'duplicate attach bumped revision'; end if;
 end $$;
 
 -- Cross-owner reads/mutations are indistinguishable from missing resources.

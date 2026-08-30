@@ -81,22 +81,36 @@ try{
   order=await projectOrder();
   assert(order[0]==="Арман Бреннер"&&order[1]==="Зейн",`reordering the shared character in project B leaked into project A's order: ${order.join("|")}`);
 
-  // G. Remove the character from project A, then attempt to re-attach it.
-  // DISCOVERED PRE-EXISTING BUG (unrelated to this phase's sort_order fix, reported separately,
-  // not fixed here per the "stop before touching production RPC/migrations" rule): remove is a
-  // soft-delete (project_characters.removed_at), but attach_project_character()'s duplicate check
-  // (`exists(select 1 from project_characters where project_id=... and character_id=...)`) does not
-  // filter `removed_at is null`, so re-attaching a previously-removed character to the SAME project
-  // always fails with DUPLICATE, forever. This assertion documents that actual current behavior
-  // rather than silently masking it; see the phase report for the proposed minimal RPC fix.
+  // G. Remove the character from project A, then re-attach it: a soft-removed project_characters
+  // row must be reactivatable (fix/project-character-reattach), not rejected as DUPLICATE forever.
   const reneInA=await page.evaluate(()=>data.characters.find(c=>c.name==="Рене де Лакруа-Бреннер"));
-  await page.evaluate(async pc=>{await runCloudMutation("removeProjectCharacter",(_api,revision)=>cloudState.characterApi.removeProjectCharacter(cloudProjectSync.projectId,pc,revision))},reneInA.projectCharacterId);
+  const reneProjectCharacterIdBeforeRemove=reneInA.projectCharacterId;
+  await page.evaluate(async pc=>{await runCloudMutation("removeProjectCharacter",(_api,revision)=>cloudState.characterApi.removeProjectCharacter(cloudProjectSync.projectId,pc,revision))},reneProjectCharacterIdBeforeRemove);
   order=await projectOrder();
   assert(!order.includes("Рене де Лакруа-Бреннер"),"remove did not take effect in project A");
-  const reattachResult=await page.evaluate(async id=>{const revision=cloudProjectSync.revision;return cloudState.characterApi.attachProjectCharacter(cloudProjectSync.projectId,id,revision,{sortOrder:nextCharacterSortOrder()})},reneId);
-  assert(reattachResult.code==="DUPLICATE","known pre-existing bug regressed or was silently fixed elsewhere: attach_project_character's duplicate check should currently still reject re-attach of a soft-removed row");
+  const reattachResult=await page.evaluate(async id=>runCloudMutation("attachProjectCharacter",(_api,revision)=>cloudState.characterApi.attachProjectCharacter(cloudProjectSync.projectId,id,revision,{sortOrder:nextCharacterSortOrder()})),reneId);
+  assert(reattachResult.ok&&reattachResult.code==="OK","re-attaching a previously-removed character to the same project must succeed, not DUPLICATE");
+  order=await projectOrder();
+  assert(order[order.length-1]==="Рене де Лакруа-Бреннер",`re-attached character must land at the end of project A's order: ${order.join("|")}`);
+  const reneAfterReattach=await page.evaluate(()=>data.characters.find(c=>c.name==="Рене де Лакруа-Бреннер"));
+  assert(reneAfterReattach.id===reneId,"re-attach must keep the same global character identity");
+  assert(reneAfterReattach.projectCharacterId===reneProjectCharacterIdBeforeRemove,"re-attach must reactivate the same participation row, not create a new one (project_characters_project_character_key is unique on (project_id,character_id) regardless of removed_at)");
 
-  console.log(JSON.stringify({ok:true,creationOrderMatchesRealRpc:true,dragReorderSurvivesAuthoritativeReload:true,attachAppendsToEnd:true,crossProjectOrderIsolation:true,reattachCurrentlyBlockedByPreexistingRpcBug:true}));
+  // Re-attaching an already-active character must still be a true no-op duplicate.
+  const activeDuplicate=await page.evaluate(async id=>runCloudMutation("attachProjectCharacter",(_api,revision)=>cloudState.characterApi.attachProjectCharacter(cloudProjectSync.projectId,id,revision,{sortOrder:nextCharacterSortOrder()})),reneId);
+  assert(activeDuplicate.code==="DUPLICATE","attaching an already-active character must still be rejected as DUPLICATE");
+
+  // H. A fresh authoritative reload must preserve the reactivated participation.
+  await page.evaluate(async()=>{const loaded=await cloudProjectSync.reload();if(loaded.ok){data=loaded.data;renderProfiles();render()}});
+  order=await projectOrder();
+  assert(order[order.length-1]==="Рене де Лакруа-Бреннер",`re-attach did not survive a fresh authoritative reload: ${order.join("|")}`);
+
+  // I. Project B's own participation/order for the same global character must be unaffected by A's remove+reattach.
+  await openProjectByObject(projectB);
+  order=await projectOrder();
+  assert(order[0]==="Рене де Лакруа-Бреннер"&&order.includes("Локальный для B"),`project B's participation/order for the shared character was affected by project A's remove+reattach: ${order.join("|")}`);
+
+  console.log(JSON.stringify({ok:true,creationOrderMatchesRealRpc:true,dragReorderSurvivesAuthoritativeReload:true,attachAppendsToEnd:true,crossProjectOrderIsolation:true,reattachAfterRemoveSucceeds:true,reattachReactivatesSameRow:true,reattachSurvivesReload:true,projectBIsolationAfterReattach:true}));
 }finally{
   try{
     if(page){
