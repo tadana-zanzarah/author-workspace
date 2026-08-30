@@ -48,6 +48,15 @@
 
     --motion-fast:120ms ease;
     --motion-base:160ms ease;
+
+    /* Type scale — modern editorial workspace. Hierarchy comes from size + weight +
+       letter-spacing together, not weight alone. */
+    --text-2xl:22px;   /* project title */
+    --text-lg:16px;    /* section / chapter heading */
+    --text-md:14px;    /* scene title */
+    --text-sm:13px;    /* body */
+    --text-xs:12px;    /* metadata / chips */
+    --text-2xs:11px;   /* label / caption / system status */
   }
   *{box-sizing:border-box}
   body{
@@ -60,17 +69,48 @@
   h1,h2,h3{font-family:inherit}
   header{
     position:sticky; top:0; z-index:50;
-    display:flex; gap:var(--space-3); align-items:center; flex-wrap:wrap;
-    padding:10px 18px;
+    display:flex; gap:var(--space-3); align-items:center; flex-wrap:nowrap;
+    padding:9px 18px;
+    min-height:var(--topbar-h);
     background:rgba(245,241,233,.97);
     backdrop-filter:blur(8px);
     border-bottom:1px solid var(--border-subtle);
+    /* Safety net, not the primary layout: at generous widths nothing overflows and
+       this is inert. Only at extreme widths (well past the 1440/1200/900 desktop
+       checks) does the row scroll instead of letting the project title get squeezed
+       to nothing by the action cluster's fixed-size buttons. */
+    overflow-x:auto;
+    scrollbar-width:thin;
   }
-  body[data-app-state="workspace"] header{top:var(--topbar-h)}
-  header .header-start{display:flex;align-items:center;gap:var(--space-3)}
-  header .header-end{display:flex;align-items:center;gap:var(--space-3);margin-left:auto;flex-wrap:wrap}
-  header h1{font-size:14px;font-weight:650;letter-spacing:.01em;color:var(--text-secondary);margin:0 var(--space-1) 0 0;white-space:nowrap}
-  body:has(#workspaceCloudBar:not([hidden])) header h1{font-size:12px;text-transform:uppercase;letter-spacing:.06em;opacity:.75}
+  /* Single application row: quiet brand mark, then (in cloud mode) the project
+     identity, then the action cluster pinned to the far edge. In local mode
+     #workspaceCloudBar stays hidden and the brand mark is the only identity shown.
+     The project title is the row's highest-priority element — it gets first claim
+     on space; the brand mark and the legacy local-only notice are capped/ellipsized
+     instead of squeezing the title down to nothing. */
+  header .brand-mark{
+    font-size:var(--text-2xs);font-weight:650;letter-spacing:.02em;color:var(--text-secondary);
+    white-space:nowrap;flex:none;overflow:hidden;text-overflow:ellipsis;max-width:190px;
+  }
+  body:has(#workspaceCloudBar:not([hidden])) header .brand-mark{text-transform:uppercase;letter-spacing:.06em;opacity:.7;max-width:130px}
+  header .workspace-identity{display:flex;align-items:baseline;gap:var(--space-2);min-width:200px;flex:1 1 auto}
+  header .workspace-identity #backToProjects{flex:none}
+  header .workspace-identity .project-title{
+    font-size:var(--text-2xl);font-weight:700;letter-spacing:-.01em;color:var(--text-primary);
+    margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px;min-width:120px;
+  }
+  header .local-only-indicator{
+    font-size:var(--text-2xs);color:var(--text-secondary);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;flex:none;max-width:150px;
+  }
+  header .header-actions{display:flex;align-items:center;gap:6px;margin-left:auto;flex:none}
+  header .header-actions button,header .header-actions summary,header .header-actions .hint{padding:6px 10px;font-size:13px}
+  /* Save status carries its own state dot (below); the text is a nice-to-have detail,
+     not the primary signal, so it's allowed to ellipsize rather than compete with the
+     project title for space. Same reasoning for the account email. */
+  header #saveStatus{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;padding-left:14px;position:relative}
+  header #saveStatus::before{position:absolute;left:0;top:50%;transform:translateY(-50%)}
+  header #workspaceAccountMenu>summary{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
   .header-btn-group{display:flex;gap:1px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden}
   .header-btn-group button{border:0;border-radius:0;background:var(--surface)}
   .header-btn-group button:not(:last-child){border-right:1px solid var(--border-subtle)}
@@ -171,29 +211,26 @@
   .series-editor{display:grid;grid-template-columns:1fr 1.5fr auto;gap:8px;margin-top:12px}
   .legacy-notice{padding:15px;margin:18px 0;border:1px solid #c9a96b;border-radius:12px;background:#fff8e8}
   .legacy-notice p{margin:6px 0 12px}
-  .workspace-cloud-bar{
-    position:sticky;top:0;z-index:51;min-height:var(--topbar-h);
-    display:flex;align-items:center;gap:var(--space-3);padding:6px 18px;
-    background:rgba(245,241,233,.97);backdrop-filter:blur(8px);
-    border-bottom:1px solid var(--border-subtle);
+  /* #workspaceCloudBar (.workspace-identity) now lives nested inside <header> — see
+     the header rules above for its layout. Only cross-cutting responsive rules live here. */
+  @media(max-width:1200px){
+    header{gap:var(--space-3)}
+    header .local-only-indicator{display:none}
   }
-  .workspace-cloud-bar #backToProjects{flex:none}
-  .workspace-cloud-bar span:not(.local-only-indicator){
-    display:flex;align-items:baseline;gap:6px;min-width:0;
-    font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);
+  @media(max-width:1024px){
+    header{padding-left:12px;padding-right:12px}
+    header .header-actions{gap:6px}
+    header .header-actions button,header .top-menu summary{padding:6px 8px;font-size:12px}
+    header .workspace-identity .project-title{max-width:22vw}
   }
-  .workspace-cloud-bar #workspaceProjectTitle{
-    font-size:19px;font-weight:700;color:var(--text-primary);letter-spacing:-.01em;
-    text-transform:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52vw;
+  @media(max-width:900px){
+    header .brand-mark{display:none}
   }
-  .local-only-indicator{margin-left:auto;color:var(--text-secondary);font-size:12px}
   @media(max-width:760px){
     .cloud-project,.series-editor{grid-template-columns:1fr}
     .projects-head{align-items:flex-start}
     .dashboard-actions > button{flex:1 1 180px}
     .account-menu-panel{max-width:calc(100vw - 32px)}
-    .workspace-cloud-bar{align-items:flex-start;flex-wrap:wrap;position:static}
-    .workspace-cloud-bar #workspaceProjectTitle{max-width:70vw}
-    .local-only-indicator{order:4;width:100%;margin-left:0}
-    body[data-app-state="workspace"] header{position:static;top:auto}
+    header{position:static;top:auto}
+    header .workspace-identity .project-title{max-width:50vw}
   }

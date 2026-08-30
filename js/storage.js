@@ -219,6 +219,7 @@ function loadUiState(){
     storedMatrixContentMode=ui.matrixContentMode||{};
   }catch{navigationVisible=true}
   document.querySelector(".app-shell").classList.toggle("navigation-hidden",!navigationVisible);
+  syncSidebarEdgeToggle();
   sidebarSections=Object.fromEntries(SIDEBAR_SECTION_KEYS.map(key=>[key,storedSections[key]!==false]));
   applySidebarSectionState();
   matrixContentMode={actions:storedMatrixContentMode.actions!==false,relations:storedMatrixContentMode.relations===true};
@@ -226,6 +227,19 @@ function loadUiState(){
   syncMatrixContentControls();
 }
 function saveUiState(){try{localStorage.setItem(activeWorkspaceContext().uiStorageKey,JSON.stringify({navigationVisible,sidebarSections,matrixContentMode}))}catch{}}
+// The sidebar collapse control lives attached to the sidebar's own edge (not a
+// standalone header button): one element whose icon/label/aria-expanded flips
+// between the open ("‹", collapse) and closed ("›", expand) states.
+function syncSidebarEdgeToggle(){
+  const toggle=document.getElementById("toggleNavigation");
+  if(!toggle)return;
+  const icon=toggle.querySelector(".sidebar-edge-toggle-icon");
+  const label=navigationVisible?"Свернуть навигацию":"Открыть навигацию";
+  toggle.setAttribute("aria-expanded",String(navigationVisible));
+  toggle.setAttribute("aria-label",label);
+  toggle.title=label;
+  if(icon)icon.textContent=navigationVisible?"‹":"›";
+}
 function applySidebarSectionState(){
   for(const key of SIDEBAR_SECTION_KEYS){
     const expanded=sidebarSections[key]!==false;
@@ -244,5 +258,5 @@ function toggleSidebarSection(key){
   saveUiState();
 }
 
-Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,applySidebarSectionState,toggleSidebarSection});
-export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,applySidebarSectionState,toggleSidebarSection};
+Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,syncSidebarEdgeToggle,applySidebarSectionState,toggleSidebarSection});
+export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,clearStaleErrorBanner,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,syncSidebarEdgeToggle,applySidebarSectionState,toggleSidebarSection};

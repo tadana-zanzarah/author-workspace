@@ -131,6 +131,7 @@ document.getElementById("clearFilters").onclick=()=>{Object.keys(filters).forEac
 document.getElementById("toggleNavigation").onclick=()=>{
   navigationVisible=!navigationVisible;
   document.querySelector(".app-shell").classList.toggle("navigation-hidden",!navigationVisible);
+  syncSidebarEdgeToggle();
   saveUiState();
 };
 document.getElementById("openInspector").onclick=()=>{

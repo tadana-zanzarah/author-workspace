@@ -18,6 +18,7 @@ function setAppState(state){
   byId("authScreen").hidden=state!=="unauthenticated";
   byId("projectsScreen").hidden=state!=="projects";
   byId("workspaceCloudBar").hidden=state!=="workspace";
+  byId("workspaceAccountMenu").hidden=state!=="workspace";
 }
 function friendlyError(error,authOperation=false){
   console.error("[Author Workspace cloud]",error);
@@ -389,6 +390,7 @@ async function initializeCloudApp(){
     if(!client){
       setAppState("workspace");
       byId("workspaceCloudBar").hidden=true;
+      byId("workspaceAccountMenu").hidden=true;
       if(!startupLoadInfo?.blocked)showStorageMessage("Локальный режим: рабочее пространство доступно без облачного аккаунта. Уберите ?local=1, чтобы открыть облачный вход.","warning");
       return;
     }

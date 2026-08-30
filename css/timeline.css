@@ -39,11 +39,13 @@
   .insert-content button{
     padding:4px 12px;border-radius:999px;font-size:12px;background:var(--surface-elevated);
   }
+  /* Matrix canvas stays neutral — chronology status is a thin left-edge accent on the
+     sticky title cell, not a fill across every character column (that read as
+     spreadsheet conditional-formatting, not a scene-authoring surface). */
   .scene-row{border-bottom:1px solid var(--border-faint);background:var(--surface-elevated)}
-  .scene-row.fixed .cell{background:var(--sage-tint)}
-  .scene-row.fixed .time-cell{background:#e3ede0}
-  .scene-row.floating .cell{background:var(--warning-tint)}
-  .scene-row.floating .time-cell{background:#f6e6c9}
+  .scene-row.fixed .time-cell{border-left:3px solid var(--sage)}
+  .scene-row.floating .time-cell{border-left:3px solid #c99a3d}
+  .scene-row.excluded{opacity:.6}
   .scene-row.dragging{opacity:.45}
   .scene-row.drop-before{box-shadow:inset 0 4px 0 var(--brand)}
   .scene-row.drop-after{box-shadow:inset 0 -4px 0 var(--brand)}
@@ -53,10 +55,19 @@
   .time-cell{
     background:var(--surface-elevated);display:flex;flex-direction:column;gap:8px;
   }
+  .scene-row-head{display:flex;align-items:baseline;gap:7px}
   .scene-title{
-    font-size:14px;font-weight:650;line-height:1.35;
+    font-size:var(--text-md);font-weight:650;line-height:1.35;
     overflow-wrap:anywhere;white-space:normal;
   }
+  .scene-chronology-chip.review{color:var(--warning)}
+  .scene-chronology-chip.conflict{color:var(--danger);font-weight:650}
+  .excluded-badge{color:var(--text-secondary);font-style:italic;background:transparent;border-style:dashed}
+  .row-action-quiet{
+    padding:5px 7px!important;border-color:transparent!important;background:transparent!important;
+    color:var(--text-secondary);opacity:.75;
+  }
+  .row-action-quiet:hover{opacity:1;background:var(--danger-tint)!important;color:var(--danger)}
   .date-time{display:grid;gap:7px}
   .date-review{
     border-color:var(--warning)!important;
@@ -80,19 +91,6 @@
   }
   .scene-kind.fixed{background:var(--sage-tint);color:var(--sage)}
   .scene-kind.floating{background:#f1dfb7;color:#735b25}
-  .legend{
-    display:flex;
-    gap:12px;
-    align-items:center;
-    flex-wrap:wrap;
-    font-size:12px;
-    color:var(--text-secondary);
-    margin-left:4px;
-  }
-  .legend-item{display:flex;align-items:center;gap:6px}
-  .legend-dot{width:13px;height:13px;border-radius:4px;border:1px solid var(--border-subtle)}
-  .legend-dot.fixed{background:var(--sage-tint)}
-  .legend-dot.floating{background:#f1dfb7}
   .row-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
   .row-actions button{padding:5px 7px;font-size:12px}
   .drag-handle{

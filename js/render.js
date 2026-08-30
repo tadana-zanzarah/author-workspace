@@ -59,6 +59,10 @@ function refreshControls(){
   document.getElementById("filterWriting").value=filters.writing;
   document.getElementById("filterPlacement").value=filters.placement;
   document.getElementById("projectSearch").value=filters.search;
+  ["filterChapter","filterCharacter","filterLocation","filterTag","filterWriting","filterPlacement"].forEach(id=>{
+    const select=document.getElementById(id);
+    select?.closest(".filter-field")?.classList.toggle("filter-active",!!select.value);
+  });
 }
 
 function renderSidebar(){
@@ -70,16 +74,17 @@ function renderSidebar(){
   document.getElementById("sideTags").innerHTML=data.tags.slice(0,80).map(t=>`<button class="sidebar-item ${filters.tag===t.id?"active":""}" onclick="setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}<span class="sidebar-count">${countBy(s=>s.tags.includes(t.id))}</span></button>`).join("")||'<div class="profile-note">Тегов пока нет</div>';
 }
 
+// Project-global counts only. Readiness% and the "final" count already live in the
+// pipeline/progress bar (renderDashboard); scene-context word count belongs to whatever
+// scene is actually open (inspector modal), not this always-on aggregate line — showing
+// either here too would be the exact "same stat in two places" duplication this consolidates.
 function renderStats(){
   const totalWords=data.scenes.reduce((n,s)=>n+countWords(s.sceneText),0);
-  const selected=selectedSceneIndex!==null&&data.scenes[selectedSceneIndex]?countWords(data.scenes[selectedSceneIndex].sceneText):0;
-  const finals=data.scenes.filter(s=>s.writingStatus==="final").length;
-  const readiness=projectReadiness();
   document.getElementById("statsStrip").innerHTML=[
     ["Глав",data.chapters.filter(c=>c.id!=="chapter-unassigned").length],["Сцен",data.scenes.length],
     ["Персонажей",data.characters.length],["Локаций",data.locations.length],["Тегов",data.tags.length],
-    ["Слов",totalWords],["В выбранной сцене",selected],["Финал",finals],["Готовность",readiness+"%"]
-  ].map(([k,v])=>`<span class="stat-pill">${k}: <strong>${v}</strong></span>`).join("");
+    ["Слов",totalWords]
+  ].map(([k,v])=>`<span class="stat-pill">${k} <strong>${v}</strong></span>`).join("");
 }
 
 function clearSingleFilter(key){filters[key]="";scheduleRender()}
@@ -241,7 +246,6 @@ function sceneMetadataHtml(scene,chapter,loc,ws){
     <button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditChapter('${jsq(scene.id)}')" onclick="event.stopPropagation();setFilter('chapter','${jsq(chapter.id)}')">📚 ${esc(chapter.title)}</button>
     ${loc?`<button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditLocation('${jsq(scene.id)}')" onclick="event.stopPropagation();setFilter('location','${jsq(loc.id)}')">📍 ${esc(loc.name)}</button>`:`<button class="meta-chip entity-link" ondblclick="event.stopPropagation();quickEditLocation('${jsq(scene.id)}')">📍 не указана</button>`}
     <button class="meta-chip writing-chip ${ws.id} entity-link" ondblclick="event.stopPropagation();quickEditWriting('${jsq(scene.id)}')">📝 ${esc(ws.label)}</button>
-    <span class="scene-kind ${scene.status==="fixed"?"fixed":"floating"}">${scene.status==="fixed"?"На месте":"Разместить"}</span>
   </div>
   ${tags.length?`<div class="scene-meta">${tags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">🏷 #${esc(t.name)}</button>`).join("")}</div>`:""}`;
 }
@@ -280,32 +284,39 @@ function renderMatrixCell(scene,character,relationState){
   return `<div class="cell matrix-cell matrix-cell-content">${body}</div>`;
 }
 
+// First column: VIEW state only — a compact, readable summary (title, chronology,
+// chapter/location/status/tags, participants). Raw date/time inputs, the include
+// checkbox and other form controls live in the scene modal (EDIT state, reached via
+// the always-visible "Изменить" button) instead of sitting permanently in the row.
 function renderTableScene(scene,i,chapter){
   const relationState=relationshipsAt(i);
   const needsDateReview=!!scene.dateReview;
   const hasDateConflict=chronologicalWarning(i);
   const loc=locationById(scene.locationId);
   const ws=writingStatusById(scene.writingStatus);
+  const sceneTitle=scene.title||"Без названия";
   let html=`<div class="scene-row ${scene.status==="fixed"?"fixed":"floating"} ${scene.included===false?"excluded":""} ${selectedSceneIndex===i?"selected-scene":""}" data-scene-id="${esc(scene.id)}"
     onclick="selectScene('${jsq(scene.id)}')" ondragover="dragOver(event,'${jsq(scene.id)}')"
     ondragleave="dragLeave(event)" ondrop="dropScene(event,'${jsq(scene.id)}')" ondragend="dragEnd(event)">`;
   html+=`<div class="cell time-cell sticky-cell">
-    <div class="drag-handle" draggable="true" aria-label="Перетащить сцену ${esc(scene.title||"Без названия")}" title="${hasActiveFilters()?"Чтобы менять порядок сцен, сбросьте фильтры.":"Перетащить сцену"}" ondragstart="dragStart(event,'${jsq(scene.id)}')">↕ Перетащить сцену</div>
-    <div class="scene-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(scene.title||"Без названия")}</div>
+    <div class="scene-row-head">
+      <div class="drag-handle" draggable="true" aria-label="Перетащить сцену ${esc(sceneTitle)}" title="${hasActiveFilters()?"Чтобы менять порядок сцен, сбросьте фильтры.":"Перетащить сцену"}" ondragstart="dragStart(event,'${jsq(scene.id)}')">↕</div>
+      <div class="scene-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(sceneTitle)}</div>
+    </div>
+    <div class="scene-meta">
+      <span class="meta-chip scene-chronology-chip ${hasDateConflict?"conflict":needsDateReview?"review":""}">🕒 ${esc(readableDate(scene)||"без даты")}</span>
+      <span class="scene-kind ${scene.status==="fixed"?"fixed":"floating"}">${scene.status==="fixed"?"На месте":"Разместить"}</span>
+      ${scene.included===false?'<span class="meta-chip excluded-badge">Исключена из текста</span>':""}
+    </div>
     ${sceneMetadataHtml(scene,chapter,loc,ws)}
     <div class="scene-meta"><span class="meta-chip">👥 ${sceneCharacters(scene).map(esc).join(", ")||"нет участников"}</span></div>
-    <div class="date-time">
-      <input class="${hasDateConflict?"date-conflict":needsDateReview?"date-review":""}" type="date" value="${esc(scene.date||"")}" onchange="quickUpdate('${jsq(scene.id)}','date',this.value)">
-      <input class="${hasDateConflict?"date-conflict":needsDateReview?"date-review":""}" type="time" value="${esc(scene.time||"")}" onchange="quickUpdate('${jsq(scene.id)}','time',this.value)">
-    </div>
     ${needsDateReview?`<div class="date-status-note review">Дата ещё не проверена <button class="date-confirm-btn" onclick="event.stopPropagation();confirmSceneDate('${jsq(scene.id)}')">✓ Дата проверена</button></div>`:""}
     ${hasDateConflict?'<div class="date-status-note conflict">Дата конфликтует с хронологией соседних сцен</div>':""}
-    <label class="include-toggle"><input type="checkbox" ${scene.included!==false?"checked":""} onchange="toggleIncluded('${jsq(scene.id)}',this.checked)"> включить в работу</label>
     <div class="row-actions">
       ${sceneReorderButtonsHtml(scene)}
       <button onclick="event.stopPropagation();openSceneText('${jsq(scene.id)}')">Текст</button>
       <button onclick="event.stopPropagation();editScene('${jsq(scene.id)}')">Изменить</button>
-      <button class="danger" onclick="event.stopPropagation();deleteScene('${jsq(scene.id)}')">Удалить</button>
+      <button class="row-action-quiet danger-quiet" aria-label="Удалить сцену «${esc(sceneTitle)}»" title="Удалить сцену" onclick="event.stopPropagation();deleteScene('${jsq(scene.id)}')">🗑</button>
     </div>
   </div>`;
   data.characters.forEach(character=>{
@@ -314,10 +325,12 @@ function renderTableScene(scene,i,chapter){
   return html+`</div>`;
 }
 
-// Cards keep their existing flat card look (no drag here — cards never had it),
-// but now group by chapter and expose the same N+1 click-to-create positions and
-// keyboard move buttons as the other two views, so the position model reads the
-// same everywhere.
+// Cards grid: exactly one grid item per scene (dense, predictable, no phantom
+// insertion-sized slots). N+1 insertion positions are quiet edge affordances
+// attached to each card's own slot (top edge of the first card = before-first,
+// bottom edge of every card = between/after-last), not separate grid cells — see
+// cardEdgeInsert. Cards now also support real drag-and-drop via the same shared
+// {chapterId,beforeSceneId} position model / compactMoveScene used by table+list.
 function renderCardsView(board){
   board.style.removeProperty("--cols");
   const filtered=hasActiveFilters();
@@ -328,10 +341,14 @@ function renderCardsView(board){
     let cards;
     if(!chapterEntries.length){
       const emptyPosition=buildChapterInsertionPositions(chapter.id)[0];
-      cards=`<div class="card-position-empty"><span>Сцен пока нет</span><button type="button" data-action="insert-scene" data-before-scene-id="${esc(emptyPosition.beforeSceneId||"")}" data-chapter-id="${esc(chapter.id)}" aria-label="${esc(describeInsertionPosition(emptyPosition))}">＋ Добавить сцену</button></div>`;
+      cards=`<div class="card-position-empty"><span>Сцен пока нет</span><button type="button" class="card-position-insert" data-action="insert-scene" data-before-scene-id="${esc(emptyPosition.beforeSceneId||"")}" data-chapter-id="${esc(chapter.id)}" aria-label="${esc(describeInsertionPosition(emptyPosition))}">＋ Добавить сцену</button></div>`;
     }else{
       const positions=filtered?null:buildChapterInsertionPositions(chapter.id);
-      cards=(positions?cardPositionTile(positions[0]):"")+chapterEntries.map(({scene,index},i)=>renderCompactCard(scene,index)+(positions?cardPositionTile(positions[i+1]):"")).join("");
+      cards=chapterEntries.map(({scene,index},i)=>{
+        const before=i===0&&positions?cardEdgeInsert(positions[0],"before"):"";
+        const after=positions?cardEdgeInsert(positions[i+1],"after"):"";
+        return `<div class="card-slot" data-scene-id="${esc(scene.id)}">${before}${renderCompactCard(scene,index)}${after}</div>`;
+      }).join("");
     }
     const countNote=filtered&&allCount!==chapterEntries.length?` <span class="compact-chapter-count">(${chapterEntries.length} из ${allCount})</span>`:"";
     return `<section class="card-chapter-group" data-chapter-id="${esc(chapter.id)}">
@@ -342,10 +359,17 @@ function renderCardsView(board){
   board.innerHTML=sections||emptySceneMessage();
 }
 
-function cardPositionTile(position){
+// Quiet-by-default edge affordance living inside a card's own grid cell (not a
+// sibling grid item), so it never claims a card-sized slot of its own. Doubles as
+// a drop target for card drag-and-drop, reusing the compact view's generic
+// dragover/dragleave/drop handlers (they operate on {chapterId,beforeSceneId},
+// nothing compact-specific).
+function cardEdgeInsert(position,edge){
   const label=describeInsertionPosition(position);
   const dropLabel=describeDropPosition(position);
-  return `<button type="button" class="card-position-insert" data-action="insert-scene" data-before-scene-id="${esc(position.beforeSceneId||"")}" data-chapter-id="${esc(position.chapterId)}" aria-label="${esc(label)}">
+  const beforeAttr=position.beforeSceneId?`'${jsq(position.beforeSceneId)}'`:"null";
+  return `<button type="button" class="card-position-insert card-insert-edge card-insert-${edge}" data-action="insert-scene" data-before-scene-id="${esc(position.beforeSceneId||"")}" data-chapter-id="${esc(position.chapterId)}" aria-label="${esc(label)}"
+    ondragover="compactDragOver(event)" ondragleave="compactDragLeave(event)" ondrop="compactDropScene(event,{chapterId:'${jsq(position.chapterId)}',beforeSceneId:${beforeAttr}})">
     <span class="position-plus" aria-hidden="true">＋</span>
     <span class="position-drop-label" aria-hidden="true">↓ ${esc(dropLabel)}</span>
   </button>`;
@@ -355,13 +379,19 @@ function renderCompactCard(scene,index){
   const chapter=chapterById(scene.chapterId),loc=locationById(scene.locationId),ws=writingStatusById(scene.writingStatus);
   const charIds=sceneCharacterIds(scene),chars=charIds.map(characterName),tags=scene.tags.map(id=>tagById(id)).filter(Boolean);
   const description=chars.map(c=>scene.people?.[c]?.action||"").filter(Boolean).join(" ");
-  return `<article class="compact-scene-card ${scene.status} ${selectedSceneIndex===index?"selected-scene":""}" data-scene-id="${esc(scene.id)}" onclick="selectScene('${jsq(scene.id)}')" ondblclick="editScene('${jsq(scene.id)}')">
-    <div class="compact-card-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(scene.title||"Без названия")}</div>
+  const disabled=hasActiveFilters();
+  const sceneTitle=scene.title||"Без названия";
+  return `<article class="compact-scene-card ${scene.status} ${selectedSceneIndex===index?"selected-scene":""}" data-scene-id="${esc(scene.id)}"
+    draggable="${disabled?"false":"true"}" title="${disabled?"Чтобы менять порядок сцен, сбросьте фильтры.":""}"
+    ondragstart="cardDragStart(event,'${jsq(scene.id)}')" ondragend="cardDragEnd()"
+    onclick="selectScene('${jsq(scene.id)}')" ondblclick="editScene('${jsq(scene.id)}')">
+    <div class="compact-card-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(sceneTitle)}</div>
     <div class="scene-meta">
       <button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('chapter','${jsq(chapter?.id||"")}')">📚 ${esc(chapter?.title||"Без главы")}</button>
       <span class="meta-chip">🕒 ${esc(readableDate(scene)||"без даты")}</span>
       ${loc?`<button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('location','${jsq(loc.id)}')">📍 ${esc(loc.name)}</button>`:""}
       <span class="meta-chip writing-chip ${ws.id}">📝 ${esc(ws.label)}</span>
+      <span class="scene-kind ${scene.status==="fixed"?"fixed":"floating"}">${scene.status==="fixed"?"На месте":"Разместить"}</span>
     </div>
     <div class="scene-meta">${charIds.map(id=>`<button class="meta-chip entity-link" onclick="event.stopPropagation();setFilter('character','${jsq(id)}')">👤 ${esc(characterName(id))}</button>`).join("")}</div>
     ${tags.length?`<div class="scene-meta">${tags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">#${esc(t.name)}</button>`).join("")}</div>`:""}
@@ -422,5 +452,5 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardPositionTile,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
-export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardPositionTile,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
+export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};

@@ -4,7 +4,19 @@
     grid-template-columns:230px minmax(0,1fr);
     gap:14px;
     padding:14px;
+    position:relative;
   }
+  .sidebar-edge-toggle{
+    position:absolute;top:18px;left:217px;z-index:20;
+    width:26px;height:26px;padding:0;border-radius:999px;
+    display:flex;align-items:center;justify-content:center;
+    background:var(--surface-elevated);border:1px solid var(--border-subtle);
+    color:var(--text-secondary);box-shadow:var(--shadow-sm);
+    transition:left var(--motion-base),background var(--motion-fast),color var(--motion-fast);
+  }
+  .sidebar-edge-toggle:hover,.sidebar-edge-toggle:focus-visible{background:var(--soft);color:var(--text-primary)}
+  .sidebar-edge-toggle-icon{font-size:13px;line-height:1}
+  .app-shell.navigation-hidden .sidebar-edge-toggle{left:6px}
   .project-sidebar{
     border:1px solid transparent;
     border-radius:var(--radius-lg);
@@ -45,13 +57,21 @@
   .main-workspace{min-width:0}
   .toolbar-panel{
     margin-bottom:12px;border:1px solid var(--border-faint);border-radius:var(--radius-lg);
-    background:var(--surface);padding:12px 13px;
+    background:var(--surface);padding:10px 13px;
   }
   .search-row{
-    display:grid;grid-template-columns:minmax(230px,1.5fr) repeat(5,minmax(130px,1fr)) auto;
-    gap:8px;align-items:end;
+    display:grid;grid-template-columns:minmax(230px,1.5fr) repeat(5,minmax(120px,1fr)) auto;
+    gap:6px 8px;align-items:end;
   }
-  .filter-label{font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px}
+  .filter-field{min-width:0}
+  .filter-label{font-size:var(--text-2xs);color:var(--text-secondary);display:block;margin-bottom:3px;font-weight:500}
+  .filter-field:not(.filter-field-search) select{
+    border-color:transparent;background:var(--soft);color:var(--text-secondary);font-size:var(--text-xs);padding:6px 8px;
+  }
+  .filter-field:not(.filter-field-search) select:hover{border-color:var(--border-subtle)}
+  .filter-field.filter-active select{
+    border-color:var(--brand-tint);background:var(--brand-tint);color:var(--brand-strong);font-weight:600;
+  }
   .search-input{font-size:15px}
   .active-filter-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
   .active-filter-chips:empty{display:none}
@@ -66,13 +86,15 @@
   }
   .active-filter-chip button:hover{background:rgba(95,65,40,.14)}
   .stats-strip{
-    display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;
+    display:flex;gap:16px;flex-wrap:wrap;align-items:baseline;margin:0 0 12px;
+    border:1px solid var(--border-faint);border-top:0;border-radius:0 0 var(--radius-lg) var(--radius-lg);
+    background:var(--surface);padding:9px 16px 12px;
   }
+  .stats-strip:empty{display:none}
   .stat-pill{
-    border:1px solid var(--border-faint);background:var(--paper);border-radius:999px;
-    padding:5px 9px;font-size:11px;color:var(--text-secondary);
+    font-size:var(--text-xs);color:var(--text-secondary);white-space:nowrap;
   }
-  .stat-pill strong{color:var(--text-primary)}
+  .stat-pill strong{color:var(--text-primary);font-weight:650;margin-left:3px}
   .viewport.workspace-viewport{margin:0;max-height:calc(100vh - 255px)}
   .chapter-divider{
     grid-column:1/-1;
@@ -145,11 +167,11 @@
   .app-shell{grid-template-columns:230px minmax(0,1fr) 300px}
   .app-shell.info-collapsed{grid-template-columns:230px minmax(0,1fr) 44px}
   .project-dashboard{
-    border:1px solid var(--border-faint);border-radius:var(--radius-lg);background:var(--surface);
-    padding:14px 16px;margin-bottom:12px;
+    border:1px solid var(--border-faint);border-radius:var(--radius-lg) var(--radius-lg) 0 0;border-bottom:0;
+    background:var(--surface);padding:14px 16px 10px;margin-bottom:0;
   }
   .dashboard-top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-  .dashboard-eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary);font-weight:700}
+  .dashboard-eyebrow{font-size:var(--text-2xs);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary);font-weight:600}
   .pipeline-strip{display:flex;align-items:center;flex-wrap:wrap}
   .pipeline-stage{
     display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:12px;color:var(--text-secondary);
@@ -180,50 +202,71 @@
   .view-switch button{border-color:transparent;background:transparent;padding:6px 12px;font-size:13px}
   .view-switch button:hover{background:rgba(255,255,255,.6)}
   .view-switch button.active{background:var(--surface-elevated);color:var(--text-primary);border-color:transparent;box-shadow:var(--shadow-sm);font-weight:600}
+  /* Dense grid: exactly one grid item (.card-slot) per scene, no phantom insertion-
+     sized cells. Each slot carries the card itself plus (contextually) a thin edge
+     affordance that visually lives in the row/column gap without claiming a track. */
   .scene-cards-grid{
-    display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
-    gap:12px;padding:12px;background:var(--bg);min-height:180px;
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+    gap:22px 12px;padding:12px;background:var(--bg);min-height:120px;
   }
+  .card-slot{position:relative}
   .compact-scene-card{
-    border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff;
-    cursor:pointer;transition:box-shadow .12s,transform .12s;
+    border:1px solid var(--border-faint);border-radius:var(--radius-md);padding:12px;background:var(--surface-elevated);
+    cursor:pointer;transition:box-shadow var(--motion-base),transform var(--motion-base),border-color var(--motion-fast);
+    height:100%;
   }
-  .compact-scene-card:hover{box-shadow:0 5px 18px rgba(0,0,0,.08);transform:translateY(-1px)}
-  .compact-scene-card.fixed{background:#f3f8f0;border-color:#bfd0b8}
-  .compact-scene-card.floating{background:#fffaf0}
-  .compact-card-title{font-size:15px;font-weight:750;line-height:1.35;margin-bottom:7px}
+  .compact-scene-card:hover{box-shadow:var(--shadow-md);transform:translateY(-1px);border-color:var(--border-subtle)}
+  .compact-scene-card.dragging{opacity:.4}
+  .compact-scene-card.selected-scene{outline:2px solid var(--brand);outline-offset:-2px}
+  .compact-card-title{font-size:var(--text-md);font-weight:700;line-height:1.35;margin-bottom:7px}
   .compact-card-description{
-    font-size:12px;color:var(--muted);line-height:1.4;margin:8px 0;
+    font-size:var(--text-xs);color:var(--text-secondary);line-height:1.4;margin:8px 0;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
   }
   .card-actions{margin-top:8px;display:flex;justify-content:flex-end}
   .card-chapter-group{margin:0 0 6px}
   .card-chapter-group .compact-chapter-title{margin:0 12px;padding:10px 0;background:transparent;border-bottom:0}
-  .card-position-insert{
-    border:0;background:transparent;cursor:pointer;min-height:36px;width:100%;
-    display:flex;align-items:center;justify-content:center;position:relative;border-radius:10px;
+  /* Edge insertion affordance — a child of the card's own slot, not a sibling grid
+     item, so it overlaps the row gap instead of reserving a card-sized track. Quiet
+     hairline by default; a "+" appears on hover/focus/touch, a "move here" pill while
+     a drag is in progress. */
+  .card-insert-edge{
+    position:absolute;left:6px;right:6px;height:20px;z-index:5;
+    border:0;background:transparent;cursor:pointer;padding:0;
+    display:flex;align-items:center;justify-content:center;
   }
-  .card-position-insert::before{
-    content:"";position:absolute;inset:14px;border:1px dashed transparent;border-radius:10px;transition:border-color .12s ease;
+  .card-insert-before{top:-19px}
+  .card-insert-after{bottom:-19px}
+  .card-insert-edge::before{
+    content:"";position:absolute;left:8px;right:8px;top:50%;height:1px;
+    background:transparent;transform:translateY(-50%);transition:background var(--motion-base);
   }
-  .card-position-insert .position-plus{
-    width:20px;height:20px;border-radius:999px;display:flex;align-items:center;justify-content:center;
+  .card-insert-edge:hover::before,.card-insert-edge:focus-visible::before{background:var(--border-subtle)}
+  .card-insert-edge .position-plus{
+    position:relative;z-index:1;width:20px;height:20px;border-radius:999px;display:flex;align-items:center;justify-content:center;
     font-size:13px;line-height:1;color:var(--brand);background:var(--surface-elevated);
-    border:1px solid var(--border-subtle);opacity:0;transition:opacity .12s ease,transform .12s ease;transform:scale(.6);
+    border:1px solid var(--border-subtle);opacity:0;transition:opacity var(--motion-base),transform var(--motion-base);transform:scale(.6);
   }
-  .card-position-insert .position-drop-label{
-    display:none;font-size:11px;font-weight:700;color:#fff;background:var(--brand);border-radius:999px;padding:3px 10px;
+  .card-insert-edge:hover .position-plus,.card-insert-edge:focus-visible .position-plus{opacity:1;transform:scale(1)}
+  .card-insert-edge:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:999px}
+  .card-insert-edge .position-drop-label{
+    display:none;position:relative;z-index:1;font-size:11px;font-weight:700;color:#fff;background:var(--brand);border-radius:999px;padding:3px 10px;white-space:nowrap;
   }
-  .card-position-insert:hover,.card-position-insert:focus-visible{outline:0}
-  .card-position-insert:hover::before,.card-position-insert:focus-visible::before{border-color:var(--border-subtle)}
-  .card-position-insert:hover .position-plus,.card-position-insert:focus-visible .position-plus{opacity:1;transform:scale(1)}
-  .card-position-insert:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-  body.scene-drag-active .card-position-insert .position-plus{display:none}
-  body.scene-drag-active .card-position-insert .position-drop-label{display:block}
-  body.scene-drag-active .card-position-insert::before{border-color:var(--border-subtle)}
+  body.scene-drag-active .card-insert-edge{height:26px}
+  body.scene-drag-active .card-insert-before{top:-24px}
+  body.scene-drag-active .card-insert-after{bottom:-24px}
+  body.scene-drag-active .card-insert-edge::before{background:var(--border-subtle)}
+  body.scene-drag-active .card-insert-edge .position-plus{display:none}
+  body.scene-drag-active .card-insert-edge .position-drop-label{display:block}
+  .card-insert-edge.active .position-drop-label{background:var(--brand-strong)}
+  /* Touch/coarse pointer: no hover, so the affordance stays minimally visible instead
+     of fully invisible-until-hover. */
+  @media(hover:none),(pointer:coarse){
+    .card-insert-edge .position-plus{opacity:.65;transform:scale(.85)}
+  }
   .card-position-empty{
-    grid-column:1/-1;padding:16px;text-align:center;color:var(--muted);
-    border:1px dashed var(--line);border-radius:10px;background:#fbfaf8;display:flex;
+    grid-column:1/-1;padding:16px;text-align:center;color:var(--text-secondary);
+    border:1px dashed var(--border-subtle);border-radius:var(--radius-md);background:var(--paper);display:flex;
     flex-direction:column;gap:8px;align-items:center;
   }
   .entity-link{

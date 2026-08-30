@@ -144,6 +144,29 @@ async function compactDropScene(event,position,sceneId=draggedSceneId){
   return result;
 }
 
+// Cards view drag: same {chapterId,beforeSceneId} model, same compactMoveScene
+// mutation path and the same compactDragOver/compactDragLeave/compactDropScene drop
+// handlers as the compact list — only the drag *source* (a card, not a list row) and
+// its "dragging" visual target differ.
+function cardDragStart(event,sceneId){
+  if(hasActiveFilters()){
+    event.preventDefault();
+    showStorageMessage("Чтобы менять порядок сцен, сбросьте фильтры.","warning");
+    return;
+  }
+  draggedSceneId=sceneId;
+  event.currentTarget.classList.add("dragging");
+  document.body.classList.add("scene-drag-active");
+  event.dataTransfer.effectAllowed="move";
+  event.dataTransfer.setData("text/plain",sceneId);
+}
+
+function cardDragEnd(){
+  draggedSceneId=null;
+  document.body.classList.remove("scene-drag-active");
+  document.querySelectorAll(".compact-scene-card.dragging,.card-insert-edge.active").forEach(node=>node.classList.remove("dragging","active"));
+}
+
 function compactDragEnd(){
   draggedSceneId=null;
   document.body.classList.remove("scene-drag-active");
@@ -267,5 +290,5 @@ function sortDragEnd(){
   document.querySelectorAll(".sort-scene-row").forEach(row=>row.classList.remove("dragging","drop-before","drop-after"));
 }
 
-Object.assign(globalThis,{dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,compactDragStart,compactDragOver,compactDragLeave,compactMoveScene,compactDropScene,compactDragEnd,characterDragStart,characterDragOver,characterDragLeave,characterDropProfile,characterDragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd});
-export {dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,compactDragStart,compactDragOver,compactDragLeave,compactMoveScene,compactDropScene,compactDragEnd,characterDragStart,characterDragOver,characterDragLeave,characterDropProfile,characterDragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd};
+Object.assign(globalThis,{dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,compactDragStart,compactDragOver,compactDragLeave,compactMoveScene,compactDropScene,compactDragEnd,cardDragStart,cardDragEnd,characterDragStart,characterDragOver,characterDragLeave,characterDropProfile,characterDragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd});
+export {dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,compactDragStart,compactDragOver,compactDragLeave,compactMoveScene,compactDropScene,compactDragEnd,cardDragStart,cardDragEnd,characterDragStart,characterDragOver,characterDragLeave,characterDropProfile,characterDragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd};
