@@ -42,6 +42,7 @@
     "test:scene-character-matrix-ux-browser": "node tools/scene-character-matrix-ux-browser.test.mjs",
     "test:scene-position-interactions-browser": "node tools/scene-position-interactions-browser.test.mjs",
     "test:core-workspace-recomposition-browser": "node tools/core-workspace-recomposition-browser.test.mjs",
+    "test:workspace-density-navigation-browser": "node tools/workspace-density-navigation-browser.test.mjs",
     "test": "npm run test:unit"
   },
   "devDependencies": {

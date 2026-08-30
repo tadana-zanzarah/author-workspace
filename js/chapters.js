@@ -375,12 +375,16 @@ function toggleChapter(id){
 function navigateToChapter(chapterId){
   const target=document.querySelector(`[data-chapter-id="${cssEscape(chapterId)}"]`);
   if(!target)return false;
+  // Focus BEFORE starting the (possibly animated) scroll, not after: focusing an
+  // element right after scrollIntoView({behavior:"smooth"}) starts can cancel that
+  // in-flight animation in some engines, leaving the page not actually scrolled.
+  // preventScroll keeps this focus call itself from jumping the page.
+  if(!target.hasAttribute("tabindex"))target.setAttribute("tabindex","-1");
+  target.focus({preventScroll:true});
   const reduceMotion=matchMedia("(prefers-reduced-motion: reduce)").matches;
   target.scrollIntoView({behavior:reduceMotion?"auto":"smooth",block:"start"});
   target.classList.add("chapter-nav-highlight");
   setTimeout(()=>target.classList.remove("chapter-nav-highlight"),1600);
-  if(!target.hasAttribute("tabindex"))target.setAttribute("tabindex","-1");
-  target.focus({preventScroll:true});
   return true;
 }
 
