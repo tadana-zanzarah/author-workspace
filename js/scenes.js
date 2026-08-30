@@ -115,7 +115,13 @@ function openNewSceneAtNow(beforeSceneId=null,chapterId=""){
   const insertionIndex=insertBeforeSceneId?sceneIndexById(insertBeforeSceneId):data.scenes.length;
   buildPeopleForm({},insertionIndex<0?data.scenes.length:insertionIndex);
   showModal("sceneModal");
+  resetSceneModalScroll();
   trackerFor("sceneModal").captureInitialState();
+}
+
+function resetSceneModalScroll(){
+  const scrollBox=document.querySelector("#sceneModal .modal");
+  if(scrollBox)scrollBox.scrollTop=0;
 }
 
 function editScene(sceneId){
@@ -145,6 +151,7 @@ function editSceneNow(sceneId){
   renderSceneTagDraft();
   buildPeopleForm(s.people||{},index);
   showModal("sceneModal");
+  resetSceneModalScroll();
   trackerFor("sceneModal").captureInitialState();
 }
 
@@ -187,10 +194,36 @@ function renderSceneTagDraft(){
 function removeSceneTag(id){sceneTagDraft=sceneTagDraft.filter(x=>x!==id);renderSceneTagDraft();syncBeforeUnload()}
 
 function buildPeopleForm(people,sceneIndex){
-  const inherited=relationshipsBefore(sceneIndex);
-  document.getElementById("scenePersons").innerHTML=data.characters.map(character=>{
-    const charId=character.id;
-    const p=people[charId]||{};
+  sceneBuildIndex=sceneIndex;
+  sceneParticipantDraft=Object.fromEntries(Object.entries(people||{}).map(([id,p])=>[id,{action:p.action||"",legacyState:p.legacyState||"",relationChanges:{...(p.relationChanges||{})},visibleRelations:[...(p.visibleRelations||[])]}]));
+  renderPeopleBlocks();
+}
+
+function syncPeopleDraftFromDom(){
+  for(const charId of Object.keys(sceneParticipantDraft)){
+    const actionEl=document.querySelector(`.p-action[data-char-id="${cssEscape(charId)}"]`);
+    if(!actionEl)continue;
+    const legacyEl=document.querySelector(`.p-legacy[data-char-id="${cssEscape(charId)}"]`);
+    const relationChanges={};
+    document.querySelectorAll(`.rel-value[data-char-id="${cssEscape(charId)}"]`).forEach(input=>{
+      if(input.dataset.explicit==="true")relationChanges[input.dataset.targetId]=input.value;
+    });
+    const visibleRelations=[];
+    document.querySelectorAll(`.rel-visible[data-char-id="${cssEscape(charId)}"]:checked`).forEach(cb=>{
+      const target=cb.dataset.targetId;
+      const input=document.querySelector(`.rel-value[data-char-id="${cssEscape(charId)}"][data-target-id="${cssEscape(target)}"]`);
+      if(input&&input.value.trim())visibleRelations.push(target);
+    });
+    sceneParticipantDraft[charId]={action:actionEl.value,legacyState:legacyEl?legacyEl.value:(sceneParticipantDraft[charId].legacyState||""),relationChanges,visibleRelations};
+  }
+}
+
+function renderPeopleBlocks(){
+  const inherited=relationshipsBefore(sceneBuildIndex);
+  const participantIds=data.characters.map(c=>c.id).filter(id=>Object.prototype.hasOwnProperty.call(sceneParticipantDraft,id));
+  document.getElementById("scenePersons").innerHTML=participantIds.map(charId=>{
+    const character=characterById(charId);
+    const p=sceneParticipantDraft[charId]||{};
     const rows=data.characters.filter(target=>target.id!==charId).map(target=>{
       const targetId=target.id;
       const inheritedValue=inherited[charId]?.[targetId]||"";
@@ -221,8 +254,11 @@ function buildPeopleForm(people,sceneIndex){
       </div>`;
     }).join("");
 
-    return `<div class="person-block">
-      <h3>${esc(character.name)}</h3>
+    return `<div class="person-block" data-participant-id="${esc(charId)}">
+      <div class="person-block-header">
+        <h3>${esc(character?.name||"Неизвестный персонаж")}</h3>
+        <button type="button" class="danger" onclick="removeSceneParticipant('${jsq(charId)}')">Убрать из сцены</button>
+      </div>
       <label>
         <span class="field-caption">События сцены</span>
         <textarea class="p-action action-input" data-char-id="${esc(charId)}" placeholder="Что делает персонаж">${esc(p.action||"")}</textarea>
@@ -240,7 +276,47 @@ function buildPeopleForm(people,sceneIndex){
         ${rows}
       </div>
     </div>`;
-  }).join("");
+  }).join("")||'<p class="profile-note">В сцене пока нет персонажей. Выберите персонажа выше и нажмите «Добавить персонажа».</p>';
+  renderSceneParticipantSelector();
+}
+
+function renderSceneParticipantSelector(){
+  const select=document.getElementById("sceneParticipantSelect");
+  if(!select)return;
+  const available=data.characters.filter(c=>!Object.prototype.hasOwnProperty.call(sceneParticipantDraft,c.id));
+  select.innerHTML=data.characters.map(c=>{
+    const added=Object.prototype.hasOwnProperty.call(sceneParticipantDraft,c.id);
+    return `<option value="${esc(c.id)}" ${added?"disabled":""}>${esc(c.name)}${added?" (уже в сцене)":""}</option>`;
+  }).join("")||'<option value="" disabled>Персонажей в проекте нет</option>';
+  const defaultSelection=available[0]?.id||"";
+  select.value=defaultSelection;
+  document.getElementById("addSceneParticipant").disabled=!defaultSelection;
+}
+
+function addSceneParticipant(){
+  syncPeopleDraftFromDom();
+  const select=document.getElementById("sceneParticipantSelect");
+  const charId=select.value;
+  if(!charId||Object.prototype.hasOwnProperty.call(sceneParticipantDraft,charId))return;
+  sceneParticipantDraft[charId]={action:"",legacyState:"",relationChanges:{},visibleRelations:[]};
+  renderPeopleBlocks();
+  syncBeforeUnload();
+}
+
+async function removeSceneParticipant(charId){
+  syncPeopleDraftFromDom();
+  const hasContent=personHasContent(sceneParticipantDraft[charId]);
+  if(hasContent){
+    const confirmed=await showConfirmAction({
+      title:"Убрать персонажа из сцены?",
+      description:`«${characterName(charId)}» будет убран из этой сцены. Введённые для него данные в этой сцене будут потеряны при сохранении.`,
+      confirmLabel:"Убрать",cancelLabel:"Отмена"
+    });
+    if(!confirmed)return;
+  }
+  delete sceneParticipantDraft[charId];
+  renderPeopleBlocks();
+  syncBeforeUnload();
 }
 
 function markRelationExplicit(input,isExplicit){
@@ -335,5 +411,5 @@ async function deleteScene(sceneId){
   }
 }
 
-Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
-export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};
+Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
+export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};

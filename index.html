@@ -154,20 +154,32 @@
 
 <div class="app-shell">
   <aside class="project-sidebar">
-    <div class="sidebar-section">
-      <div class="sidebar-title">Главы <button class="nav-manage" onclick="openChaptersManager()">настроить</button></div>
+    <div class="sidebar-section" data-sidebar-section="chapters">
+      <div class="sidebar-title">
+        <button type="button" class="sidebar-toggle" data-sidebar-toggle="chapters" aria-expanded="true" aria-controls="sideChapters" onclick="toggleSidebarSection('chapters')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Главы</button>
+        <button class="nav-manage" onclick="openChaptersManager()">настроить</button>
+      </div>
       <div id="sideChapters" class="sidebar-list"></div>
     </div>
-    <div class="sidebar-section">
-      <div class="sidebar-title">Персонажи <button class="nav-manage" id="sidebarManageChars" type="button">настроить</button></div>
+    <div class="sidebar-section" data-sidebar-section="characters">
+      <div class="sidebar-title">
+        <button type="button" class="sidebar-toggle" data-sidebar-toggle="characters" aria-expanded="true" aria-controls="sideCharacters" onclick="toggleSidebarSection('characters')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Персонажи</button>
+        <button class="nav-manage" id="sidebarManageChars" type="button">настроить</button>
+      </div>
       <div id="sideCharacters" class="sidebar-list"></div>
     </div>
-    <div class="sidebar-section">
-      <div class="sidebar-title">Локации <button class="nav-manage" onclick="openLocationsManager()">настроить</button></div>
+    <div class="sidebar-section" data-sidebar-section="locations">
+      <div class="sidebar-title">
+        <button type="button" class="sidebar-toggle" data-sidebar-toggle="locations" aria-expanded="true" aria-controls="sideLocations" onclick="toggleSidebarSection('locations')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Локации</button>
+        <button class="nav-manage" onclick="openLocationsManager()">настроить</button>
+      </div>
       <div id="sideLocations" class="sidebar-list"></div>
     </div>
-    <div class="sidebar-section">
-      <div class="sidebar-title">Теги <button class="nav-manage" onclick="openTagsManager()">настроить</button></div>
+    <div class="sidebar-section" data-sidebar-section="tags">
+      <div class="sidebar-title">
+        <button type="button" class="sidebar-toggle" data-sidebar-toggle="tags" aria-expanded="true" aria-controls="sideTags" onclick="toggleSidebarSection('tags')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Теги</button>
+        <button class="nav-manage" onclick="openTagsManager()">настроить</button>
+      </div>
       <div id="sideTags" class="sidebar-list"></div>
     </div>
   </aside>
@@ -328,6 +340,13 @@
     <p style="color:var(--muted);font-size:13px;margin:13px 0 5px">
       Незаполненный персонаж считается не участвующим. Отношения наследуются автоматически. Любое отношение, которое вы редактируете вручную, закрепляется за этой сценой; кнопка «Наследовать» снимает закрепление.
     </p>
+    <div class="scene-participant-selector">
+      <label style="flex:1">
+        <span class="field-caption">Добавить персонажа в сцену</span>
+        <select id="sceneParticipantSelect" aria-label="Выбрать персонажа для добавления в сцену"></select>
+      </label>
+      <button type="button" id="addSceneParticipant" disabled>Добавить персонажа</button>
+    </div>
     <div id="scenePersons"></div>
     <div class="modal-actions">
       <button id="cancelScene">Отмена</button>

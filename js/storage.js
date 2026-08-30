@@ -198,11 +198,36 @@ function initializeStorageNotice(){
     showStorageMessage(`Старая база ${startupLoadInfo.source} проверена и безопасно подготовлена для актуальной версии.`,"warning");
   }
 }
+const SIDEBAR_SECTION_KEYS=["chapters","characters","locations","tags"];
 function loadUiState(){
-  try{const ui=JSON.parse(localStorage.getItem(activeWorkspaceContext().uiStorageKey)||"{}");navigationVisible=ui.navigationVisible!==false}catch{navigationVisible=true}
+  let storedSections={};
+  try{
+    const ui=JSON.parse(localStorage.getItem(activeWorkspaceContext().uiStorageKey)||"{}");
+    navigationVisible=ui.navigationVisible!==false;
+    storedSections=ui.sidebarSections||{};
+  }catch{navigationVisible=true}
   document.querySelector(".app-shell").classList.toggle("navigation-hidden",!navigationVisible);
+  sidebarSections=Object.fromEntries(SIDEBAR_SECTION_KEYS.map(key=>[key,storedSections[key]!==false]));
+  applySidebarSectionState();
 }
-function saveUiState(){try{localStorage.setItem(activeWorkspaceContext().uiStorageKey,JSON.stringify({navigationVisible}))}catch{}}
+function saveUiState(){try{localStorage.setItem(activeWorkspaceContext().uiStorageKey,JSON.stringify({navigationVisible,sidebarSections}))}catch{}}
+function applySidebarSectionState(){
+  for(const key of SIDEBAR_SECTION_KEYS){
+    const expanded=sidebarSections[key]!==false;
+    const section=document.querySelector(`[data-sidebar-section="${key}"]`);
+    const toggle=document.querySelector(`[data-sidebar-toggle="${key}"]`);
+    section?.classList.toggle("collapsed",!expanded);
+    toggle?.setAttribute("aria-expanded",String(expanded));
+    const icon=toggle?.querySelector(".sidebar-toggle-icon");
+    if(icon)icon.textContent=expanded?"▾":"▸";
+  }
+}
+function toggleSidebarSection(key){
+  if(!SIDEBAR_SECTION_KEYS.includes(key))return;
+  sidebarSections={...sidebarSections,[key]:sidebarSections[key]===false};
+  applySidebarSectionState();
+  saveUiState();
+}
 
-Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState});
-export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState};
+Object.assign(globalThis,{storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,applySidebarSectionState,toggleSidebarSection});
+export {storageProjectScore,parseStorageCandidate,loadProjectFromStorage,loadDataSafe,recoveryBackupKey,restoreProjectCandidate,persistProject,commitProjectChange,commitDataChange,showStorageMessage,saveData,downloadProblemRaw,openRecoveryModal,initializeRecoveryUi,initializeStorageNotice,loadUiState,saveUiState,applySidebarSectionState,toggleSidebarSection};

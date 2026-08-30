@@ -16,11 +16,19 @@
     top:128px;
   }
   .sidebar-section{margin-bottom:15px}
+  .sidebar-section.collapsed{margin-bottom:6px}
+  .sidebar-section.collapsed .sidebar-list{display:none}
   .sidebar-title{
     display:flex;align-items:center;justify-content:space-between;
     font-size:12px;text-transform:uppercase;letter-spacing:.04em;
     color:var(--muted);font-weight:750;margin-bottom:6px;
   }
+  .sidebar-toggle{
+    display:flex;align-items:center;gap:5px;border:0;background:transparent;padding:2px 2px 2px 0;
+    font:inherit;text-transform:inherit;letter-spacing:inherit;color:inherit;font-weight:inherit;cursor:pointer;
+  }
+  .sidebar-toggle:hover,.sidebar-toggle:focus-visible{color:var(--ink)}
+  .sidebar-toggle-icon{display:inline-block;width:9px;text-align:center}
   .sidebar-list{display:grid;gap:4px}
   .sidebar-item{
     width:100%;text-align:left;border:0;background:transparent;

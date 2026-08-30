@@ -275,26 +275,16 @@ document.getElementById("saveScene").onclick=async()=>{
     people:{}
   };
 
+  syncPeopleDraftFromDom();
   data.characters.forEach(character=>{
     const charId=character.id;
-    const action=document.querySelector(`.p-action[data-char-id="${cssEscape(charId)}"]`).value.trim();
-    const legacyEl=document.querySelector(`.p-legacy[data-char-id="${cssEscape(charId)}"]`);
-    const legacyState=legacyEl?legacyEl.value.trim():"";
-    const relationChanges={};
-    const visibleRelations=[];
-
-    document.querySelectorAll(`.rel-value[data-char-id="${cssEscape(charId)}"]`).forEach(input=>{
-      const target=input.dataset.targetId;
-      const value=input.value.trim();
-      // relationChanges теперь означает не "разницу с текущим соседом",
-      // а явное решение автора в этой конкретной сцене.
-      if(input.dataset.explicit==="true")relationChanges[target]=value;
-    });
-    document.querySelectorAll(`.rel-visible[data-char-id="${cssEscape(charId)}"]:checked`).forEach(cb=>{
-      const target=cb.dataset.targetId;
-      const input=document.querySelector(`.rel-value[data-char-id="${cssEscape(charId)}"][data-target-id="${cssEscape(target)}"]`);
-      if(input&&input.value.trim())visibleRelations.push(target);
-    });
+    if(!Object.prototype.hasOwnProperty.call(sceneParticipantDraft,charId))return;
+    const p=sceneParticipantDraft[charId];
+    const action=(p.action||"").trim();
+    const legacyState=(p.legacyState||"").trim();
+    // relationChanges означает не "разницу с текущим соседом", а явное решение автора в этой сцене.
+    const relationChanges=Object.fromEntries(Object.entries(p.relationChanges||{}).map(([target,value])=>[target,(value||"").trim()]));
+    const visibleRelations=[...(p.visibleRelations||[])];
 
     if(action||legacyState||Object.keys(relationChanges).length||visibleRelations.length){
       scene.people[charId]={action,relationChanges,visibleRelations,legacyState};
@@ -501,6 +491,7 @@ document.getElementById("cancelProfile").onclick=()=>requestCloseModal("profileE
 document.getElementById("profileEditorModal").onclick=e=>{
   if(e.target.id==="profileEditorModal")requestCloseModal("profileEditorModal","backdrop");
 };
+document.getElementById("addSceneParticipant").onclick=addSceneParticipant;
 document.getElementById("addCharacterLink").onclick=()=>openCharacterLinkEditor();
 document.getElementById("cancelCharacterLink").onclick=()=>requestCloseModal("characterLinkModal","button");
 document.getElementById("saveCharacterLink").onclick=saveDraftCharacterLink;
