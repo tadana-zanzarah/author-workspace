@@ -1,5 +1,55 @@
 function characterById(id){return data.characters.find(c=>c.id===id)}
 
+function nextCharacterSortOrder(){
+  return data.characters.reduce((max,c)=>Math.max(max,Number(c.sortOrder)||0),0)+1000;
+}
+
+function computeInsertSortOrder(neighbors,targetIndex){
+  const before=neighbors[targetIndex-1]?.sortOrder,after=neighbors[targetIndex]?.sortOrder;
+  if(before==null&&after==null)return 1000;
+  if(before==null)return after-1000;
+  if(after==null)return before+1000;
+  const mid=(before+after)/2;
+  return mid>before&&mid<after?mid:null;
+}
+
+async function reorderCharacterTo(characterId,beforeCharacterId){
+  const fromIndex=data.characters.findIndex(c=>c.id===characterId);
+  if(fromIndex<0||characterId===beforeCharacterId)return {ok:true,unchanged:true};
+  const moved=data.characters[fromIndex];
+  const others=data.characters.filter(c=>c.id!==characterId);
+  const targetIndex=beforeCharacterId?others.findIndex(c=>c.id===beforeCharacterId):others.length;
+  if(beforeCharacterId&&targetIndex<0)return {ok:false};
+  if(!isCloudWorkspace()){
+    const proposed=[...others];proposed.splice(targetIndex,0,moved);
+    if(proposed.every((c,i)=>c.id===data.characters[i].id))return {ok:true,unchanged:true};
+    const result=commitDataChange(next=>{
+      const idx=next.characters.findIndex(c=>c.id===characterId);
+      const [item]=next.characters.splice(idx,1);
+      let insertAt=beforeCharacterId?next.characters.findIndex(c=>c.id===beforeCharacterId):next.characters.length;
+      if(insertAt<0)insertAt=next.characters.length;
+      next.characters.splice(insertAt,0,item);
+    },{renderAfter:false});
+    if(result.ok){renderProfiles();render()}
+    return result;
+  }
+  const proposed=[...others];proposed.splice(targetIndex,0,moved);
+  if(proposed.every((c,i)=>c.id===data.characters[i].id))return {ok:true,unchanged:true};
+  let newSortOrder=computeInsertSortOrder(others,targetIndex);
+  if(newSortOrder==null){
+    for(let i=0;i<proposed.length;i++){
+      const character=proposed[i],want=(i+1)*1000;
+      if(Number(character.sortOrder)===want)continue;
+      const result=await runCloudMutation("reorderProjectCharacter",(_api,revision)=>cloudState.characterApi.updateProjectCharacter(cloudProjectSync.projectId,character.projectCharacterId,revision,{overrides:character.projectOverrides||{},role:character.role,sortOrder:want}),{renderAfter:false});
+      if(!result.ok)return result;
+    }
+    data=cloudProjectSync.confirmedProject;renderProfiles();render();return {ok:true};
+  }
+  const result=await runCloudMutation("reorderProjectCharacter",(_api,revision)=>cloudState.characterApi.updateProjectCharacter(cloudProjectSync.projectId,moved.projectCharacterId,revision,{overrides:moved.projectOverrides||{},role:moved.role,sortOrder:newSortOrder}),{renderAfter:false});
+  if(result.ok){data=cloudProjectSync.confirmedProject;renderProfiles();render()}
+  return result;
+}
+
 function characterName(id){return characterById(id)?.name||"Неизвестный персонаж"}
 
 function renderProfiles(){
@@ -20,7 +70,8 @@ function renderProfiles(){
     const primary=p.photos.find(photo=>photo.id===p.primaryPhotoId)||p.photos[0];
     const structural=linksForCharacter(character.id,data.characterLinks||[]).slice(0,2);
     const cover=primary?`<button type="button" class="profile-cover-button" aria-label="Открыть оригинальное изображение персонажа ${esc(full||character.name)}" onclick="openPhotoLightboxByCharacter('${jsq(character.id)}','${jsq(primary.id)}')"><img src="${esc(primary.source.value)}" alt="${esc(primary.alt||"")}" style="object-position:${primary.crop.x*100}% ${primary.crop.y*100}%;transform:scale(${primary.crop.zoom})"></button>`:`Нет изображения`;
-    return `<article class="profile-card">
+    return `<article class="profile-card" data-character-id="${esc(character.id)}" ondragover="characterDragOver(event,'${jsq(character.id)}')" ondragleave="characterDragLeave(event)" ondrop="characterDropProfile(event,'${jsq(character.id)}')" ondragend="characterDragEnd(event)">
+      <div class="profile-drag-handle" draggable="true" aria-label="Перетащить персонажа ${esc(character.name)} для изменения порядка" ondragstart="characterDragStart(event,'${jsq(character.id)}')">↕</div>
       <div class="profile-cover">${cover}</div>
       <div class="profile-body">
         <div class="profile-name">${esc(full||character.name)}</div>
@@ -301,5 +352,5 @@ function birthdayDisplay(profile){
   return result||"Не указано";
 }
 
-Object.assign(globalThis,{characterById,characterName,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
-export {characterById,characterName,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};
+Object.assign(globalThis,{characterById,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
+export {characterById,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};

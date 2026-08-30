@@ -14,6 +14,15 @@ assert.equal(hydrated.scenes[0].chapterId,"chapter-1");assert.equal(hydrated.sce
 assert.deepEqual(hydrated.scenes[0].tags,["tag-1"]);assert.equal(hydrated.scenes[0].people["character-1"].action,"идёт");
 assert.equal(hydrated.profiles["character-1"].photos[0].id,"photo-1");assert.equal(hydrated.characterLinks.length,0,"local links are not authoritative in cloud mode");
 assert.equal(hydrated.profiles["character-1"].age,"27");assert.deepEqual(hydrated.profiles["character-1"].favorites,["чай"]);assert.deepEqual(hydrated.profiles["character-1"].unknown,{keep:true});
+assert.equal(hydrated.characters[0].sortOrder,0,"project_characters.sort_order is exposed on the hydrated character entry");
+
+// Character order: the JS layer trusts and preserves the RPC's `order by sort_order,id`
+// row order rather than re-deriving it from name or insertion order of the payload.
+const orderSnapshot={...snapshot,characters:[...snapshot.characters,{id:"character-2",name:"Б",surname:"",revision:0,base_profile:{}}],
+  project_characters:[{id:"participation-2",character_id:"character-2",overrides:{},sort_order:500},{id:"participation-1",character_id:"character-1",overrides:{age:"27",hobbies:["бег"]},sort_order:1000}]};
+const orderHydrated=hydrateProjectFromCloudSnapshot(orderSnapshot,local);
+assert.deepEqual(orderHydrated.characters.map(c=>c.id),["character-2","character-1"],"hydration preserves the RPC-provided sort_order row order, not payload/name order");
+assert.deepEqual(orderHydrated.characters.map(c=>c.sortOrder),[500,1000]);
 assert.equal(hasProjectContent({chapters:[{id:"chapter-unassigned"}],scenes:[],locations:[],tags:[],characters:[]}),false);
 assert.equal(sceneToCloud(hydrated.scenes[0]).chapterId,"chapter-1");
 assert.equal(sceneToCloud({...hydrated.scenes[0],chapterId:"chapter-unassigned"}).chapterId,null);

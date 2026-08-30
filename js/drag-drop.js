@@ -156,6 +156,45 @@ document.addEventListener("dragstart",event=>{
   if(event.target.closest?.(".scene-row")&&!event.target.closest(".drag-handle"))event.preventDefault();
 });
 
+function characterDragStart(event,characterId){
+  draggedCharacterId=characterId;
+  event.currentTarget.closest(".profile-card")?.classList.add("dragging");
+  event.dataTransfer.effectAllowed="move";
+  event.dataTransfer.setData("text/plain",characterId);
+}
+
+function characterDragOver(event,targetCharacterId){
+  if(!draggedCharacterId)return;
+  event.preventDefault();
+  const card=event.currentTarget;
+  const rect=card.getBoundingClientRect();
+  const after=event.clientY>rect.top+rect.height/2;
+  card.classList.toggle("drop-before",!after);
+  card.classList.toggle("drop-after",after);
+  event.dataTransfer.dropEffect="move";
+}
+
+function characterDragLeave(event){event.currentTarget.classList.remove("drop-before","drop-after")}
+
+async function characterDropProfile(event,targetCharacterId){
+  event.preventDefault();
+  const card=event.currentTarget;
+  const rect=card.getBoundingClientRect();
+  const after=event.clientY>rect.top+rect.height/2;
+  card.classList.remove("drop-before","drop-after");
+  const movedId=draggedCharacterId;
+  draggedCharacterId=null;
+  if(!movedId||movedId===targetCharacterId)return;
+  const beforeCharacterId=after?(card.nextElementSibling?.dataset.characterId||null):targetCharacterId;
+  if(beforeCharacterId===movedId)return;
+  return reorderCharacterTo(movedId,beforeCharacterId);
+}
+
+function characterDragEnd(){
+  draggedCharacterId=null;
+  document.querySelectorAll(".profile-card").forEach(card=>card.classList.remove("dragging","drop-before","drop-after"));
+}
+
 function renderSortScenes(){
   const root=document.getElementById("sortScenesList");
   root.innerHTML=data.scenes.map(scene=>{
@@ -234,5 +273,5 @@ function sortDragEnd(){
   document.querySelectorAll(".sort-scene-row").forEach(row=>row.classList.remove("dragging","drop-before","drop-after"));
 }
 
-Object.assign(globalThis,{dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,compactDragStart,compactDragOver,compactDragLeave,compactMoveScene,compactDropScene,compactDragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd});
-export {dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,compactDragStart,compactDragOver,compactDragLeave,compactMoveScene,compactDropScene,compactDragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd};
+Object.assign(globalThis,{dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,compactDragStart,compactDragOver,compactDragLeave,compactMoveScene,compactDropScene,compactDragEnd,characterDragStart,characterDragOver,characterDragLeave,characterDropProfile,characterDragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd});
+export {dragStart,dragOver,dragLeave,dropScene,dragEnd,autoscrollSceneViewport,compactDragStart,compactDragOver,compactDragLeave,compactMoveScene,compactDropScene,compactDragEnd,characterDragStart,characterDragOver,characterDragLeave,characterDropProfile,characterDragEnd,renderSortScenes,openSortScenes,sortDragStart,sortDragOver,sortDrop,sortDragEnd};

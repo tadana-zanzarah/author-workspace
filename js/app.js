@@ -460,7 +460,7 @@ document.getElementById("createNewCharacter").onclick=()=>{forceHideModal("chara
 document.getElementById("attachExistingCharacter").onclick=async()=>{
   const field=document.getElementById("existingCharacterField");if(field.hidden){field.hidden=false;document.getElementById("existingCharacterSelect").focus();return}
   const characterId=document.getElementById("existingCharacterSelect").value;if(!characterId)return;
-  const result=await runCloudMutation("attachProjectCharacter",(_api,revision)=>cloudState.characterApi.attachProjectCharacter(cloudProjectSync.projectId,characterId,revision,{}));
+  const result=await runCloudMutation("attachProjectCharacter",(_api,revision)=>cloudState.characterApi.attachProjectCharacter(cloudProjectSync.projectId,characterId,revision,{sortOrder:nextCharacterSortOrder()}));
   if(!result.ok){document.getElementById("characterCreateError").textContent=result.message;return}forceHideModal("characterCreateModal");data=cloudProjectSync.confirmedProject;renderProfiles();render();
 };
 
@@ -606,7 +606,7 @@ document.getElementById("saveProfile").onclick=async()=>{
     const profilePayload={...profile};for(const key of ["id","characterId","name","surname","photos","primaryPhotoId","initialRelations","_cloud","_legacyLocalPhotosPending"])delete profilePayload[key];
     let result;
     if(profileDraftCharacter){
-      result=await runCloudMutation("createCharacterAndAttach",(_api,revision)=>api.createCharacterAndAttach(projectId,revision,{name:newName,surname:profile.surname,baseProfile:profilePayload},{}),{renderAfter:false});
+      result=await runCloudMutation("createCharacterAndAttach",(_api,revision)=>api.createCharacterAndAttach(projectId,revision,{name:newName,surname:profile.surname,baseProfile:profilePayload},{sortOrder:nextCharacterSortOrder()}),{renderAfter:false});
       if(result?.ok){
         const newId=result.data?.character?.id,tempId=character.id;
         if(newId){
