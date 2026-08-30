@@ -78,18 +78,18 @@
     <section><h2>Циклы</h2><div id="seriesList" class="cloud-list"></div></section>
     <section><h2>Отдельные проекты</h2><div id="standaloneProjects" class="cloud-list"></div></section>
   </section>
-  <div id="workspaceCloudBar" class="workspace-cloud-bar" hidden>
-    <button id="backToProjects" type="button">← Мои проекты</button>
-    <span>Текущий проект: <strong id="workspaceProjectTitle"></strong></span>
-    <span class="local-only-indicator">Рабочие данные пока сохраняются локально на устройстве</span>
-    <details class="account-menu" id="workspaceAccountMenu">
-      <summary id="workspaceAccountName">Аккаунт</summary>
-      <div class="account-menu-panel">
-        <button id="workspaceProjects" type="button">Мои проекты</button>
-        <button id="workspaceLogout" type="button">Выйти</button>
-      </div>
-    </details>
-  </div>
+</div>
+<div id="workspaceCloudBar" class="workspace-cloud-bar" hidden>
+  <button id="backToProjects" type="button">← Мои проекты</button>
+  <span>Текущий проект: <strong id="workspaceProjectTitle"></strong></span>
+  <span class="local-only-indicator">Рабочие данные пока сохраняются локально на устройстве</span>
+  <details class="account-menu" id="workspaceAccountMenu">
+    <summary id="workspaceAccountName">Аккаунт</summary>
+    <div class="account-menu-panel">
+      <button id="workspaceProjects" type="button">Мои проекты</button>
+      <button id="workspaceLogout" type="button">Выйти</button>
+    </div>
+  </details>
 </div>
 <div class="modal-backdrop" id="localCloudMigrationModal" role="dialog" aria-modal="true" aria-labelledby="migrationWizardTitle">
   <div class="modal migration-modal" tabindex="-1">
@@ -123,32 +123,38 @@
   </form>
 </div>
 <header>
-  <h1>Рабочее пространство автора</h1>
-  <button class="primary" id="addFirst">＋ Новая сцена</button>
-  <button id="toggleNavigation">Навигация</button>
-  <button id="allScenesBtn">Весь текст</button>
-  <button id="exportTextBtn">Выгрузить текст</button>
-  <button id="exportBtn">Экспорт</button>
-  <details class="top-menu" id="projectMenu">
-    <summary>Меню проекта</summary>
-    <div class="top-menu-panel">
-      <button id="manageChapters">Главы</button>
-      <button id="manageChars">Персонажи</button>
-      <button id="manageLocations">Локации</button>
-      <button id="manageTags">Теги</button>
-      <label class="file-label">Импорт JSON<input id="importInput" type="file" accept=".json,application/json" hidden></label>
-      <button id="downloadProblemRaw" hidden>Скачать проблемный JSON</button>
-      <button id="openRecovery" hidden>Восстановление данных</button>
-      <button id="openInspector">Подробнее о сцене</button>
-      <button id="openSortScenes">Сортировка сцен</button>
-      <button class="danger" id="clearBtn">Очистить проект</button>
-    </div>
-  </details>
-  <div class="legend">
-    <span class="legend-item"><span class="legend-dot fixed"></span>сцена на своём месте</span>
-    <span class="legend-item"><span class="legend-dot floating"></span>сцену ещё нужно разместить</span>
+  <div class="header-start">
+    <h1>Рабочее пространство автора</h1>
+    <button class="btn-quiet" id="toggleNavigation">Навигация</button>
   </div>
-  <div class="hint" id="saveStatus" role="status" aria-live="polite">Автосохранение включено</div>
+  <div class="header-end">
+    <div class="header-btn-group">
+      <button id="allScenesBtn">Весь текст</button>
+      <button id="exportTextBtn">Выгрузить текст</button>
+      <button id="exportBtn">Экспорт</button>
+    </div>
+    <details class="top-menu" id="projectMenu">
+      <summary>Меню</summary>
+      <div class="top-menu-panel">
+        <button id="manageChapters">Главы</button>
+        <button id="manageChars">Персонажи</button>
+        <button id="manageLocations">Локации</button>
+        <button id="manageTags">Теги</button>
+        <label class="file-label">Импорт JSON<input id="importInput" type="file" accept=".json,application/json" hidden></label>
+        <button id="downloadProblemRaw" hidden>Скачать проблемный JSON</button>
+        <button id="openRecovery" hidden>Восстановление данных</button>
+        <button id="openInspector">Подробнее о сцене</button>
+        <button id="openSortScenes">Сортировка сцен</button>
+        <button class="danger" id="clearBtn">Очистить проект</button>
+      </div>
+    </details>
+    <button class="primary" id="addFirst">＋ Новая сцена</button>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot fixed"></span>сцена на своём месте</span>
+      <span class="legend-item"><span class="legend-dot floating"></span>сцену ещё нужно разместить</span>
+    </div>
+    <div class="hint" id="saveStatus" role="status" aria-live="polite">Автосохранение включено</div>
+  </div>
 </header>
 <div id="storageBanner" class="storage-banner" role="status" aria-live="polite"></div>
 
@@ -205,6 +211,7 @@
         </select></label>
         <button id="clearFilters">Сбросить</button>
       </div>
+      <div id="activeFilterChips" class="active-filter-chips" aria-live="polite"></div>
       <div id="filterSummary" class="filter-summary" role="status" aria-live="polite" hidden></div>
       <div id="statsStrip" class="stats-strip"></div>
     </section>

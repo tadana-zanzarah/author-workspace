@@ -5,15 +5,12 @@ function projectReadiness(){
 }
 
 function renderDashboard(){
-  const totalWords=data.scenes.reduce((n,s)=>n+countWords(s.sceneText),0);
   const readiness=projectReadiness();
   const counts=WRITING_STATUSES.map(status=>[status,data.scenes.filter(s=>s.writingStatus===status.id).length]);
   document.getElementById("projectDashboard").innerHTML=`
-    <div class="dashboard-top"><div class="dashboard-title">Проект</div>
-      <div class="view-switch">${counts.map(([s,n])=>`<span class="stat-pill writing-chip ${s.id}">${s.label}: <strong>${n}</strong></span>`).join("")}</div>
-    </div>
-    <div class="dashboard-metrics">
-      ${[["Сцен",data.scenes.length],["Глав",data.chapters.filter(c=>c.id!=="chapter-unassigned").length],["Персонажей",data.characters.length],["Локаций",data.locations.length],["Тегов",data.tags.length],["Слов",totalWords]].map(([k,v])=>`<div class="dashboard-metric">${k}<strong>${v}</strong></div>`).join("")}
+    <div class="dashboard-top">
+      <span class="dashboard-eyebrow">Стадии</span>
+      <div class="pipeline-strip">${counts.map(([s,n])=>`<span class="pipeline-stage ${s.id} ${n?"has-scenes":""}">${s.label} <span class="pipeline-stage-count">${n}</span></span>`).join("")}</div>
     </div>
     <div class="progress-wrap">
       <div class="progress-label"><span>Общая готовность</span><strong>${readiness}%</strong></div>
@@ -85,6 +82,24 @@ function renderStats(){
   ].map(([k,v])=>`<span class="stat-pill">${k}: <strong>${v}</strong></span>`).join("");
 }
 
+function clearSingleFilter(key){filters[key]="";scheduleRender()}
+
+function renderActiveFilterChips(){
+  const el=document.getElementById("activeFilterChips");
+  const clearBtn=document.getElementById("clearFilters");
+  if(clearBtn)clearBtn.hidden=!hasActiveFilters();
+  if(!el)return;
+  const chips=[];
+  if(filters.search.trim())chips.push(["search","Поиск",`«${filters.search.trim()}»`]);
+  if(filters.chapter)chips.push(["chapter","Глава",chapterById(filters.chapter)?.title||""]);
+  if(filters.character)chips.push(["character","Персонаж",characterName(filters.character)]);
+  if(filters.location)chips.push(["location","Локация",locationById(filters.location)?.name||""]);
+  if(filters.tag)chips.push(["tag","Тег","#"+(tagById(filters.tag)?.name||"")]);
+  if(filters.writing)chips.push(["writing","Статус",writingStatusById(filters.writing)?.label||""]);
+  if(filters.placement)chips.push(["placement","Хронология",filters.placement==="fixed"?"На своём месте":"Нужно разместить"]);
+  el.innerHTML=chips.map(([key,label,value])=>`<span class="active-filter-chip">${esc(label)}: ${esc(value)}<button type="button" aria-label="Убрать фильтр «${esc(label)}»" onclick="clearSingleFilter('${jsq(key)}')">×</button></span>`).join("");
+}
+
 function renderFilterSummary(){
   const el=document.getElementById("filterSummary");
   if(!el)return;
@@ -104,6 +119,7 @@ function render(){
     selectedSceneIndex=resolved>=0?resolved:null;
   }
   refreshControls();
+  renderActiveFilterChips();
   renderFilterSummary();
   renderSidebar();
   renderDashboard();
@@ -308,5 +324,5 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
-export {projectReadiness,renderDashboard,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
+export {projectReadiness,renderDashboard,clearSingleFilter,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};
