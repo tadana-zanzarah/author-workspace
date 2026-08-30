@@ -1,5 +1,14 @@
 function characterById(id){return data.characters.find(c=>c.id===id)}
 
+function cropImageStyle(crop){
+  // transform-origin must track object-position: anchoring the zoom at a fixed
+  // center (instead of at the panned point) leaves the image's edges permanently
+  // unreachable once zoom>1, since scaling around the viewport center shrinks the
+  // usable pan range instead of extending it toward the true image bounds.
+  const x=crop.x*100,y=crop.y*100;
+  return `object-position:${x}% ${y}%;transform-origin:${x}% ${y}%;transform:scale(${crop.zoom})`;
+}
+
 function nextCharacterSortOrder(){
   return data.characters.reduce((max,c)=>Math.max(max,Number(c.sortOrder)||0),0)+1000;
 }
@@ -69,7 +78,7 @@ function renderProfiles(){
     ].filter(([,v])=>v!==null);
     const primary=p.photos.find(photo=>photo.id===p.primaryPhotoId)||p.photos[0];
     const structural=linksForCharacter(character.id,data.characterLinks||[]).slice(0,2);
-    const cover=primary?`<button type="button" class="profile-cover-button" aria-label="Открыть оригинальное изображение персонажа ${esc(full||character.name)}" onclick="openPhotoLightboxByCharacter('${jsq(character.id)}','${jsq(primary.id)}')"><img src="${esc(primary.source.value)}" alt="${esc(primary.alt||"")}" style="object-position:${primary.crop.x*100}% ${primary.crop.y*100}%;transform:scale(${primary.crop.zoom})"></button>`:`Нет изображения`;
+    const cover=primary?`<button type="button" class="profile-cover-button" aria-label="Открыть оригинальное изображение персонажа ${esc(full||character.name)}" onclick="openPhotoLightboxByCharacter('${jsq(character.id)}','${jsq(primary.id)}')"><img src="${esc(primary.source.value)}" alt="${esc(primary.alt||"")}" style="${cropImageStyle(primary.crop)}"></button>`:`Нет изображения`;
     return `<article class="profile-card" data-character-id="${esc(character.id)}" ondragover="characterDragOver(event,'${jsq(character.id)}')" ondragleave="characterDragLeave(event)" ondrop="characterDropProfile(event,'${jsq(character.id)}')" ondragend="characterDragEnd(event)">
       <div class="profile-drag-handle" draggable="true" aria-label="Перетащить персонажа ${esc(character.name)} для изменения порядка" ondragstart="characterDragStart(event,'${jsq(character.id)}')">↕</div>
       <div class="profile-cover">${cover}</div>
@@ -282,7 +291,7 @@ function editProfileNow(characterId){
 function renderProfilePhotos(){
   document.getElementById("profilePhotosGrid").innerHTML=profileDraftPhotos.map((photo,i)=>`
     <div class="photo-item" data-photo-id="${esc(photo.id)}">
-      <img src="${esc(photo.source.value)}" alt="${esc(photo.alt||"")}" style="object-position:${photo.crop.x*100}% ${photo.crop.y*100}%;transform:scale(${photo.crop.zoom})">
+      <img src="${esc(photo.source.value)}" alt="${esc(photo.alt||"")}" style="${cropImageStyle(photo.crop)}">
       ${photo.id===profileDraftPrimaryPhotoId?'<span class="photo-primary">Главное</span>':""}
       <div class="photo-actions">
         <button type="button" data-action="view-photo" onclick="openPhotoLightbox('${jsq(photo.id)}')">Просмотреть</button>
@@ -328,9 +337,18 @@ function setPrimaryPhoto(id){if(profileDraftPhotos.some(photo=>photo.id===id)){p
 function draftPhoto(id){return profileDraftPhotos.find(photo=>photo.id===id)}
 function openPhotoLightbox(id){const photo=draftPhoto(id);if(!photo)return;document.getElementById("photoLightboxImage").src=photo.source.value;document.getElementById("photoLightboxCaption").textContent=photo.caption||"Оригинальное изображение";showModal("photoLightboxModal")}
 function openPhotoLightboxByCharacter(characterId,id){const p=normalizeProfile(data.profiles?.[characterId],characterById(characterId));const photo=p.photos.find(x=>x.id===id);if(!photo)return;document.getElementById("photoLightboxImage").src=photo.source.value;document.getElementById("photoLightboxCaption").textContent=photo.caption||`Оригинальное изображение: ${p.name}`;showModal("photoLightboxModal")}
-function syncCropPreview(){const crop=photoCropState?.draft;if(!crop)return;const image=document.getElementById("photoCropImage");image.style.objectPosition=`${crop.x*100}% ${crop.y*100}%`;image.style.transform=`scale(${crop.zoom})`;document.getElementById("photoCropZoom").value=crop.zoom}
+function syncCropPreview(){const crop=photoCropState?.draft;if(!crop)return;document.getElementById("photoCropImage").style.cssText=cropImageStyle(crop);document.getElementById("photoCropZoom").value=crop.zoom}
 function openPhotoCrop(id){const photo=draftPhoto(id);if(!photo)return;photoCropState={id,draft:{...photo.crop}};document.getElementById("photoCropImage").src=photo.source.value;syncCropPreview();showModal("photoCropModal",{initialFocus:"#photoCropZoom"})}
-function nudgePhotoCrop(dx,dy){if(!photoCropState)return;photoCropState.draft.x=Math.max(0,Math.min(1,photoCropState.draft.x+dx));photoCropState.draft.y=Math.max(0,Math.min(1,photoCropState.draft.y+dy));syncCropPreview()}
+function nudgePhotoCrop(dx,dy){
+  // dx/dy is the desired on-screen movement of the IMAGE (positive = image moves
+  // right/down, matching drag direction and the "→"/"↓" button labels). crop.x/y
+  // is a CSS object-position fraction, which moves the image the OPPOSITE way as
+  // it increases, so the sign is inverted here rather than at each caller.
+  if(!photoCropState)return;
+  photoCropState.draft.x=Math.max(0,Math.min(1,photoCropState.draft.x-dx));
+  photoCropState.draft.y=Math.max(0,Math.min(1,photoCropState.draft.y-dy));
+  syncCropPreview();
+}
 function savePhotoCrop(){const photo=draftPhoto(photoCropState?.id);if(photo)photo.crop={...photoCropState.draft};photoCropState=null;renderProfilePhotos();forceHideModal("photoCropModal");syncBeforeUnload()}
 function cancelPhotoCrop(){photoCropState=null;forceHideModal("photoCropModal")}
 
@@ -352,5 +370,5 @@ function birthdayDisplay(profile){
   return result||"Не указано";
 }
 
-Object.assign(globalThis,{characterById,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
-export {characterById,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};
+Object.assign(globalThis,{characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
+export {characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};

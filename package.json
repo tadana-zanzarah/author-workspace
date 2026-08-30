@@ -30,6 +30,7 @@
     "test:multi-value-browser": "node tools/multi-value-profile-browser.test.mjs",
     "test:character-images-browser": "node tools/character-images-browser.test.mjs",
     "test:character-images-mobile": "node tools/character-images-mobile-browser.test.mjs",
+    "test:character-image-crop-ux-browser": "node tools/character-image-crop-ux-browser.test.mjs",
     "test:character-links-browser": "node tools/character-links-browser.test.mjs",
     "test:scene-search-filter-browser": "node tools/scene-search-filter-browser.test.mjs",
     "test:scene-search-filter-cloud-browser": "node tools/scene-search-filter-cloud-browser.test.mjs",
