@@ -25,12 +25,28 @@ try{
   };
   for(let attempt=0;attempt<30;attempt++){try{await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
 
-  const classes=async()=>page.evaluate(()=>[...document.querySelectorAll(".scene-row")].map(row=>({
-    id:row.dataset.sceneId,
-    dateClass:row.querySelector("input[type=date]").className,
-    reviewNote:!!row.querySelector(".date-status-note.review"),
-    conflictNote:!!row.querySelector(".date-status-note.conflict")
-  })));
+  // The row's date input was replaced by a compact read-only chronology chip
+  // (design/core-workspace-recomposition — raw date/time inputs no longer sit
+  // permanently in the matrix row, see .scene-chronology-chip); the chip carries the
+  // same review/conflict signal the old input's className used to, so this reads
+  // that instead and keeps comparing against the same "", "date-review", "date-conflict" values.
+  const classes=async()=>page.evaluate(()=>[...document.querySelectorAll(".scene-row")].map(row=>{
+    const chip=row.querySelector(".scene-chronology-chip");
+    const dateClass=chip.classList.contains("conflict")?"date-conflict":chip.classList.contains("review")?"date-review":"";
+    return {
+      id:row.dataset.sceneId,
+      dateClass,
+      reviewNote:!!row.querySelector(".date-status-note.review"),
+      conflictNote:!!row.querySelector(".date-status-note.conflict")
+    };
+  }));
+  const editSceneDate=async(sceneId,newDate)=>{
+    await page.evaluate(id=>editScene(id),sceneId);
+    await page.waitForSelector("#sceneModal",{state:"visible"});
+    await page.fill("#sceneDate",newDate);
+    await page.click("#saveScene");
+    await page.waitForSelector("#sceneModal",{state:"hidden"});
+  };
   const byId=(rows,id)=>rows.find(r=>r.id===id);
   const sceneState=async id=>page.evaluate(id=>{const s=data.scenes.find(x=>x.id===id);return {date:s.date,dateReview:s.dateReview,chapterId:s.chapterId}},id);
 
@@ -96,10 +112,7 @@ try{
   ]));
   rows=await classes();
   if(rows.some(r=>r.dateClass!==""))throw new Error(`(9) baseline must be clean before edit: ${JSON.stringify(rows)}`);
-  await page.evaluate(()=>{
-    const row=document.querySelector('[data-scene-id="B"] input[type=date]');
-    row.value="2024-01-25";row.dispatchEvent(new Event("change",{bubbles:true}));
-  });
+  await editSceneDate("B","2024-01-25");
   await page.waitForTimeout(50);
   rows=await classes();
   if(byId(rows,"A").dateClass!=="")throw new Error(`(9) A must stay clean after a distant edit: ${JSON.stringify(rows)}`);
@@ -107,10 +120,7 @@ try{
   cState=await sceneState("C");
   if(cState.dateReview!==false)throw new Error("(9) unrelated chapter's reviewed scene must stay untouched by a same-chapter edit");
   // Fix the date back: conflict must clear again, localized.
-  await page.evaluate(()=>{
-    const row=document.querySelector('[data-scene-id="B"] input[type=date]');
-    row.value="2024-01-15";row.dispatchEvent(new Event("change",{bubbles:true}));
-  });
+  await editSceneDate("B","2024-01-15");
   await page.waitForTimeout(50);
   rows=await classes();
   if(rows.some(r=>r.id!=="C"&&r.dateClass==="date-conflict"))throw new Error(`(9) conflict must clear once the date is back in range: ${JSON.stringify(rows)}`);

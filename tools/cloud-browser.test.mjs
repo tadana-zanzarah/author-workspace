@@ -166,7 +166,9 @@ await page.waitForFunction(()=>JSON.parse(localStorage.getItem("mockCloud")).pro
 
 await projectRow("Project A").getByRole("button",{name:"Открыть"}).click();
 await page.waitForSelector('body[data-app-state="workspace"]');
-if(!await page.getByText("Текущий проект:",{exact:false}).isVisible()||await page.locator("#workspaceProjectTitle").innerText()!=="Project A")throw new Error("Workspace does not identify Project A");
+// design/core-workspace-recomposition dropped the "Текущий проект:" label prefix —
+// the project title itself is now the header's primary identity (bare, no caption).
+if(!await page.locator("#workspaceProjectTitle").isVisible()||await page.locator("#workspaceProjectTitle").innerText()!=="Project A")throw new Error("Workspace does not identify Project A");
 await page.click("#projectMenu > summary");await page.click("#manageChars");
 if(await page.locator("#projectMenu").getAttribute("open")!==null)throw new Error("Navigation menu stayed open after Characters");
 await page.click("#closeChars");

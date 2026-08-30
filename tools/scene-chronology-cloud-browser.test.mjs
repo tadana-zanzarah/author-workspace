@@ -129,10 +129,16 @@ await page.click("#saveChapters");
 await page.waitForFunction(()=>data.chapters.some(x=>x.title==="Chapter One")&&data.chapters.some(x=>x.title==="Chapter Two"));
 await page.click("#closeChapters");
 
-const classes=async()=>page.evaluate(()=>[...document.querySelectorAll(".scene-row")].map(row=>({
-  id:row.dataset.sceneId,title:row.querySelector(".scene-title").textContent,
-  dateClass:row.querySelector("input[type=date]").className
-})));
+// See scene-chronology-browser.test.mjs: the row's date input was replaced by a
+// compact read-only .scene-chronology-chip (design/core-workspace-recomposition);
+// it carries the same review/conflict signal the old input's className used to.
+const classes=async()=>page.evaluate(()=>[...document.querySelectorAll(".scene-row")].map(row=>{
+  const chip=row.querySelector(".scene-chronology-chip");
+  return {
+    id:row.dataset.sceneId,title:row.querySelector(".scene-title").textContent,
+    dateClass:chip.classList.contains("conflict")?"date-conflict":chip.classList.contains("review")?"date-review":""
+  };
+}));
 const byTitle=(rows,title)=>rows.find(r=>r.title===title);
 
 const createScene=async({title,date,chapterLabel})=>{

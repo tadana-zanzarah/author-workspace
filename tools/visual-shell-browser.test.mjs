@@ -111,15 +111,20 @@ try{
   const storageBannerPresent=await page.evaluate(()=>!!document.getElementById("storageBanner"));
   if(!storageBannerPresent)throw new Error("storageBanner surface missing");
 
-  // 10) The cloud-only merged header row (workspace-cloud-bar) still exists structurally, still
-  //     carries the project-title element, and still exposes the account menu — even though it
-  //     can't be exercised through a real Supabase login in this local-mode test.
+  // 10) The cloud-only project identity group (#workspaceCloudBar) still exists structurally —
+  //     now nested inside the single merged <header> row (design/core-workspace-recomposition
+  //     collapsed the old separate two-row shell into one application bar) — still carries the
+  //     project-title element, and the account menu is still present and toggled in lockstep with
+  //     it, even though none of this can be exercised through a real Supabase login in this
+  //     local-mode test.
   const cloudBarStructure=await page.evaluate(()=>{
     const bar=document.getElementById("workspaceCloudBar");
-    return {present:!!bar,directBodyChild:bar?.parentElement===document.body,hasTitle:!!document.getElementById("workspaceProjectTitle"),hasAccountMenu:!!document.getElementById("workspaceAccountMenu")};
+    const account=document.getElementById("workspaceAccountMenu");
+    return {present:!!bar,nestedInHeader:bar?.closest("header")!==null,hasTitle:!!document.getElementById("workspaceProjectTitle"),hasAccountMenu:!!account,accountNestedInHeader:account?.closest("header")!==null,accountHiddenMatchesBar:account?.hidden===bar?.hidden};
   });
-  if(!cloudBarStructure.present||!cloudBarStructure.directBodyChild)throw new Error(`workspaceCloudBar structure regressed: ${JSON.stringify(cloudBarStructure)}`);
-  if(!cloudBarStructure.hasTitle||!cloudBarStructure.hasAccountMenu)throw new Error(`workspaceCloudBar lost a function: ${JSON.stringify(cloudBarStructure)}`);
+  if(!cloudBarStructure.present||!cloudBarStructure.nestedInHeader)throw new Error(`workspaceCloudBar structure regressed: ${JSON.stringify(cloudBarStructure)}`);
+  if(!cloudBarStructure.hasTitle||!cloudBarStructure.hasAccountMenu||!cloudBarStructure.accountNestedInHeader)throw new Error(`workspaceCloudBar lost a function: ${JSON.stringify(cloudBarStructure)}`);
+  if(!cloudBarStructure.accountHiddenMatchesBar)throw new Error(`Account menu visibility no longer matches workspaceCloudBar: ${JSON.stringify(cloudBarStructure)}`);
 
   // 11) Background becomes inert behind a modal exactly as before (header AND app-shell), which
   //     depends on both staying direct children of <body> after the shell restructuring.
