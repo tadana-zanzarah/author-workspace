@@ -84,6 +84,25 @@ function renderStats(){
 
 function clearSingleFilter(key){filters[key]="";scheduleRender()}
 
+function setMatrixContentMode(layer,checked){
+  const other=layer==="actions"?"relations":"actions";
+  if(!checked&&!matrixContentMode[other]){
+    syncMatrixContentControls();
+    return;
+  }
+  matrixContentMode={...matrixContentMode,[layer]:checked};
+  saveUiState();
+  syncMatrixContentControls();
+  render();
+}
+
+function syncMatrixContentControls(){
+  const actionsEl=document.getElementById("matrixShowActions");
+  const relationsEl=document.getElementById("matrixShowRelations");
+  if(actionsEl)actionsEl.checked=!!matrixContentMode.actions;
+  if(relationsEl)relationsEl.checked=!!matrixContentMode.relations;
+}
+
 function renderActiveFilterChips(){
   const el=document.getElementById("activeFilterChips");
   const clearBtn=document.getElementById("clearFilters");
@@ -126,6 +145,8 @@ function render(){
   renderStats();
   renderSceneInfo();
   renderViewSwitch();
+  const matrixToolbar=document.getElementById("matrixToolbar");
+  if(matrixToolbar)matrixToolbar.hidden=currentView!=="table";
   const board=document.getElementById("board");
   board.className="board view-"+currentView+(hasActiveFilters()?" drag-disabled":"")+(data.characters.length?"":" no-characters");
   const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
@@ -157,11 +178,24 @@ function renderViewSwitch(){
   document.querySelectorAll("#viewSwitch button").forEach(btn=>btn.classList.toggle("active",btn.dataset.view===currentView));
 }
 
+function characterInitials(name){
+  const parts=String(name||"").trim().split(/\s+/).filter(Boolean);
+  const initials=(parts[0]?.[0]||"")+(parts[1]?.[0]||"");
+  return (initials||"?").toUpperCase();
+}
+
+function characterAvatarHtml(character){
+  const profile=normalizeProfile(data.profiles?.[character.id],character);
+  const primary=profile.photos.find(photo=>photo.id===profile.primaryPhotoId)||profile.photos[0];
+  if(primary)return `<span class="matrix-avatar"><img src="${esc(primary.source.value)}" alt="" style="${cropImageStyle(primary.crop)}"></span>`;
+  return `<span class="matrix-avatar matrix-avatar-fallback" aria-hidden="true">${esc(characterInitials(character.name))}</span>`;
+}
+
 function renderTableView(board){
   board.style.setProperty("--cols",data.characters.length);
   let html=`<div class="board-grid board-head">
     <div class="head-cell sticky-cell">Сцена</div>
-    ${data.characters.map(c=>`<div class="head-cell"><button class="entity-link" onclick="setFilter('character','${jsq(c.id)}')">${esc(c.name)}</button></div>`).join("")}
+    ${data.characters.map(c=>`<div class="head-cell matrix-head-cell"><button class="entity-link matrix-head-link" onclick="setFilter('character','${jsq(c.id)}')">${characterAvatarHtml(c)}<span class="matrix-head-name">${esc(c.name)}</span></button></div>`).join("")}
   </div>`;
   let shown=0;
   data.chapters.forEach(chapter=>{
@@ -205,6 +239,40 @@ function sceneMetadataHtml(scene,chapter,loc,ws){
   ${tags.length?`<div class="scene-meta">${tags.map(t=>`<button class="tag-chip entity-link" onclick="event.stopPropagation();setFilter('tag','${jsq(t.id)}')">🏷 #${esc(t.name)}</button>`).join("")}</div>`:""}`;
 }
 
+function renderMatrixCell(scene,character,relationState){
+  const charId=character.id;
+  const sceneTitle=scene.title||"Без названия";
+  const p=scene.people?.[charId];
+  if(!sceneHasParticipant(scene,charId)){
+    return `<div class="cell matrix-cell matrix-cell-empty" aria-label="${esc(character.name)} не участвует в сцене «${esc(sceneTitle)}»"></div>`;
+  }
+  if(!personHasContent(p)){
+    return `<div class="cell matrix-cell matrix-cell-noncontent" aria-label="${esc(character.name)} участвует в сцене «${esc(sceneTitle)}», без описания"><span class="matrix-placeholder">Без описания</span></div>`;
+  }
+  const action=(p.action||"").trim();
+  const legacyState=(p.legacyState||"").trim();
+  const visible=(p.visibleRelations||[]).filter(t=>relationState[charId]?.[t]);
+  const changed=new Set(Object.keys(p.relationChanges||{}));
+  let body="";
+  if(matrixContentMode.actions&&(action||legacyState)){
+    body+=`<div class="matrix-actions">`;
+    if(action)body+=`<div class="matrix-action-text">${esc(action)}</div>`;
+    if(legacyState)body+=`<div class="matrix-legacy-note"><strong>Старая заметка:</strong><br>${esc(legacyState)}</div>`;
+    body+=`</div>`;
+  }
+  if(matrixContentMode.relations&&visible.length){
+    body+=`<div class="matrix-relations">
+      <div class="matrix-relations-label">Отношения</div>
+      ${visible.map(target=>`<div class="matrix-relation-entry ${changed.has(target)?"is-changed":""}">
+        <div class="matrix-relation-target">${esc(characterName(target))}</div>
+        <div class="matrix-relation-value">${esc(relationState[charId][target])}</div>
+      </div>`).join("")}
+    </div>`;
+  }
+  if(!body)body=`<span class="matrix-placeholder">Не показано в этом режиме</span>`;
+  return `<div class="cell matrix-cell matrix-cell-content">${body}</div>`;
+}
+
 function renderTableScene(scene,i,chapter){
   const relationState=relationshipsAt(i);
   const needsDateReview=!!scene.dateReview;
@@ -234,24 +302,7 @@ function renderTableScene(scene,i,chapter){
     </div>
   </div>`;
   data.characters.forEach(character=>{
-    const charId=character.id;
-    const p=scene.people?.[charId];
-    html+=`<div class="cell">`;
-    if(personHasContent(p)){
-      const visible=(p.visibleRelations||[]).filter(t=>relationState[charId]?.[t]);
-      const changed=new Set(Object.keys(p.relationChanges||{}));
-      html+=`<div class="card">`;
-      if((p.action||"").trim())html+=`<div class="card-action">${esc(p.action)}</div>`;
-      if((p.legacyState||"").trim())html+=`<div class="legacy-note"><strong>Старая заметка:</strong><br>${esc(p.legacyState)}</div>`;
-      if(visible.length){
-        html+=`<div class="relations-title">Отношения</div>`;
-        visible.forEach(target=>html+=`<div class="relation-chip ${changed.has(target)?"changed":""}"><span class="relation-target">${esc(characterName(target))}:</span> ${esc(relationState[charId][target])}</div>`);
-      }
-      if(!(p.action||"").trim()&&!(p.legacyState||"").trim()&&!visible.length)html+=`<div class="empty" style="padding-top:38px">отношения скрыты</div>`;
-      html+=`</div>`;
-    }else if(sceneHasParticipant(scene,charId))html+=`<div class="empty">участвует, без описания</div>`;
-    else html+=`<div class="empty">не участвует</div>`;
-    html+=`</div>`;
+    html+=renderMatrixCell(scene,character,relationState);
   });
   return html+`</div>`;
 }
@@ -324,5 +375,5 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
-export {projectReadiness,renderDashboard,clearSingleFilter,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,renderTableView,renderChapterDivider,sceneMetadataHtml,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
+export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};

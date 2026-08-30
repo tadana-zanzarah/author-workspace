@@ -142,6 +142,9 @@ document.getElementById("inspectorModal").onclick=e=>{if(e.target.id==="inspecto
 
 document.querySelectorAll("#viewSwitch button").forEach(btn=>btn.onclick=()=>{currentView=btn.dataset.view;render()});
 
+document.getElementById("matrixShowActions").onchange=event=>setMatrixContentMode("actions",event.target.checked);
+document.getElementById("matrixShowRelations").onchange=event=>setMatrixContentMode("relations",event.target.checked);
+
 
 
 

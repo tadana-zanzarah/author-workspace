@@ -39,6 +39,7 @@
     "test:project-session-delete-browser": "node tools/project-session-delete-browser.test.mjs",
     "test:stale-warning-clear-browser": "node tools/stale-warning-clear-browser.test.mjs",
     "test:visual-shell-browser": "node tools/visual-shell-browser.test.mjs",
+    "test:scene-character-matrix-ux-browser": "node tools/scene-character-matrix-ux-browser.test.mjs",
     "test": "npm run test:unit"
   },
   "devDependencies": {

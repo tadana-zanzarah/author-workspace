@@ -211,17 +211,21 @@ function initializeStorageNotice(){
 }
 const SIDEBAR_SECTION_KEYS=["chapters","characters","locations","tags"];
 function loadUiState(){
-  let storedSections={};
+  let storedSections={},storedMatrixContentMode={};
   try{
     const ui=JSON.parse(localStorage.getItem(activeWorkspaceContext().uiStorageKey)||"{}");
     navigationVisible=ui.navigationVisible!==false;
     storedSections=ui.sidebarSections||{};
+    storedMatrixContentMode=ui.matrixContentMode||{};
   }catch{navigationVisible=true}
   document.querySelector(".app-shell").classList.toggle("navigation-hidden",!navigationVisible);
   sidebarSections=Object.fromEntries(SIDEBAR_SECTION_KEYS.map(key=>[key,storedSections[key]!==false]));
   applySidebarSectionState();
+  matrixContentMode={actions:storedMatrixContentMode.actions!==false,relations:storedMatrixContentMode.relations===true};
+  if(!matrixContentMode.actions&&!matrixContentMode.relations)matrixContentMode={actions:true,relations:false};
+  syncMatrixContentControls();
 }
-function saveUiState(){try{localStorage.setItem(activeWorkspaceContext().uiStorageKey,JSON.stringify({navigationVisible,sidebarSections}))}catch{}}
+function saveUiState(){try{localStorage.setItem(activeWorkspaceContext().uiStorageKey,JSON.stringify({navigationVisible,sidebarSections,matrixContentMode}))}catch{}}
 function applySidebarSectionState(){
   for(const key of SIDEBAR_SECTION_KEYS){
     const expanded=sidebarSections[key]!==false;
