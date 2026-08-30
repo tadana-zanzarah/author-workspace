@@ -43,17 +43,25 @@ function createDirtyTracker(id,getState){
 function trackerFor(modalId){return dirtyTrackers.get(modalId)}
 function hasDirtyForms(){return [...dirtyTrackers.values()].some(tracker=>tracker.isDirty())}
 
-function createSaveButtonController(buttonId,modalId,{savingLabel="Сохранение…"}={}){
+function createSaveButtonController(buttonId,modalId,{savingLabel="Сохранение…",statusId=null}={}){
   const button=document.getElementById(buttonId);
+  const statusEl=statusId?document.getElementById(statusId):null;
   const idleLabel=button?.textContent||"";
   let saving=false;
-  const refresh=()=>{
+  const refresh=(clearStatusIfDirty=true)=>{
     if(!button)return;
     if(saving){button.disabled=true;button.textContent=savingLabel;return}
     button.textContent=idleLabel;
-    button.disabled=!trackerFor(modalId)?.isDirty();
+    const dirty=!!trackerFor(modalId)?.isDirty();
+    button.disabled=!dirty;
+    if(statusEl&&dirty&&clearStatusIfDirty){statusEl.textContent="";statusEl.className="save-status"}
   };
-  const controller={refresh,get saving(){return saving},beginSaving(){saving=true;refresh()},endSaving(){saving=false;refresh()}};
+  const controller={
+    refresh,get saving(){return saving},
+    beginSaving(){saving=true;if(statusEl){statusEl.textContent="";statusEl.className="save-status"}refresh()},
+    endSaving(){saving=false;refresh(false)},
+    showStatus(message,type="success"){if(statusEl){statusEl.textContent=message;statusEl.className=`save-status ${type}`}}
+  };
   saveButtonControllers.add(controller);
   return controller;
 }
@@ -97,7 +105,7 @@ async function requestEditorTransition(openAction){
 function serializeForm(root,extra={}){
   if(typeof root==="string")root=document.getElementById(root);
   const controls=[...(root?.querySelectorAll("input,select,textarea")||[])].filter(el=>el.type!=="file").map((el,index)=>({
-    key:el.id||el.name||`${el.className}:${el.dataset.id||el.dataset.charId||""}:${el.dataset.targetId||""}:${index}`,
+    key:el.id||el.name||`${el.className}:${el.dataset.id||el.dataset.draftId||el.dataset.charId||""}:${el.dataset.targetId||""}:${index}`,
     value:el.type==="checkbox"||el.type==="radio"?!!el.checked:el.value,
     explicit:el.dataset.explicit
   }));

@@ -38,6 +38,9 @@ const profileSaveButton=createSaveButtonController("saveProfile","profileEditorM
 globalThis.profileSaveButton=profileSaveButton;
 document.getElementById("continueEditing").onclick=()=>resolveDiscardConfirmation(false);
 document.getElementById("discardChanges").onclick=()=>resolveDiscardConfirmation(true);
+document.getElementById("confirmActionCancel").onclick=()=>resolveConfirmAction(false);
+document.getElementById("confirmActionConfirm").onclick=()=>resolveConfirmAction(true);
+document.getElementById("confirmActionModal").onclick=e=>{if(e.target.id==="confirmActionModal")resolveConfirmAction(false)};
 
 document.querySelectorAll("#profileEditorModal .profile-field").forEach((field,index)=>{
   const heading=field.querySelector(".profile-field-top > strong");if(!heading)return;
@@ -169,19 +172,46 @@ document.querySelectorAll("#viewSwitch button").forEach(btn=>btn.onclick=()=>{cu
 
 document.getElementById("addSceneTag").onclick=addTagToDraft;
 document.getElementById("sceneTagInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addTagToDraft()}};
-document.getElementById("quickAddLocation").onclick=async()=>{
-  const name=prompt("Название новой локации:");
-  if(!name?.trim())return;
-  if(isCloudWorkspace()){
-    const result=await runCloudMutation("createLocation",(api,revision)=>api.createLocation(cloudProjectSync.projectId,revision,{name:name.trim(),description:""}),{renderAfter:false});
-    if(!result.ok)return;data=cloudProjectSync.confirmedProject;populateSceneSelectors();document.getElementById("sceneLocation").value=result.data?.id||"";return;
-  }
-  const location={id:makeId("location"),name:name.trim(),description:""};
-  const result=commitDataChange(next=>next.locations.push(location),{renderAfter:false});
-  if(!result.ok)return;
-  populateSceneSelectors();
-  document.getElementById("sceneLocation").value=location.id;
+
+let quickLocationInFlight=false;
+document.getElementById("quickAddLocation").onclick=()=>{
+  const input=document.getElementById("quickLocationName"),createBtn=document.getElementById("quickLocationCreate");
+  input.value="";createBtn.disabled=true;document.getElementById("quickLocationStatus").textContent="";document.getElementById("quickLocationStatus").className="save-status";
+  document.getElementById("quickLocationConfirmed").textContent="";
+  openModal("quickLocationModal",{initialFocus:"#quickLocationName"});
 };
+document.getElementById("quickLocationName").oninput=()=>{document.getElementById("quickLocationCreate").disabled=!document.getElementById("quickLocationName").value.trim()};
+document.getElementById("quickLocationName").onkeydown=e=>{
+  if(e.key==="Enter"){e.preventDefault();if(!document.getElementById("quickLocationCreate").disabled)document.getElementById("quickLocationCreate").click()}
+};
+document.getElementById("quickLocationCreate").onclick=async()=>{
+  if(quickLocationInFlight)return;
+  const name=document.getElementById("quickLocationName").value.trim();if(!name)return;
+  const button=document.getElementById("quickLocationCreate"),idleLabel=button.textContent,status=document.getElementById("quickLocationStatus");
+  quickLocationInFlight=true;button.disabled=true;button.textContent="Создание…";status.textContent="";status.className="save-status";
+  let succeeded=false;
+  try{
+    if(isCloudWorkspace()){
+      const result=await runCloudMutation("createLocation",(api,revision)=>api.createLocation(cloudProjectSync.projectId,revision,{name,description:""}),{renderAfter:false});
+      if(!result.ok){status.textContent=result.message||"Не удалось создать локацию.";status.className="save-status error";return}
+      data=cloudProjectSync.confirmedProject;populateSceneSelectors();document.getElementById("sceneLocation").value=result.data?.id||"";
+    }else{
+      const location={id:makeId("location"),name,description:""};
+      const result=commitDataChange(next=>next.locations.push(location),{renderAfter:false});
+      if(!result.ok){status.textContent=result.userMessage||"Не удалось создать локацию.";status.className="save-status error";return}
+      populateSceneSelectors();document.getElementById("sceneLocation").value=location.id;
+    }
+    succeeded=true;
+    syncBeforeUnload();
+    forceCloseModal("quickLocationModal");
+    document.getElementById("quickLocationConfirmed").textContent=`Локация «${name}» создана и выбрана.`;
+  }finally{
+    quickLocationInFlight=false;button.textContent=idleLabel;
+    button.disabled=succeeded||!document.getElementById("quickLocationName").value.trim();
+  }
+};
+document.getElementById("quickLocationCancel").onclick=()=>forceCloseModal("quickLocationModal");
+document.getElementById("quickLocationModal").onclick=e=>{if(e.target.id==="quickLocationModal")forceCloseModal("quickLocationModal")};
 
 
 
@@ -189,27 +219,7 @@ document.getElementById("quickAddLocation").onclick=async()=>{
 
 
 document.getElementById("manageChapters").onclick=openChaptersManager;
-document.getElementById("addChapter").onclick=async()=>{
-  if(isCloudWorkspace()){
-    const title=`Глава ${data.chapters.filter(c=>c.id!=="chapter-unassigned").length+1}`;
-    const result=await runCloudMutation("createChapter",(api,revision)=>api.createChapter(cloudProjectSync.projectId,revision,{title,position:(data.chapters.length+1)*1000}));
-    if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState()}return;
-  }
-  const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
-  const id=makeId("chapter"),title=`Глава ${data.chapters.length}`;
-  const result=commitDataChange(next=>{next.chapters.forEach(c=>{if(names.get(c.id))c.title=names.get(c.id)});next.chapters.push({id,title,collapsed:false})},{renderAfter:false});
-  if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState();render()}
-};
-async function saveChapterDraft(){
-  const names=new Map([...document.querySelectorAll(".chapter-name-input")].map(input=>[input.dataset.id,input.value.trim()]));
-  if(isCloudWorkspace()){
-    for(const chapter of data.chapters.filter(c=>c.id!=="chapter-unassigned"))if(names.get(chapter.id)&&names.get(chapter.id)!==chapter.title){const result=await runCloudMutation("updateChapter",(api,revision)=>api.updateChapter(cloudProjectSync.projectId,chapter.id,revision,{title:names.get(chapter.id)}));if(!result.ok)return result}
-    renderChaptersManager();trackerFor("chaptersModal").captureInitialState();return {ok:true};
-  }
-  const result=commitDataChange(next=>next.chapters.forEach(c=>{if(names.get(c.id))c.title=names.get(c.id)}),{renderAfter:false});
-  if(result.ok){renderChaptersManager();trackerFor("chaptersModal").captureInitialState();render()}
-  return result;
-}
+document.getElementById("addChapter").onclick=addChapterDraftRow;
 document.getElementById("saveChapters").onclick=saveChapterDraft;
 document.getElementById("closeChapters").onclick=()=>requestCloseModal("chaptersModal","button");
 document.getElementById("chaptersModal").onclick=e=>{if(e.target.id==="chaptersModal")requestCloseModal("chaptersModal","backdrop")};
@@ -219,25 +229,7 @@ document.getElementById("chaptersModal").onclick=e=>{if(e.target.id==="chaptersM
 
 
 document.getElementById("manageLocations").onclick=openLocationsManager;
-document.getElementById("addLocation").onclick=async()=>{
-  if(isCloudWorkspace()){
-    const result=await runCloudMutation("createLocation",(api,revision)=>api.createLocation(cloudProjectSync.projectId,revision,{name:"Новая локация",description:""}));
-    if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState()}return;
-  }
-  const values=[...document.querySelectorAll(".location-name-input")].map(input=>({id:input.dataset.id,name:input.value.trim(),description:document.querySelector(`.location-desc-input[data-id="${cssEscape(input.dataset.id)}"]`)?.value.trim()||""}));
-  const result=commitDataChange(next=>{values.forEach(v=>{const l=next.locations.find(x=>x.id===v.id);if(l&&v.name)Object.assign(l,v)});next.locations.push({id:makeId("location"),name:"Новая локация",description:""})},{renderAfter:false});
-  if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState();render()}
-};
-async function saveLocationDraft(){
-  const values=[...document.querySelectorAll(".location-name-input")].map(input=>({id:input.dataset.id,name:input.value.trim(),description:document.querySelector(`.location-desc-input[data-id="${cssEscape(input.dataset.id)}"]`)?.value.trim()||""}));
-  if(isCloudWorkspace()){
-    for(const value of values){const old=locationById(value.id);if(old&&value.name&&(old.name!==value.name||(old.description||"")!==value.description)){const result=await runCloudMutation("updateLocation",(api,revision)=>api.updateLocation(cloudProjectSync.projectId,value.id,revision,value));if(!result.ok)return result}}
-    renderLocationsManager();trackerFor("locationsModal").captureInitialState();return {ok:true};
-  }
-  const result=commitDataChange(next=>values.forEach(v=>{const l=next.locations.find(x=>x.id===v.id);if(l&&v.name)Object.assign(l,v)}),{renderAfter:false});
-  if(result.ok){renderLocationsManager();trackerFor("locationsModal").captureInitialState();render()}
-  return result;
-}
+document.getElementById("addLocation").onclick=addLocationDraftRow;
 document.getElementById("saveLocations").onclick=saveLocationDraft;
 document.getElementById("closeLocations").onclick=()=>requestCloseModal("locationsModal","button");
 document.getElementById("locationsModal").onclick=e=>{if(e.target.id==="locationsModal")requestCloseModal("locationsModal","backdrop")};
@@ -247,25 +239,7 @@ document.getElementById("locationsModal").onclick=e=>{if(e.target.id==="location
 
 
 document.getElementById("manageTags").onclick=openTagsManager;
-document.getElementById("addTag").onclick=async()=>{
-  const name=canonicalTagName(prompt("Название тега:"));if(!name)return;
-  if(isCloudWorkspace()){
-    const result=await runCloudMutation("createTag",(api,revision)=>api.createTag(cloudProjectSync.projectId,revision,{name}));
-    if(result.ok){renderTagsManager();trackerFor("tagsModal").captureInitialState()}return;
-  }
-  const result=commitDataChange(next=>{if(!next.tags.some(t=>t.name.toLocaleLowerCase("ru")===name.toLocaleLowerCase("ru")))next.tags.push({id:makeId("tag"),name})},{renderAfter:false});
-  if(result.ok){renderTagsManager();trackerFor("tagsModal").captureInitialState();render()}
-};
-async function saveTagDraft(){
-  const values=new Map([...document.querySelectorAll(".tag-name-input")].map(input=>[input.dataset.id,canonicalTagName(input.value)]));
-  if(isCloudWorkspace()){
-    for(const tag of data.tags)if(values.get(tag.id)&&values.get(tag.id)!==tag.name){const result=await runCloudMutation("updateTag",(api,revision)=>api.updateTag(cloudProjectSync.projectId,tag.id,revision,{name:values.get(tag.id)}));if(!result.ok)return result}
-    renderTagsManager();trackerFor("tagsModal").captureInitialState();return {ok:true};
-  }
-  const result=commitDataChange(next=>next.tags.forEach(t=>{if(values.get(t.id))t.name=values.get(t.id)}),{renderAfter:false});
-  if(result.ok){renderTagsManager();trackerFor("tagsModal").captureInitialState();render()}
-  return result;
-}
+document.getElementById("addTag").onclick=addTagDraftRow;
 document.getElementById("saveTags").onclick=saveTagDraft;
 document.getElementById("closeTags").onclick=()=>requestCloseModal("tagsModal","button");
 document.getElementById("tagsModal").onclick=e=>{if(e.target.id==="tagsModal")requestCloseModal("tagsModal","backdrop")};

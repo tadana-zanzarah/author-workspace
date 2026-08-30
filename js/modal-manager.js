@@ -81,6 +81,22 @@ async function requestCloseModal(modalId=getTopModal()?.id,reason="close"){
   forceCloseModal(modalId);return true;
 }
 
+let confirmActionResolve=null;
+function showConfirmAction({title,description,confirmLabel="Удалить",cancelLabel="Отмена"}){
+  const modal=document.getElementById("confirmActionModal");
+  if(!modal)return Promise.resolve(false);
+  document.getElementById("confirmActionTitle").textContent=title;
+  document.getElementById("confirmActionDescription").textContent=description||"";
+  const confirmBtn=document.getElementById("confirmActionConfirm");confirmBtn.textContent=confirmLabel;
+  document.getElementById("confirmActionCancel").textContent=cancelLabel;
+  openModal("confirmActionModal",{initialFocus:"#confirmActionCancel"});
+  return new Promise(resolve=>{confirmActionResolve=resolve});
+}
+function resolveConfirmAction(confirmed){
+  forceCloseModal("confirmActionModal");
+  const resolve=confirmActionResolve;confirmActionResolve=null;if(resolve)resolve(confirmed);
+}
+
 function handleKeydown(event){
   const modal=getTopModal();if(!modal||event.defaultPrevented)return;
   if(event.key==="Escape"){
@@ -88,7 +104,9 @@ function handleKeydown(event){
     const expanded=modal.querySelector('[role="combobox"][aria-expanded="true"]');
     if(expanded){event.preventDefault();event.stopImmediatePropagation();expanded.dispatchEvent(new CustomEvent("multi-value-close"));return}
     event.preventDefault();event.stopImmediatePropagation();
-    if(modal.id==="discardChangesModal")globalThis.resolveDiscardConfirmation?.(false);else requestCloseModal(modal.id,"escape");
+    if(modal.id==="discardChangesModal")globalThis.resolveDiscardConfirmation?.(false);
+    else if(modal.id==="confirmActionModal")resolveConfirmAction(false);
+    else requestCloseModal(modal.id,"escape");
     return;
   }
   if(event.key!=="Tab")return;
@@ -106,5 +124,5 @@ if(typeof document!=="undefined"){
   document.addEventListener("keydown",handleKeydown,true);document.addEventListener("focusin",rememberFocus,true);
 }
 
-Object.assign(globalThis,{modalStack,openModal,showModal:openModal,requestCloseModal,forceCloseModal,getTopModal,getFocusableElements});
-export {openModal,requestCloseModal,forceCloseModal,getTopModal,getFocusableElements};
+Object.assign(globalThis,{modalStack,openModal,showModal:openModal,requestCloseModal,forceCloseModal,getTopModal,getFocusableElements,showConfirmAction,resolveConfirmAction});
+export {openModal,requestCloseModal,forceCloseModal,getTopModal,getFocusableElements,showConfirmAction,resolveConfirmAction};

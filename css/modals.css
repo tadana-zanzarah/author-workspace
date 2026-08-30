@@ -14,6 +14,9 @@
 .modal-actions{
     display:flex;justify-content:flex-end;gap:8px;margin-top:16px;
 }
+.save-status{align-self:center;margin-right:auto;font-size:13px}
+.save-status.success{color:#245a30}
+.save-status.error{color:#a12f2f}
 .recovery-warning{padding:12px;border-left:4px solid #b45309;background:#fff7ed}
 .recovery-toolbar{display:flex;gap:8px;margin:12px 0}
 .recovery-candidates{display:grid;gap:10px}
