@@ -99,13 +99,13 @@ function renderSidebar(){
   const countBy=predicate=>data.scenes.filter(predicate).length;
   const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
   document.getElementById("sideChapters").innerHTML=sidebarSectionHtml("chapters",
-    userChapters.map(c=>`<button type="button" class="sidebar-item" onclick="navigateToChapter('${jsq(c.id)}')" aria-label="Перейти к главе «${esc(c.title)}»">${esc(c.title)}<span class="sidebar-count">${countBy(s=>s.chapterId===c.id)}</span></button>`),
+    userChapters.map(c=>`<button type="button" class="sidebar-item" onclick="navigateToChapter('${jsq(c.id)}')" aria-label="Перейти к главе «${esc(c.title)}»"><span class="sidebar-item-label" title="${esc(c.title)}">${esc(c.title)}</span><span class="sidebar-count">${countBy(s=>s.chapterId===c.id)}</span></button>`),
     "Глав пока нет");
   document.getElementById("sideCharacters").innerHTML=sidebarSectionHtml("characters",
-    data.characters.map(c=>`<button type="button" class="sidebar-item" onclick="editProfile('${jsq(c.id)}')" aria-label="Открыть анкету персонажа «${esc(c.name)}»">${esc(c.name)}<span class="sidebar-count">${countBy(s=>sceneHasParticipant(s,c.id))}</span></button>`),
+    data.characters.map(c=>`<button type="button" class="sidebar-item" onclick="editProfile('${jsq(c.id)}')" aria-label="Открыть анкету персонажа «${esc(c.name)}»"><span class="sidebar-item-label" title="${esc(c.name)}">${esc(c.name)}</span><span class="sidebar-count">${countBy(s=>sceneHasParticipant(s,c.id))}</span></button>`),
     "Персонажей пока нет");
   document.getElementById("sideLocations").innerHTML=sidebarSectionHtml("locations",
-    data.locations.map(l=>`<button type="button" class="sidebar-item" onclick="openLocationEntity('${jsq(l.id)}')" aria-label="Открыть локацию «${esc(l.name)}»">${esc(l.name)}<span class="sidebar-count">${countBy(s=>s.locationId===l.id)}</span></button>`),
+    data.locations.map(l=>`<button type="button" class="sidebar-item" onclick="openLocationEntity('${jsq(l.id)}')" aria-label="Открыть локацию «${esc(l.name)}»"><span class="sidebar-item-label" title="${esc(l.name)}">${esc(l.name)}</span><span class="sidebar-count">${countBy(s=>s.locationId===l.id)}</span></button>`),
     "Локаций пока нет");
 }
 
