@@ -393,9 +393,7 @@ try{
     // identical, not grow the way the old min-height:9px -> 26px hover rule did.
     const neighborY=await page.evaluate(()=>document.querySelector('.scene-row[data-scene-id="s1"]').getBoundingClientRect().top);
     await page.hover('.scene-position-row[data-position-kind="before-first"] .scene-position-btn');
-    // fix/core-final-visual-polish: reveal now waits out a short hover-intent delay
-    // (so a pointer merely passing through doesn't flash the affordance) before the
-    // opacity/transform transition itself starts — wait past both.
+    // Plain :hover reveal (no JS delay) — just wait past the opacity/transform transition.
     await page.waitForTimeout(400);
     const hoverHeight=await page.evaluate(()=>document.querySelector('.scene-position-row[data-position-kind="before-first"]').getBoundingClientRect().height);
     const hoverNeighborY=await page.evaluate(()=>document.querySelector('.scene-row[data-scene-id="s1"]').getBoundingClientRect().top);

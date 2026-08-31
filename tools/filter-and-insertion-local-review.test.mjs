@@ -65,8 +65,11 @@ try{
     if(!chapterTexts.includes("Глава 1. Пятница, вечер"))throw new Error(`Missing plain chapter title option: ${JSON.stringify(chapterTexts)}`);
     await page.keyboard.press("Escape");
 
+    // Empty state now matches the single-value triggers' own format exactly
+    // (label + caret — see .filter-multi-control-empty in css/layout.css),
+    // not a bare label, so it reads as the same control family as Chapter.
     const emptyLabel=await page.evaluate(()=>document.getElementById("filterCharacter").textContent.trim());
-    if(emptyLabel!=="Персонаж")throw new Error(`Empty character filter should read just "Персонаж", got: "${emptyLabel}"`);
+    if(emptyLabel!=="Персонаж▾")throw new Error(`Empty character filter should read "Персонаж▾" (matching the empty Chapter trigger's format), got: "${emptyLabel}"`);
     await openPopover("Character");
     const charTexts=await page.evaluate(()=>[...document.querySelectorAll('#filterCharacterList [role="option"]')].map(o=>o.textContent.trim()));
     if(charTexts.some(t=>t.startsWith("Персонаж:")))throw new Error(`Character options repeat the category label: ${JSON.stringify(charTexts)}`);

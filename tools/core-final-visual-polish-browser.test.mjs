@@ -8,9 +8,9 @@ const server=spawn(process.execPath,["tools/server.mjs"],{stdio:"ignore"});
 
 // Regression coverage for the fix/core-final-visual-polish pass (local review
 // on top of fix/core-local-review-feedback @ 335d7f9): sidebar starting under
-// the app header and filling the viewport height, hover-intent on the table
-// insertion "+" (no permanent circles, no jitter), the global filter Reset
-// sitting after every filter field, "Статус" replacing "Написание", the
+// the app header and filling the viewport height, plain-hover reveal on the
+// table insertion "+" (no permanent circles, no jitter), the global filter
+// Reset sitting after every filter field, "Статус" replacing "Написание", the
 // bottom horizontal scroll rail, the two-row sticky matrix header (character
 // columns + current chapter) and its chapter-to-chapter handoff, and genuinely
 // empty nonparticipant matrix cells.
@@ -176,36 +176,34 @@ try{
     if(label!=="Статус")throw new Error(`Writing-status filter should read "Статус", got "${label}"`);
   }
 
-  // ================= INSERTION: REST STATE, HOVER-INTENT, NO JITTER (17-23) =================
+  // ================= INSERTION: REST STATE, PLAIN HOVER, NO JITTER (17-23) =================
+  // No JS hover-intent delay any more (see js/matrix-sticky.js history / css/timeline.css):
+  // the row's own box never changes size on hover, so a bare :hover/:focus-within reveal
+  // carries no layout cost and the extra JS timer bought nothing once the real cause of
+  // the "always-visible circle" complaint (a stale .insert-content button CSS rule) was
+  // fixed at the root. Reveal is now immediate on hover/focus.
   {
     const restOpacities=await page.evaluate(()=>[...document.querySelectorAll(".position-plus")].map(el=>getComputedStyle(el).opacity));
     if(restOpacities.some(o=>o!=="0"))throw new Error(`Insertion "+" is visible at rest somewhere: ${JSON.stringify(restOpacities)}`);
+    const restBackgrounds=await page.evaluate(()=>[...document.querySelectorAll(".scene-position-btn")].map(el=>getComputedStyle(el).backgroundColor));
+    if(restBackgrounds.some(bg=>bg!=="rgba(0, 0, 0, 0)"))throw new Error(`Insertion trigger has a visible background at rest somewhere: ${JSON.stringify(restBackgrounds)}`);
 
     const target='.scene-position-row[data-position-kind="between"] .scene-position-btn';
-    await page.hover(target);
-    await page.waitForTimeout(40); // shorter than the hover-intent delay
-    const quickPass=await page.evaluate(sel=>document.querySelector(sel).closest(".scene-position-row").classList.contains("hover-intent"),target);
-    await page.mouse.move(10,10);
-    await page.waitForTimeout(20);
-    if(quickPass)throw new Error("A brief pointer pass revealed the insertion affordance before the hover-intent delay elapsed");
-
     const rowsBefore=await page.evaluate(()=>[...document.querySelectorAll(".scene-row[data-scene-id]")].map(r=>r.getBoundingClientRect().top));
     await page.hover(target);
-    await page.waitForTimeout(400); // past the hover-intent delay + reveal transition
-    const revealed=await page.evaluate(sel=>{
-      const row=document.querySelector(sel).closest(".scene-position-row");
-      return {hasClass:row.classList.contains("hover-intent"),opacity:getComputedStyle(row.querySelector(".position-plus")).opacity};
-    },target);
-    if(!revealed.hasClass||revealed.opacity!=="1")throw new Error(`Intentional hover did not reveal the insertion affordance: ${JSON.stringify(revealed)}`);
+    await page.waitForTimeout(220); // no artificial delay any more — just past the --motion-base(160ms) transition
+    const revealed=await page.evaluate(sel=>getComputedStyle(document.querySelector(sel).querySelector(".position-plus")).opacity,target);
+    if(revealed!=="1")throw new Error(`Hover did not immediately reveal the insertion affordance: ${revealed}`);
     const rowsAfter=await page.evaluate(()=>[...document.querySelectorAll(".scene-row[data-scene-id]")].map(r=>r.getBoundingClientRect().top));
     for(let i=0;i<rowsBefore.length;i++)if(rowsBefore[i]!==rowsAfter[i])throw new Error(`Revealing the insertion affordance moved scene row ${i}: ${rowsBefore[i]} -> ${rowsAfter[i]}`);
     await page.mouse.move(10,10);
-    await page.waitForTimeout(20);
+    await page.waitForTimeout(220);
+    const restoredOpacity=await page.evaluate(sel=>getComputedStyle(document.querySelector(sel).querySelector(".position-plus")).opacity,target);
+    if(restoredOpacity!=="0")throw new Error(`Insertion affordance stayed visible after the pointer moved away: ${restoredOpacity}`);
 
-    // Keyboard focus reveals with no artificial hover-intent delay (still animates
-    // over the same short opacity transition as everything else here).
+    // Keyboard focus reveals identically (same selectors, no delay either way).
     await page.focus(target);
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(220);
     const focusRevealed=await page.evaluate(sel=>getComputedStyle(document.querySelector(sel).parentElement.querySelector(".position-plus")).opacity,target);
     if(focusRevealed!=="1")throw new Error("Keyboard focus did not reveal the insertion affordance");
     await page.keyboard.press("Escape");
@@ -336,6 +334,99 @@ try{
     if(!restored.overlayHidden)throw new Error("Sticky overlay stayed active after scrolling back to the top");
     if(restored.boardHeadCount!==1)throw new Error(`Expected exactly one .board-head after restoring, found ${restored.boardHeadCount}`);
     if(restored.dividerCount!==3)throw new Error(`Expected exactly 3 chapter dividers after restoring, found ${restored.dividerCount}`);
+  }
+
+  // ================= CHAPTER TITLE STAYS FIXED LEFT ON HORIZONTAL SCROLL =================
+  // Covers both the natural in-flow divider (page not yet scrolled far enough to
+  // vertically pin the sticky overlay) and the pinned overlay copy — see
+  // .chapter-identity in css/layout.css.
+  {
+    await page.evaluate(()=>window.scrollTo(0,0));
+    await page.waitForTimeout(60);
+    const viewport=await page.$(".viewport.workspace-viewport");
+    // Raw viewport-relative left — NOT measured relative to #board's own rect,
+    // since #board IS the horizontally-scrolled content and its own left edge
+    // moves with scrollLeft; a sticky element correctly holding its position
+    // in viewport-space would otherwise misreport as "drifting" by exactly the
+    // scroll delta once #board's shift is subtracted back in.
+    const identityLeftInFlow=async()=>page.evaluate(()=>
+      document.querySelector("#board > .insert-row[data-chapter-id] .chapter-identity").getBoundingClientRect().left
+    );
+    const before=await identityLeftInFlow();
+    await viewport.evaluate(el=>{el.scrollLeft=500;el.dispatchEvent(new Event("scroll"))});
+    await page.waitForTimeout(60);
+    const after=await identityLeftInFlow();
+    if(Math.abs(after-before)>2)throw new Error(`Chapter title drifted with the matrix's own horizontal scroll instead of staying fixed left: before=${before} after=${after}`);
+    const stillOnScreen=await page.evaluate(()=>{
+      const identity=document.querySelector("#board > .insert-row[data-chapter-id] .chapter-identity");
+      const r=identity.getBoundingClientRect();
+      return r.left>=0&&r.left<window.innerWidth;
+    });
+    if(!stillOnScreen)throw new Error("Chapter title scrolled off-screen to the left");
+    await viewport.evaluate(el=>{el.scrollLeft=0;el.dispatchEvent(new Event("scroll"))});
+
+    // Same check once vertically pinned (sticky overlay active).
+    await page.evaluate(()=>window.scrollTo(0,700));
+    await page.waitForTimeout(80);
+    await page.evaluate(()=>updateMatrixSticky());
+    const pinnedBefore=await page.evaluate(()=>document.querySelector(".matrix-sticky-chapter-row .chapter-identity").getBoundingClientRect().left);
+    await viewport.evaluate(el=>{el.scrollLeft=500;el.dispatchEvent(new Event("scroll"))});
+    await page.waitForTimeout(60);
+    await page.evaluate(()=>updateMatrixSticky());
+    const pinnedAfter=await page.evaluate(()=>document.querySelector(".matrix-sticky-chapter-row .chapter-identity").getBoundingClientRect().left);
+    if(Math.abs(pinnedAfter-pinnedBefore)>2)throw new Error(`Pinned chapter title drifted with horizontal scroll: before=${pinnedBefore} after=${pinnedAfter}`);
+    await viewport.evaluate(el=>{el.scrollLeft=0;el.dispatchEvent(new Event("scroll"))});
+    await page.evaluate(()=>window.scrollTo(0,0));
+    await page.waitForTimeout(80);
+  }
+
+  // ================= VERTICAL SCROLL JITTER (matrix-sticky.js reparent thrash) =================
+  // Regression guard for the local-review bug where matrix-sticky.js restored and
+  // re-pinned the current chapter divider's REAL DOM node on every single scroll
+  // frame (forcing a full grid reflow twice per tick), instead of only when the
+  // current chapter actually changes. That showed up as jittery/jumping scroll,
+  // worse with the pointer sitting over a scene row. Guard both the DOM-churn
+  // count and that row geometry never jumps mid-scroll.
+  {
+    await page.evaluate(()=>window.scrollTo(0,0));
+    await page.waitForTimeout(60);
+    await page.evaluate(()=>updateMatrixSticky());
+    await page.mouse.move(300,400); // over a scene row — the reported jitter trigger
+    const result=await page.evaluate(async()=>{
+      const board=document.getElementById("board");
+      const chapterRow=document.querySelector(".matrix-sticky-chapter-row");
+      let mutations=0;
+      const observer=new MutationObserver(muts=>{mutations+=muts.length});
+      observer.observe(chapterRow,{childList:true});
+      observer.observe(board,{childList:true});
+      const rowsBefore=[...document.querySelectorAll(".scene-row[data-scene-id]")].map(r=>r.getBoundingClientRect().top);
+      let steps=0,maxJump=0;
+      let prevRows=rowsBefore;
+      for(let i=0;i<120;i++){
+        window.scrollBy(0,15);
+        updateMatrixSticky();
+        steps++;
+        const rows=[...document.querySelectorAll(".scene-row[data-scene-id]")].map(r=>r.getBoundingClientRect().top);
+        // Compare rows present in both frames (ignore ones that scrolled out) —
+        // any row still on screen in consecutive frames should move by roughly
+        // one scroll step (15px), never jump further from a reflow/reparent.
+        for(let j=0;j<Math.min(rows.length,prevRows.length);j++){
+          const delta=Math.abs((prevRows[j]-rows[j])-15);
+          if(delta>maxJump)maxJump=delta;
+        }
+        prevRows=rows;
+        if(window.scrollY+window.innerHeight>=document.body.scrollHeight-5)break;
+      }
+      await new Promise(r=>setTimeout(r,30));
+      return {steps,mutations,maxJump,endY:window.scrollY};
+    });
+    if(result.maxJump>3)throw new Error(`Scene row geometry jumped mid-scroll (reflow/reparent thrash): maxJump=${result.maxJump}px over ${result.steps} steps`);
+    // 3 chapter dividers total => at most a handful of real transitions, nowhere
+    // near one reparent (or two) PER scroll frame, which is what the old
+    // every-tick restore+re-pin design produced.
+    if(result.mutations>20)throw new Error(`Chapter divider was reparented far more than the number of chapters allows (${result.mutations} DOM mutations over ${result.steps} scroll steps) — looks like the per-frame reparent regression`);
+    await page.evaluate(()=>window.scrollTo(0,0));
+    await page.waitForTimeout(80);
   }
 
   // ================= EMPTY MATRIX CELLS (38-40) =================
