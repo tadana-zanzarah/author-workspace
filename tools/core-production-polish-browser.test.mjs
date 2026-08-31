@@ -97,8 +97,8 @@ try{
     });
     if(!activeStyle.active)throw new Error("Active filter is not visually flagged");
     if(activeStyle.bg===styles.enabledBg)throw new Error("Active filter is not visually distinct from an untouched enabled filter");
-    if(activeStyle.text.startsWith("Написание:")||!activeStyle.text.includes("Черновик"))
-      throw new Error(`Selected single-value filter must read just the value, not "Написание: …": ${activeStyle.text}`);
+    if(activeStyle.text.startsWith("Статус:")||!activeStyle.text.includes("Черновик"))
+      throw new Error(`Selected single-value filter must read just the value, not "Статус: …": ${activeStyle.text}`);
 
     // No bright native-blue selection state: the popover paints its own selection.
     const accent=await page.evaluate(()=>{
@@ -393,7 +393,10 @@ try{
     // identical, not grow the way the old min-height:9px -> 26px hover rule did.
     const neighborY=await page.evaluate(()=>document.querySelector('.scene-row[data-scene-id="s1"]').getBoundingClientRect().top);
     await page.hover('.scene-position-row[data-position-kind="before-first"] .scene-position-btn');
-    await page.waitForTimeout(150); // let the opacity/transform hover transition finish before reading computed style
+    // fix/core-final-visual-polish: reveal now waits out a short hover-intent delay
+    // (so a pointer merely passing through doesn't flash the affordance) before the
+    // opacity/transform transition itself starts — wait past both.
+    await page.waitForTimeout(400);
     const hoverHeight=await page.evaluate(()=>document.querySelector('.scene-position-row[data-position-kind="before-first"]').getBoundingClientRect().height);
     const hoverNeighborY=await page.evaluate(()=>document.querySelector('.scene-row[data-scene-id="s1"]').getBoundingClientRect().top);
     const plusOpacity=await page.evaluate(()=>getComputedStyle(document.querySelector('.scene-position-row[data-position-kind="before-first"] .position-plus')).opacity);

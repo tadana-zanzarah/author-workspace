@@ -250,7 +250,10 @@ try{
     const active=await page.evaluate(()=>document.querySelector("#filterLocation .filter-trigger-text").textContent.trim());
     if(active.includes("Локация:"))throw new Error(`Active single-value filter must not repeat its category name, got: "${active}"`);
     if(!active.includes("Дом"))throw new Error(`Active filter should read the selected value, got: "${active}"`);
-    const resetVisible=await page.evaluate(()=>!document.getElementById("clearFilters").hidden);
+    // Reset toggles via visibility (not [hidden]/display:none) so its box stays in
+    // the flex-wrap flow at a stable size and activating it can't reflow the other
+    // filter fields — see the fix/core-final-visual-polish pass.
+    const resetVisible=await page.evaluate(()=>getComputedStyle(document.getElementById("clearFilters")).visibility!=="hidden");
     if(!resetVisible)throw new Error("Reset must appear once a filter is active");
     for(const width of [1440,1200,1024,900]){
       await page.setViewportSize({width,height:900});
@@ -264,7 +267,7 @@ try{
     }
     await page.setViewportSize({width:1440,height:900});
     await page.click("#clearFilters");
-    const clearedHidden=await page.evaluate(()=>document.getElementById("clearFilters").hidden);
+    const clearedHidden=await page.evaluate(()=>getComputedStyle(document.getElementById("clearFilters")).visibility==="hidden");
     if(!clearedHidden)throw new Error("Reset must hide again once no filters are active");
   }
 
