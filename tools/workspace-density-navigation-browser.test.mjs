@@ -161,11 +161,11 @@ try{
   }
   {
     // Character click opens the profile instead of filtering.
-    const before=await page.evaluate(()=>filters.character);
+    const before=await page.evaluate(()=>[...filters.character]);
     await page.click('#sideCharacters .sidebar-item');
     await page.waitForSelector("#profileEditorModal .modal");
-    const after=await page.evaluate(()=>({filterCharacter:filters.character,modalOpen:document.getElementById("profileEditorModal").style.display==="flex",name:document.getElementById("pf_name").value}));
-    if(after.filterCharacter!==before)throw new Error(`Character sidebar click must not change the active filter, got: ${after.filterCharacter}`);
+    const after=await page.evaluate(()=>({filterCharacter:[...filters.character],modalOpen:document.getElementById("profileEditorModal").style.display==="flex",name:document.getElementById("pf_name").value}));
+    if(JSON.stringify(after.filterCharacter)!==JSON.stringify(before))throw new Error(`Character sidebar click must not change the active filter, got: ${JSON.stringify(after.filterCharacter)}`);
     if(!after.modalOpen||!after.name)throw new Error(`Character sidebar click did not open a populated profile: ${JSON.stringify(after)}`);
     await page.click("#cancelProfile");
     await page.waitForSelector("#profileEditorModal",{state:"hidden"});
@@ -238,11 +238,18 @@ try{
       return {search,select,diff:Math.abs(search-select)};
     });
     if(heights.diff>2)throw new Error(`Search and select filters should share one height, got ${JSON.stringify(heights)}`);
-    const inactive=await page.evaluate(()=>document.getElementById("filterLocation").selectedOptions[0].textContent);
+    const inactive=await page.evaluate(()=>document.querySelector("#filterLocation .filter-trigger-text").textContent.trim());
     if(inactive!=="Локация")throw new Error(`Inactive filter should show its category as a placeholder, got: "${inactive}"`);
-    await page.selectOption("#filterLocation","l1");await page.dispatchEvent("#filterLocation","change");
-    const active=await page.evaluate(()=>document.getElementById("filterLocation").selectedOptions[0].textContent);
-    if(!active.includes("Локация")||!active.includes("Дом"))throw new Error(`Active filter should stay self-explaining, got: "${active}"`);
+    // Selecting a value must NOT repeat the category name into the closed box — the
+    // exact "Локация: Дом" duplication flagged in local review. The closed control
+    // should read just the value ("Дом").
+    await page.click("#filterLocation");
+    await page.waitForSelector("#filterLocationPopover:not([hidden])");
+    await page.click('#filterLocationList [role="option"][data-value="l1"]');
+    await page.waitForTimeout(80);
+    const active=await page.evaluate(()=>document.querySelector("#filterLocation .filter-trigger-text").textContent.trim());
+    if(active.includes("Локация:"))throw new Error(`Active single-value filter must not repeat its category name, got: "${active}"`);
+    if(!active.includes("Дом"))throw new Error(`Active filter should read the selected value, got: "${active}"`);
     const resetVisible=await page.evaluate(()=>!document.getElementById("clearFilters").hidden);
     if(!resetVisible)throw new Error("Reset must appear once a filter is active");
     for(const width of [1440,1200,1024,900]){

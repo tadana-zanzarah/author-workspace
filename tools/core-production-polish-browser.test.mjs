@@ -41,6 +41,15 @@ try{
   await page.addInitScript(value=>{localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project());
   for(let attempt=0;attempt<30;attempt++){try{await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
 
+  // Custom filter listbox (js/filter-controls.js) replaced native <select> for the
+  // whole filter bar — opens the trigger, clicks the matching option by value, and
+  // (for single-value fields) waits for it to auto-close.
+  const chooseFilter=async(suffix,value)=>{
+    await page.click(`#filter${suffix}`);
+    await page.waitForSelector(`#filter${suffix}Popover:not([hidden])`);
+    await page.click(`#filter${suffix}List [role="option"][data-value="${value}"]`);
+  };
+
   // ================= FILTERS =================
   {
     const fields=["projectSearch","filterChapter","filterCharacter","filterLocation","filterTag","filterWriting","filterPlacement"];
@@ -48,61 +57,145 @@ try{
     if(!visible)throw new Error("Not all 7 filter controls are directly visible");
     const noMoreFilters=await page.evaluate(()=>![...document.querySelectorAll("button")].some(b=>/ещё фильтр|more filters/i.test(b.textContent)));
     if(!noMoreFilters)throw new Error('A "More filters" progressive-disclosure control was introduced');
+    // Option labels/closed-box text must not repeat the filter's own category name.
+    await page.click("#filterChapter");
+    await page.waitForSelector("#filterChapterPopover:not([hidden])");
+    const chapterOptionTexts=await page.evaluate(()=>[...document.querySelectorAll('#filterChapterList [role="option"]')].map(o=>o.textContent.trim()));
+    if(chapterOptionTexts.some(t=>t.startsWith("Глава:")))
+      throw new Error(`Chapter dropdown options must not repeat "Глава:": ${JSON.stringify(chapterOptionTexts)}`);
+    if(!chapterOptionTexts.includes("Глава первая: очень длинное название главы для проверки переполнения строки"))
+      throw new Error(`Chapter dropdown missing the plain (unprefixed) chapter title: ${JSON.stringify(chapterOptionTexts)}`);
+    await page.keyboard.press("Escape");
+    await page.click("#filterCharacter .filter-multi-trigger");
+    await page.waitForSelector("#filterCharacterPopover:not([hidden])");
+    const charOptionTexts=await page.evaluate(()=>[...document.querySelectorAll('#filterCharacterList [role="option"]')].map(o=>o.textContent.trim()));
+    if(charOptionTexts.some(t=>t.startsWith("Персонаж:")))throw new Error(`Character dropdown options must not repeat "Персонаж:": ${JSON.stringify(charOptionTexts)}`);
+    if(!charOptionTexts.includes("Анна"))throw new Error(`Character dropdown missing plain character name: ${JSON.stringify(charOptionTexts)}`);
+    await page.keyboard.press("Escape");
+
     const styles=await page.evaluate(()=>{
       // getComputedStyle() returns a live view of the element, so each snapshot must be
       // read into plain values immediately — before the next mutation — or both
       // "before" and "after" reads end up reflecting the same final state.
-      const select=document.getElementById("filterLocation");
-      const enabledBg=getComputedStyle(select).backgroundColor;
-      const enabledColor=getComputedStyle(select).color;
-      const enabledOpacity=getComputedStyle(select).opacity;
-      select.disabled=true;
-      const disabledOpacity=getComputedStyle(select).opacity;
-      select.disabled=false;
+      const trigger=document.getElementById("filterLocation");
+      const enabledBg=getComputedStyle(trigger).backgroundColor;
+      const enabledColor=getComputedStyle(trigger).color;
+      const enabledOpacity=getComputedStyle(trigger).opacity;
+      trigger.disabled=true;
+      const disabledOpacity=getComputedStyle(trigger).opacity;
+      trigger.disabled=false;
       return {enabledBg,enabledColor,disabledOpacity,enabledOpacity};
     });
-    if(styles.enabledOpacity!=="1")throw new Error(`Enabled filter select should not look faded: opacity=${styles.enabledOpacity}`);
-    if(Number(styles.disabledOpacity)>=Number(styles.enabledOpacity))throw new Error(`Disabled select must look visibly weaker than enabled: ${JSON.stringify(styles)}`);
-    await page.selectOption("#filterWriting","draft");await page.dispatchEvent("#filterWriting","change");
+    if(styles.enabledOpacity!=="1")throw new Error(`Enabled filter trigger should not look faded: opacity=${styles.enabledOpacity}`);
+    if(Number(styles.disabledOpacity)>=Number(styles.enabledOpacity))throw new Error(`Disabled trigger must look visibly weaker than enabled: ${JSON.stringify(styles)}`);
+
+    await chooseFilter("Writing","draft");
     await page.waitForTimeout(80);
     const activeStyle=await page.evaluate(()=>{
-      const select=document.getElementById("filterWriting");
-      return {active:select.closest(".filter-field").classList.contains("filter-active"),bg:getComputedStyle(select).backgroundColor};
+      const trigger=document.getElementById("filterWriting");
+      return {active:trigger.closest(".filter-field").classList.contains("filter-active"),bg:getComputedStyle(trigger).backgroundColor,text:trigger.textContent.trim()};
     });
     if(!activeStyle.active)throw new Error("Active filter is not visually flagged");
     if(activeStyle.bg===styles.enabledBg)throw new Error("Active filter is not visually distinct from an untouched enabled filter");
-    const heights=await page.evaluate(()=>({search:document.getElementById("projectSearch").getBoundingClientRect().height,select:document.getElementById("filterChapter").getBoundingClientRect().height}));
-    if(Math.abs(heights.search-heights.select)>2)throw new Error(`Search/select filter heights diverged: ${JSON.stringify(heights)}`);
+    if(activeStyle.text.startsWith("Написание:")||!activeStyle.text.includes("Черновик"))
+      throw new Error(`Selected single-value filter must read just the value, not "Написание: …": ${activeStyle.text}`);
+
+    // No bright native-blue selection state: the popover paints its own selection.
+    const accent=await page.evaluate(()=>{
+      const opt=document.querySelector('#filterWritingList [role="option"][aria-selected="true"]');
+      return opt?getComputedStyle(opt).backgroundColor:null;
+    });
+    if(accent==="rgb(0, 120, 215)"||accent==="rgb(0, 122, 255)"||accent==="Highlight")
+      throw new Error(`Selected filter option still uses a system-blue highlight: ${accent}`);
+
+    const heights=await page.evaluate(()=>({search:document.getElementById("projectSearch").getBoundingClientRect().height,trigger:document.getElementById("filterChapter").getBoundingClientRect().height}));
+    if(Math.abs(heights.search-heights.trigger)>2)throw new Error(`Search/filter-trigger heights diverged: ${JSON.stringify(heights)}`);
     await page.click("#clearFilters");await page.waitForTimeout(80);
     const cleared=await page.evaluate(()=>filters.writing);
     if(cleared!=="")throw new Error("Clearing filters did not reset semantics");
   }
 
+  // ================= MULTI CHARACTER / TAG FILTERS =================
+  {
+    await chooseFilter("Character","c1"); // multi-select popover stays open after a pick
+    await page.click('#filterCharacterList [role="option"][data-value="c2"]');
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(80);
+    const selected=await page.evaluate(()=>[...filters.character].sort());
+    if(selected.join(",")!=="c1,c2")throw new Error(`Both characters should be selected: ${JSON.stringify(selected)}`);
+    const closedText=await page.evaluate(()=>document.getElementById("filterCharacter").textContent);
+    if(!closedText.includes("Анна"))throw new Error(`Closed multi control should show selected chip labels: ${closedText}`);
+    // s1 has both c1 and c2; s2 has neither — AND-of-selected-characters must keep
+    // only the scene containing every selected character, not either one alone.
+    const visibleAfterBoth=await page.evaluate(()=>getVisibleSceneEntries().map(({scene})=>scene.id));
+    if(visibleAfterBoth.join(",")!=="s1")throw new Error(`Multi-character filter must AND together (only s1 has both c1 and c2), got ${JSON.stringify(visibleAfterBoth)}`);
+    await page.click('#filterCharacter .filter-trigger-chip-remove[data-value="c2"]');
+    await page.waitForTimeout(80);
+    const afterRemove=await page.evaluate(()=>[...filters.character]);
+    if(afterRemove.join(",")!=="c1")throw new Error(`Removing one chip should leave only the other selected: ${JSON.stringify(afterRemove)}`);
+    await page.click('#filterCharacter .filter-trigger-chip-remove[data-value="c1"]');
+    await page.waitForTimeout(80);
+    const afterClearAll=await page.evaluate(()=>filters.character.length);
+    if(afterClearAll!==0)throw new Error("Removing the last chip should clear the character filter");
+  }
+
   // ================= SIDEBAR =================
+  // The open-state collapse control must be a genuine DOM child of the sidebar's own
+  // header row (not a sibling element positioned on top of the panel from outside) —
+  // local review flagged the previous CSS-only "move it closer" fix as still visibly
+  // floating above the card. Structural containment is checked directly instead of a
+  // pixel-tolerance bounding-box comparison, which the old floating button could
+  // satisfy by coincidence without actually belonging to the header.
   {
     const geometry=await page.evaluate(()=>{
       const toggle=document.getElementById("toggleNavigation");
+      const header=document.querySelector(".sidebar-header");
       const sidebar=document.querySelector(".project-sidebar");
-      const header=sidebar.querySelector(".sidebar-header");
-      const tRect=toggle.getBoundingClientRect(),sRect=sidebar.getBoundingClientRect(),hRect=header.getBoundingClientRect();
+      const tRect=toggle.getBoundingClientRect(),hRect=header.getBoundingClientRect(),sRect=sidebar.getBoundingClientRect();
       return {
-        withinSidebarX:tRect.left>=sRect.left-4&&tRect.right<=sRect.right+4,
-        verticalOverlapWithHeaderRow:tRect.top<hRect.bottom+6&&tRect.bottom>hRect.top-6
+        isHeaderChild:header.contains(toggle),
+        withinHeaderBounds:tRect.top>=hRect.top-2&&tRect.bottom<=hRect.bottom+2&&tRect.left>=hRect.left-2&&tRect.right<=hRect.right+2,
+        // No blank strip reserved above the sidebar for a floating control: the panel's
+        // own top edge and its header's top edge must coincide (modulo the panel's own
+        // padding), not sit tens of pixels apart.
+        noBlankStripAbove:hRect.top-sRect.top<16
       };
     });
-    if(!geometry.withinSidebarX)throw new Error("Sidebar collapse control is not physically within the sidebar's own bounds");
-    if(!geometry.verticalOverlapWithHeaderRow)throw new Error("Sidebar collapse control does not align with the sidebar header row");
+    if(!geometry.isHeaderChild)throw new Error("Sidebar collapse control is not a DOM child of the sidebar header — it does not structurally belong to the panel");
+    if(!geometry.withinHeaderBounds)throw new Error("Sidebar collapse control's bounding box is not inside the sidebar header row");
+    if(!geometry.noBlankStripAbove)throw new Error("Blank space is still reserved above the sidebar for a floating control");
+  }
+  {
+    // Collapsed state: the panel is gone, so a separate reopen tab takes over — it
+    // must not be a floating control layered above a visible panel (there is no panel
+    // to float over any more), and it must still be reachable/labelled.
+    await page.click("#toggleNavigation");
+    await page.waitForTimeout(50);
+    const collapsed=await page.evaluate(()=>{
+      const reopen=document.getElementById("toggleNavigationReopen");
+      const sidebar=document.querySelector(".project-sidebar");
+      return {
+        reopenVisible:reopen.offsetParent!==null,
+        sidebarHidden:getComputedStyle(sidebar).display==="none",
+        ariaLabel:reopen.getAttribute("aria-label")
+      };
+    });
+    if(!collapsed.sidebarHidden)throw new Error("Sidebar panel should be fully hidden while collapsed");
+    if(!collapsed.reopenVisible)throw new Error("Collapsed state must expose a reopen control");
+    if(collapsed.ariaLabel!=="Открыть навигацию")throw new Error(`Unexpected reopen control label: ${collapsed.ariaLabel}`);
+    await page.click("#toggleNavigationReopen");
+    await page.waitForTimeout(50);
   }
   {
     const before=await page.evaluate(()=>document.getElementById("toggleNavigation").getAttribute("aria-label"));
     if(before!=="Свернуть навигацию")throw new Error(`Unexpected open-state accessible name: ${before}`);
     await page.click("#toggleNavigation");
-    const after=await page.evaluate(()=>document.getElementById("toggleNavigation").getAttribute("aria-label"));
-    if(after!=="Открыть навигацию")throw new Error(`Unexpected collapsed-state accessible name: ${after}`);
+    const after=await page.evaluate(()=>document.getElementById("toggleNavigationReopen").getAttribute("aria-label"));
+    if(after!=="Открыть навигацию")throw new Error(`Unexpected collapsed-state reopen control accessible name: ${after}`);
     await page.reload({waitUntil:"networkidle"});
     const persisted=await page.evaluate(()=>document.querySelector(".app-shell").classList.contains("navigation-hidden"));
     if(!persisted)throw new Error("Sidebar collapse state did not persist across reload");
-    await page.click("#toggleNavigation");
+    await page.click("#toggleNavigationReopen");
     await page.waitForTimeout(50);
   }
   {
@@ -295,10 +388,24 @@ try{
       throw new Error(`Insertion positions incomplete: ${kinds}`);
     const restHeight=await page.evaluate(()=>document.querySelector('.scene-position-row[data-position-kind="before-first"]').getBoundingClientRect().height);
     if(restHeight>16)throw new Error(`Insertion gap not compact at rest: ${restHeight}px`);
+    // The affordance reveals on hover as an OVERLAY — the row's own box height (and
+    // therefore every scene row's Y position below it) must stay byte-for-byte
+    // identical, not grow the way the old min-height:9px -> 26px hover rule did.
+    const neighborY=await page.evaluate(()=>document.querySelector('.scene-row[data-scene-id="s1"]').getBoundingClientRect().top);
     await page.hover('.scene-position-row[data-position-kind="before-first"] .scene-position-btn');
+    await page.waitForTimeout(150); // let the opacity/transform hover transition finish before reading computed style
     const hoverHeight=await page.evaluate(()=>document.querySelector('.scene-position-row[data-position-kind="before-first"]').getBoundingClientRect().height);
-    if(hoverHeight<=restHeight)throw new Error("Hovering an insertion gap did not reveal a usable control");
+    const hoverNeighborY=await page.evaluate(()=>document.querySelector('.scene-row[data-scene-id="s1"]').getBoundingClientRect().top);
+    const plusOpacity=await page.evaluate(()=>getComputedStyle(document.querySelector('.scene-position-row[data-position-kind="before-first"] .position-plus')).opacity);
+    if(hoverHeight!==restHeight)throw new Error(`Hovering must not change the insertion row's own height: rest=${restHeight} hover=${hoverHeight}`);
+    if(hoverNeighborY!==neighborY)throw new Error(`Hovering an insertion gap moved a neighboring scene row: before=${neighborY} after=${hoverNeighborY}`);
+    if(Number(plusOpacity)<1)throw new Error(`Hover should still reveal the "+" affordance (as an overlay): opacity=${plusOpacity}`);
+    await page.mouse.move(0,0);
   }
+  // Viewport-relative centering on a wide (many-character-column) matrix is covered
+  // by tools/filter-and-insertion-local-review.test.mjs, which seeds a dedicated
+  // many-character fixture up front instead of mutating this file's shared project
+  // mid-run.
 
   // ================= CHARACTER HEADERS =================
   {

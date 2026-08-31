@@ -51,7 +51,10 @@ try{
   const afterSame=await page.evaluate(()=>({raw:localStorage.getItem("novelTimelineV11"),review:data.scenes.find(x=>x.id==="scene-b").dateReview}));
   if(afterSame.raw!==beforeSame.raw||afterSame.review!==beforeSame.review)throw new Error("Same-position drop saved or changed dateReview");
 
-  await page.selectOption("#filterChapter","chapter-one");await page.dispatchEvent("#filterChapter","change");
+  await page.click("#filterChapter");
+  await page.waitForSelector("#filterChapterPopover:not([hidden])");
+  await page.click('#filterChapterList [role="option"][data-value="chapter-one"]');
+  await page.waitForTimeout(100);
   if(!await page.isDisabled(".compact-drag-handle")||!await page.locator(".compact-dnd-notice").isVisible())throw new Error("Chapter filter did not disable DnD");
   await page.click("#clearFilters");await page.fill("#projectSearch","A");await page.dispatchEvent("#projectSearch","input");
   await page.waitForTimeout(150);

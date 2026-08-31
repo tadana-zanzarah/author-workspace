@@ -137,7 +137,9 @@ try{
 
   // ---- 10) Global "+ Новая сцена" keeps its existing append semantics ------------
   {
-    await page.selectOption("#filterChapter","chapter-empty");await page.dispatchEvent("#filterChapter","change");
+    await page.click("#filterChapter");
+    await page.waitForSelector("#filterChapterPopover:not([hidden])");
+    await page.click('#filterChapterList [role="option"][data-value="chapter-empty"]');
     await page.click("#clearFilters");
     await page.click("#addFirst");
     const chapterValue=await page.$eval("#sceneChapter",el=>el.value);
@@ -151,7 +153,9 @@ try{
   // ---- 16/17/18) Filtered mode: positional insertion hidden, DnD disabled, -------
   // ----           clearing filters restores the full canonical position set. -----
   {
-    await page.selectOption("#filterChapter","chapter-three");await page.dispatchEvent("#filterChapter","change");
+    await page.click("#filterChapter");
+    await page.waitForSelector("#filterChapterPopover:not([hidden])");
+    await page.click('#filterChapterList [role="option"][data-value="chapter-three"]');
     await page.waitForTimeout(50);
     const filteredInsertCount=await page.evaluate(()=>document.querySelectorAll('[data-action="insert-scene"]').length);
     if(filteredInsertCount!==0)throw new Error(`Filtered mode must hide all positional insertion controls, found ${filteredInsertCount}`);

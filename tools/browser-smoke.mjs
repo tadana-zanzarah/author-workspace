@@ -124,9 +124,10 @@ await page.fill("#sceneTitle","Сцена после редактировани�
 await page.click("#saveScene");
 await page.waitForFunction(()=>JSON.parse(localStorage.getItem("novelTimelineV11")).scenes.some(s=>s.title==="Сцена после редактирования"));
 
-await page.selectOption("#filterChapter","chapter-one");
-await page.dispatchEvent("#filterChapter","change");
-if(await page.inputValue("#filterChapter")!=="chapter-one") throw new Error("Быстрый выбор главы не сохранил выбранное значение");
+await page.click("#filterChapter");
+await page.waitForSelector("#filterChapterPopover:not([hidden])");
+await page.click('#filterChapterList [role="option"][data-value="chapter-one"]');
+if(await page.evaluate(()=>filters.chapter)!=="chapter-one") throw new Error("Быстрый выбор главы не сохранил выбранное значение");
 await page.click("#clearFilters");
 
 const dndResult=await page.evaluate(()=>{
@@ -320,7 +321,13 @@ const result={
   title:await page.title(),
   migration,
   persisted,
-  filtersOpened:await page.locator("#filterChapter option").count()>1,
+  filtersOpened:await (async()=>{
+    await page.click("#filterChapter");
+    await page.waitForSelector("#filterChapterPopover:not([hidden])");
+    const count=await page.locator('#filterChapterList [role="option"]').count();
+    await page.keyboard.press("Escape");
+    return count>1;
+  })(),
   profileOpened:true,
   exportFile:download.suggestedFilename(),
   rejectedImportPreserved:true,

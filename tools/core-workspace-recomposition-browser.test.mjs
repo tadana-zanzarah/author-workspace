@@ -78,25 +78,29 @@ try{
 
   // ================= SIDEBAR =================
   // 8/9/10/11) Attached edge control collapses/expands, reachable by keyboard, aria stays correct.
+  // Two controls share one open/closed state: #toggleNavigation ("‹", collapse) is a
+  // real child of the sidebar header and only meaningful/visible while open; once
+  // collapsed the panel (and that button with it) is gone, and a separate
+  // #toggleNavigationReopen ("›") tab takes over — see js/storage.js syncSidebarEdgeToggle.
   {
-    const before=await page.evaluate(()=>({expanded:document.getElementById("toggleNavigation").getAttribute("aria-expanded"),label:document.getElementById("toggleNavigation").getAttribute("aria-label")}));
-    if(before.expanded!=="true"||before.label!=="Свернуть навигацию")throw new Error(`Sidebar toggle default state wrong: ${JSON.stringify(before)}`);
+    const before=await page.evaluate(()=>({expanded:document.getElementById("toggleNavigation").getAttribute("aria-expanded"),label:document.getElementById("toggleNavigation").getAttribute("aria-label"),reopenHidden:document.getElementById("toggleNavigationReopen").hidden}));
+    if(before.expanded!=="true"||before.label!=="Свернуть навигацию"||!before.reopenHidden)throw new Error(`Sidebar toggle default state wrong: ${JSON.stringify(before)}`);
     await page.focus("#toggleNavigation");
     await page.keyboard.press("Enter");
     await page.waitForTimeout(50);
     const collapsed=await page.evaluate(()=>({
-      expanded:document.getElementById("toggleNavigation").getAttribute("aria-expanded"),
-      label:document.getElementById("toggleNavigation").getAttribute("aria-label"),
+      reopenLabel:document.getElementById("toggleNavigationReopen").getAttribute("aria-label"),
+      reopenVisible:document.getElementById("toggleNavigationReopen").offsetParent!==null,
       shellCollapsed:document.querySelector(".app-shell").classList.contains("navigation-hidden"),
       sidebarHidden:getComputedStyle(document.querySelector(".project-sidebar")).display==="none"
     }));
-    if(collapsed.expanded!=="false"||collapsed.label!=="Открыть навигацию"||!collapsed.shellCollapsed||!collapsed.sidebarHidden)
+    if(collapsed.reopenLabel!=="Открыть навигацию"||!collapsed.reopenVisible||!collapsed.shellCollapsed||!collapsed.sidebarHidden)
       throw new Error(`Sidebar did not collapse via keyboard activation: ${JSON.stringify(collapsed)}`);
     // 12) Persists across reload.
     await page.reload({waitUntil:"networkidle"});
     const persisted=await page.evaluate(()=>document.querySelector(".app-shell").classList.contains("navigation-hidden"));
     if(!persisted)throw new Error("Sidebar collapse did not survive reload");
-    await page.click("#toggleNavigation"); // restore for the rest of the run
+    await page.click("#toggleNavigationReopen"); // restore for the rest of the run
     await page.waitForTimeout(50);
   }
 
@@ -115,13 +119,20 @@ try{
     if(!overview.statPillTexts.some(t=>/^Сцен/.test(t)))throw new Error("Project-global scene count missing from stats strip");
   }
 
+  // Custom filter listbox (js/filter-controls.js) replaced native <select> — open the
+  // trigger, click the matching option by value.
+  const chooseFilter=async(suffix,value)=>{
+    await page.click(`#filter${suffix}`);
+    await page.waitForSelector(`#filter${suffix}Popover:not([hidden])`);
+    await page.click(`#filter${suffix}List [role="option"][data-value="${value}"]`);
+  };
+
   // ================= FILTERS =================
   // 17/18/19/20) All filters present, active state visually distinguishable, clear works, no duplicate search.
   {
     const searchInputs=await page.evaluate(()=>document.querySelectorAll('input[id="projectSearch"]').length);
     if(searchInputs!==1)throw new Error(`Expected exactly one search field, found ${searchInputs}`);
-    await page.selectOption("#filterWriting","draft");
-    await page.dispatchEvent("#filterWriting","change");
+    await chooseFilter("Writing","draft");
     await page.waitForTimeout(100);
     const activeClass=await page.evaluate(()=>document.getElementById("filterWriting").closest(".filter-field").classList.contains("filter-active"));
     if(!activeClass)throw new Error("Active filter field does not carry the active visual state");
@@ -129,7 +140,7 @@ try{
     if(!chip)throw new Error("Active filter chip missing");
     await page.click("#clearFilters");
     await page.waitForTimeout(100);
-    const cleared=await page.evaluate(()=>({value:document.getElementById("filterWriting").value,active:document.getElementById("filterWriting").closest(".filter-field").classList.contains("filter-active")}));
+    const cleared=await page.evaluate(()=>({value:filters.writing,active:document.getElementById("filterWriting").closest(".filter-field").classList.contains("filter-active")}));
     if(cleared.value!==""||cleared.active)throw new Error(`Clear filters did not reset state: ${JSON.stringify(cleared)}`);
   }
 
@@ -193,8 +204,7 @@ try{
   }
   // 27) Filtered mode disables card insertion/drag affordances (same safety contract as other views).
   {
-    await page.selectOption("#filterWriting","idea");
-    await page.dispatchEvent("#filterWriting","change");
+    await chooseFilter("Writing","idea");
     await page.waitForTimeout(100);
     const state=await page.evaluate(()=>({
       edgeButtons:document.querySelectorAll(".card-insert-edge").length,

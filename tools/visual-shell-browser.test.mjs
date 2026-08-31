@@ -94,7 +94,10 @@ try{
   await page.click('[data-sidebar-toggle="characters"]');
 
   // 7) Filters still work, and clearing an active filter through the new chip UI actually clears it.
-  await page.selectOption("#filterCharacter","char-a");
+  await page.click("#filterCharacter");
+  await page.waitForSelector("#filterCharacterPopover:not([hidden])");
+  await page.click('#filterCharacterList [role="option"][data-value="char-a"]');
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(150);
   const filteredCount=await page.evaluate(()=>getVisibleSceneEntries().length);
   if(filteredCount!==1)throw new Error(`Character filter regressed, expected 1 visible scene, got ${filteredCount}`);
@@ -102,9 +105,9 @@ try{
   if(!chipVisible)throw new Error("Active filter chip did not render for an active filter");
   await page.click(".active-filter-chip button");
   await page.waitForTimeout(150);
-  const clearedFilter=await page.evaluate(()=>filters.character);
+  const clearedFilter=await page.evaluate(()=>filters.character.length);
   const clearedCount=await page.evaluate(()=>getVisibleSceneEntries().length);
-  if(clearedFilter!==""||clearedCount!==2)throw new Error(`Filter chip removal did not clear the filter: filter=${clearedFilter}, visible=${clearedCount}`);
+  if(clearedFilter!==0||clearedCount!==2)throw new Error(`Filter chip removal did not clear the filter: filter length=${clearedFilter}, visible=${clearedCount}`);
 
   // 8) View switcher still switches views.
   await page.click('[data-view="cards"]');

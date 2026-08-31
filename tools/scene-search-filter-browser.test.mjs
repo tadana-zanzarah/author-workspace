@@ -53,13 +53,16 @@ try{
 
   // Character filter dropdown must agree with the search box (same underlying membership rule).
   await search("");
-  await page.selectOption("#filterCharacter","char-zayn");
+  await page.click("#filterCharacter");
+  await page.waitForSelector("#filterCharacterPopover:not([hidden])");
+  await page.click('#filterCharacterList [role="option"][data-value="char-zayn"]');
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(150);
   titles=await visibleTitles();
   if(titles.join(",")!=="Утро")throw new Error(`Character filter dropdown disagrees with search semantics: ${titles.join(",")}`);
   const sidebarZaynCount=await page.evaluate(()=>document.querySelector('#sideCharacters button[onclick*="char-zayn"] .sidebar-count').textContent.trim());
   if(sidebarZaynCount!=="1")throw new Error(`Sidebar participant count should reflect real membership (1), got ${sidebarZaynCount}`);
-  await page.selectOption("#filterCharacter","");
+  await page.click("#clearFilters");
 
   // 3) Matched scenes stay, non-matched are hidden — verified positively (Мира scenes hidden while Зейн active).
   await search("Зейн");
@@ -114,13 +117,18 @@ try{
   await clearFilters();
   const dndAfterClear=await page.evaluate(()=>{
     const handle=document.querySelector(".compact-drag-handle");
-    return {disabled:handle.disabled,searchValue:document.getElementById("projectSearch").value,characterValue:document.getElementById("filterCharacter").value};
+    return {disabled:handle.disabled,searchValue:document.getElementById("projectSearch").value,characterValue:filters.character.length};
   });
-  if(dndAfterClear.disabled||dndAfterClear.searchValue!==""||dndAfterClear.characterValue!=="")throw new Error(`Clearing filters (Сбросить) should restore DnD and reset all fields: ${JSON.stringify(dndAfterClear)}`);
+  if(dndAfterClear.disabled||dndAfterClear.searchValue!==""||dndAfterClear.characterValue!==0)throw new Error(`Clearing filters (Сбросить) should restore DnD and reset all fields: ${JSON.stringify(dndAfterClear)}`);
 
   // 8) Combination of existing filters must still AND together correctly.
-  await page.selectOption("#filterChapter","chapter-two");
-  await page.selectOption("#filterWriting","draft");
+  const chooseFilter=async(suffix,value)=>{
+    await page.click(`#filter${suffix}`);
+    await page.waitForSelector(`#filter${suffix}Popover:not([hidden])`);
+    await page.click(`#filter${suffix}List [role="option"][data-value="${value}"]`);
+  };
+  await chooseFilter("Chapter","chapter-two");
+  await chooseFilter("Writing","draft");
   await page.waitForTimeout(150);
   titles=await visibleTitles();
   if(titles.join(",")!=="Ночь")throw new Error(`Chapter+writing-status combination filter regressed: ${titles.join(",")}`);
