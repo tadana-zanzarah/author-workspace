@@ -50,10 +50,16 @@ try{
     });
     if(rows.headerHeight>70)throw new Error(`Header looks like it wrapped to more than one row: height=${rows.headerHeight}`);
   }
-  // 2) Brand heading present (local mode: the only identity shown).
+  // 2) core-production-polish: the permanent "Рабочее пространство автора" wordmark is
+  //    gone (superseded by a reserved, currently-empty logo slot ahead of the project
+  //    title — see core-production-polish-browser.test.mjs for the full contract).
   {
-    const h1=await page.evaluate(()=>{const el=document.querySelector("header h1.brand-mark");return {present:!!el,visible:el?.offsetParent!==null}});
-    if(!h1.present||!h1.visible)throw new Error(`Brand identity missing: ${JSON.stringify(h1)}`);
+    const identity=await page.evaluate(()=>({
+      slotPresent:!!document.querySelector("header .app-logo-slot"),
+      staleText:[...document.querySelectorAll("header *")].some(el=>el.children.length===0&&el.textContent.trim()==="Рабочее пространство автора")
+    }));
+    if(!identity.slotPresent)throw new Error("Reserved header logo slot missing");
+    if(identity.staleText)throw new Error("Stale 'Рабочее пространство автора' wordmark still present in header");
   }
   // 3) No standalone "Навигация" header button — the control moved to the sidebar edge.
   {

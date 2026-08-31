@@ -134,6 +134,95 @@ document.getElementById("toggleNavigation").onclick=()=>{
   syncSidebarEdgeToggle();
   saveUiState();
 };
+
+// <header> keeps overflow:hidden to stay one non-wrapping application row (see
+// css/base.css), but that clips any descendant rendered outside header's own box —
+// including these <details> dropdown panels, which used to be silently cut off instead
+// of overlaying the workspace below. Detaching the open panel to <body> with
+// viewport-computed coordinates escapes that clipping while leaving <details>'s native
+// open/close state untouched; the interactions it was missing (Escape, outside click,
+// focus management) are added on top.
+//
+// Opening is handled synchronously inside the summary's own "click" (preventing the
+// native toggle and driving `.open` ourselves) rather than from <details>'s "toggle"
+// event, which the HTML spec queues as a separate task: waiting for it would let the
+// browser paint one frame of the panel still visible-but-clipped in its original
+// parent before our reposition-and-detach ran. Closing has no such risk (the end
+// state is simply hidden), so the async "toggle" event is a fine, simpler place to
+// run that cleanup — it also catches the several existing call sites elsewhere that
+// close a menu by setting `.open = false` directly rather than clicking summary.
+function setupOverflowSafeMenu(detailsId){
+  const details=document.getElementById(detailsId);
+  if(!details)return;
+  const summary=details.querySelector(":scope > summary");
+  const panel=details.querySelector(":scope > .top-menu-panel, :scope > .account-menu-panel");
+  if(!summary||!panel)return;
+  const focusable=()=>[...panel.querySelectorAll('button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')];
+  const reposition=()=>{
+    const rect=summary.getBoundingClientRect();
+    panel.style.position="fixed";
+    panel.style.top=`${Math.round(rect.bottom+6)}px`;
+    panel.style.right=`${Math.round(window.innerWidth-rect.right)}px`;
+    panel.style.left="auto";
+  };
+  const onResize=()=>reposition();
+  const onKeydown=event=>{
+    if(event.key==="Escape"){event.preventDefault();event.stopPropagation();details.open=false}
+  };
+  const onOutsideClick=event=>{
+    if(details.open&&!details.contains(event.target)&&!panel.contains(event.target))details.open=false;
+  };
+  let wired=false;
+  const wireOpenListeners=()=>{
+    if(wired)return;wired=true;
+    window.addEventListener("resize",onResize);
+    document.addEventListener("keydown",onKeydown,true);
+    document.addEventListener("click",onOutsideClick,true);
+  };
+  const unwireOpenListeners=()=>{
+    if(!wired)return;wired=false;
+    window.removeEventListener("resize",onResize);
+    document.removeEventListener("keydown",onKeydown,true);
+    document.removeEventListener("click",onOutsideClick,true);
+  };
+  summary.addEventListener("click",event=>{
+    if(details.open)return;
+    event.preventDefault();
+    details.open=true;
+    panel.inert=false;
+    document.body.appendChild(panel);
+    reposition();
+    wireOpenListeners();
+    focusable()[0]?.focus();
+  });
+  details.addEventListener("toggle",()=>{
+    if(details.open){
+      panel.inert=false;
+      if(panel.parentElement!==document.body){document.body.appendChild(panel);reposition()}
+      wireOpenListeners();
+    }else{
+      unwireOpenListeners();
+      // Only reclaim focus if it's still stranded in the (about to be reattached)
+      // panel or was lost to <body> — e.g. Escape or an outside click. Several
+      // existing call sites close this menu and then immediately open a modal
+      // (openChaptersManager, openInspector, ...); by the time this async "toggle"
+      // fires, focus is legitimately inside that modal and must be left alone.
+      const reclaim=panel.contains(document.activeElement)||document.activeElement===document.body;
+      panel.style.position="";panel.style.top="";panel.style.right="";panel.style.left="";
+      if(panel.parentElement!==details)details.appendChild(panel);
+      // modal-manager's syncLayers() marks every non-.modal-backdrop child of <body>
+      // inert while a modal is open; if a modal opens in the instant between this
+      // panel being detached to <body> and this cleanup running, it can catch the
+      // panel mid-flight and mark it inert. That flag has nothing to do with this
+      // menu's own (now-closed) state and must not persist once the panel is back
+      // inside <details> — otherwise it silently blocks all focus/interaction the
+      // next time this menu opens, with no visible symptom.
+      panel.inert=false;
+      if(reclaim)summary.focus();
+    }
+  });
+}
+["projectMenu","workspaceAccountMenu"].forEach(setupOverflowSafeMenu);
 document.getElementById("openInspector").onclick=()=>{
   renderSceneInfo();
   showModal("inspectorModal");
@@ -430,10 +519,14 @@ function openCharactersManager(){
 }
 document.getElementById("manageChars").onclick=openCharactersManager;
 document.getElementById("sidebarManageChars").onclick=openCharactersManager;
-document.getElementById("projectMenu").addEventListener("click",event=>{
+// Bound to the panel node itself (captured once, before setupOverflowSafeMenu ever
+// reparents it) rather than to #projectMenu: while the menu is open, the panel is a
+// child of <body> (see setupOverflowSafeMenu above), so a listener on #projectMenu
+// would stop seeing bubbled clicks from inside it.
+document.querySelector("#projectMenu .top-menu-panel").addEventListener("click",event=>{
   if(!event.target.closest("button,.file-label"))return;
   const menu=document.getElementById("projectMenu");menu.open=false;menu.querySelector("summary")?.focus();
-},{capture:true});
+});
 document.getElementById("closeChars").onclick=()=>hideModal("charsModal");
 document.getElementById("charsModal").onclick=e=>{if(e.target.id==="charsModal")hideModal("charsModal")};
 

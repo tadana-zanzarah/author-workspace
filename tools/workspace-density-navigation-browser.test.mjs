@@ -64,11 +64,15 @@ try{
     if(!noBack)throw new Error("Legacy standalone ← Проекты header control must be removed");
     const projectsReachable=await page.evaluate(()=>!!document.getElementById("workspaceProjects"));
     if(!projectsReachable)throw new Error("Мои проекты must remain reachable (now via the account menu)");
-    const identity=await page.evaluate(()=>{
-      const brand=document.querySelector("header h1.brand-mark");
-      return {brandPresent:!!brand,brandVisible:brand?.offsetParent!==null};
-    });
-    if(!identity.brandPresent||!identity.brandVisible)throw new Error(`Product identity missing: ${JSON.stringify(identity)}`);
+    // core-production-polish: the permanent "Рабочее пространство автора" wordmark is
+    // removed (superseded by a reserved, currently-empty logo slot before the project
+    // title — see core-production-polish-browser.test.mjs).
+    const identity=await page.evaluate(()=>({
+      slotPresent:!!document.querySelector("header .app-logo-slot"),
+      staleText:[...document.querySelectorAll("header *")].some(el=>el.children.length===0&&el.textContent.trim()==="Рабочее пространство автора")
+    }));
+    if(!identity.slotPresent)throw new Error(`Reserved header logo slot missing: ${JSON.stringify(identity)}`);
+    if(identity.staleText)throw new Error("Stale 'Рабочее пространство автора' wordmark still present in header");
   }
   {
     // Simulate the cloud workspace identity bar (no live Supabase needed for this

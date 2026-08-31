@@ -31,10 +31,16 @@ try{
   await page.addInitScript(value=>{if(sessionStorage.getItem("visual-shell-seeded"))return;sessionStorage.setItem("visual-shell-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
   for(let attempt=0;attempt<30;attempt++){try{await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
 
-  // 1) Project/app identity is visible. Local mode's identity is the header wordmark; the
-  //    cloud-only project-title element is checked structurally further below.
-  const brand=await page.evaluate(()=>{const h1=document.querySelector("header h1");return {text:h1?.textContent.trim(),visible:h1?.offsetParent!==null}});
-  if(!brand.text||!brand.visible)throw new Error(`App identity not visible: ${JSON.stringify(brand)}`);
+  // 1) core-production-polish: local mode no longer carries a permanent header wordmark
+  //    (the old "Рабочее пространство автора" wordmark was removed; project title —
+  //    checked structurally further below — is now the one text-identity mechanism,
+  //    and local mode simply has none since it has no cloud project). What must stay
+  //    true here is just that the reserved logo slot exists and no stale text remains.
+  const brand=await page.evaluate(()=>({
+    slotPresent:!!document.querySelector("header .app-logo-slot"),
+    staleText:[...document.querySelectorAll("header *")].some(el=>el.children.length===0&&el.textContent.trim()==="Рабочее пространство автора")
+  }));
+  if(!brand.slotPresent||brand.staleText)throw new Error(`Header identity structure regressed: ${JSON.stringify(brand)}`);
 
   // 2) No duplicate/leftover controls from the old two-toolbar shell: every functional id is
   //    unique, and there is exactly one global search field, living in the workspace filter row
@@ -67,7 +73,10 @@ try{
 
   // 4) Project menu still exposes every original function.
   await page.click("#projectMenu summary");
-  const menuButtons=await page.evaluate(()=>[...document.querySelectorAll("#projectMenu .top-menu-panel button, #projectMenu .top-menu-panel label")].filter(el=>el.offsetParent!==null||el.tagName==="LABEL").map(el=>el.id||el.textContent.trim()));
+  // The panel is intentionally detached to <body> while open (core-production-polish:
+  // fixes header overflow:hidden clipping the dropdown) so it's no longer a DOM
+  // descendant of #projectMenu at this point — select it directly instead.
+  const menuButtons=await page.evaluate(()=>[...document.querySelectorAll(".top-menu-panel button, .top-menu-panel label")].filter(el=>el.offsetParent!==null||el.tagName==="LABEL").map(el=>el.id||el.textContent.trim()));
   for(const expected of ["manageChapters","manageChars","manageLocations","manageTags","openInspector","openSortScenes","clearBtn"])
     if(!menuButtons.includes(expected))throw new Error(`Project menu lost function: ${expected} (menu had: ${menuButtons.join(", ")})`);
   await page.evaluate(()=>{document.getElementById("projectMenu").open=false});

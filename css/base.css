@@ -98,13 +98,12 @@
     font-size:var(--text-2xl);font-weight:700;letter-spacing:-.01em;color:var(--text-primary);
     margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px;min-width:60px;
   }
-  header .brand-mark{
-    font-size:var(--text-2xs);font-weight:600;letter-spacing:.04em;color:var(--text-secondary);
-    text-transform:uppercase;opacity:.65;
-    white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;max-width:160px;
-  }
-  body:not(:has(#workspaceCloudBar:not([hidden]))) header .brand-mark{
-    opacity:1;text-transform:none;font-size:15px;font-weight:700;letter-spacing:-.01em;color:var(--text-primary);max-width:none;
+  /* Reserved space for a future app logo/brand mark, sized so one can be dropped in
+     later (an <img>/<svg> child) without reflowing the header. Intentionally empty and
+     invisible today — no placeholder box, no product slogan — since inventing either
+     is out of scope here; see docs/ for the accepted logo-slot contract. */
+  header .app-logo-slot{
+    flex:none;width:22px;height:22px;
   }
   header .header-actions{display:flex;align-items:center;gap:6px;margin-left:auto;flex:none}
   header .header-actions button,header .header-actions summary,header .header-actions .hint{padding:6px 10px;font-size:13px}
@@ -162,6 +161,13 @@
   }
   textarea{resize:vertical;line-height:1.35}
   input:hover,textarea:hover,select:hover{border-color:#cfc3b4}
+  /* Real disabled state, visibly weaker than the enabled surface above — distinct from
+     the merely-quiet/inactive styling filter fields use (see .filter-field in
+     layout.css), which must not read as disabled even though neither carries a value. */
+  input:disabled,textarea:disabled,select:disabled{
+    opacity:.55;cursor:not-allowed;background:var(--soft);color:var(--text-secondary);
+  }
+  input:disabled:hover,textarea:disabled:hover,select:disabled:hover{border-color:var(--border-subtle)}
   :where(button,input,textarea,select,summary,a,[tabindex]):focus-visible{
     outline:3px solid var(--focus-ring);
     outline-offset:2px;
@@ -239,7 +245,7 @@
     header #workspaceAccountMenu>summary{max-width:120px}
   }
   @media(max-width:900px){
-    header .brand-mark{display:none}
+    header .app-logo-slot{display:none}
     header #saveStatus{max-width:0;padding-left:0}
     header #saveStatus.is-active{max-width:90px;padding-left:14px}
   }

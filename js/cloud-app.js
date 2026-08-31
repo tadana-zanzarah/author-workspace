@@ -204,7 +204,7 @@ function accountInitials(label){
 function renderAccountIdentity(avatarId,nameId){
   const accountLabel=cloudState.profile?.display_name||cloudState.session?.user?.email||"Аккаунт";
   const avatar=byId(avatarId);if(avatar)avatar.textContent=accountInitials(accountLabel);
-  const name=byId(nameId);if(name)name.textContent=accountLabel;
+  const name=byId(nameId);if(name){name.textContent=accountLabel;name.title=accountLabel}
 }
 function renderDashboard(){
   renderAccountIdentity("dashboardAccountAvatar","accountName");
@@ -237,6 +237,7 @@ async function openCloudProject(project){
   data=localBeforeLoad;
   selectedSceneId=null;selectedSceneIndex=null;
   byId("workspaceProjectTitle").textContent=project.title;
+  byId("workspaceProjectTitle").title=project.title;
   setAppState("workspace");
   clearCloudMessages();
   byId("board").innerHTML='<div class="section-empty-state" role="status"><strong>Загрузка проекта…</strong></div>';
