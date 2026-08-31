@@ -59,6 +59,13 @@
   .scene-row.floating .time-cell{border-left:3px solid #c99a3d}
   .scene-row.excluded{opacity:.6}
   .scene-row.dragging{opacity:.45}
+  /* Orientation aid for a wide matrix: a very light neutral tint across the whole row
+     on hover/focus (same subtlety as .compact-list tr:hover), not a status-colored
+     fill — helps the eye track one scene across many character columns without
+     reading as conditional formatting. .time-cell needs its own background repainted
+     too since it carries a solid sticky-column background of its own. */
+  .scene-row:hover,.scene-row:focus-within{background:#fbf7f2}
+  .scene-row:hover .time-cell,.scene-row:focus-within .time-cell{background:#fbf7f2}
   .scene-row.drop-before{box-shadow:inset 0 4px 0 var(--brand)}
   .scene-row.drop-after{box-shadow:inset 0 -4px 0 var(--brand)}
   .cell{
@@ -80,6 +87,9 @@
     color:var(--text-secondary);opacity:.75;
   }
   .row-action-quiet:hover{opacity:1;background:var(--danger-tint)!important;color:var(--danger)}
+  /* Destructive action reads as such even at rest, not only on hover. */
+  .row-action-quiet.danger-quiet{color:var(--danger);opacity:.6}
+  .row-action-quiet.danger-quiet:hover{opacity:1}
   .date-time{display:grid;gap:7px}
   .date-review{
     border-color:var(--warning)!important;
@@ -137,11 +147,9 @@
 
   /* Matrix cell content — actions/relationships layers and participation states. */
   .matrix-cell{padding:10px;display:flex;flex-direction:column;gap:8px}
-  .matrix-cell-empty{position:relative}
-  .matrix-cell-empty::after{
-    content:"";position:absolute;inset:0;margin:auto;width:4px;height:4px;border-radius:50%;
-    background:var(--border-subtle);
-  }
+  /* Quiet by design: a non-participant cell carries no visible marker (the old beige
+     dot had no semantic meaning of its own — participation state is still exposed to
+     assistive tech via this cell's aria-label). */
   .matrix-cell-noncontent{align-items:flex-start;justify-content:flex-start}
   .matrix-placeholder{
     color:var(--text-secondary);font-size:12px;font-style:italic;
@@ -175,7 +183,7 @@
     background:var(--surface);padding:7px 14px;margin:0;flex:none;
   }
   .matrix-toggle-option{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-primary);cursor:pointer}
-  .matrix-toggle-option input{width:auto;flex:none}
+  .matrix-toggle-option input{width:auto;flex:none;accent-color:var(--brand-strong)}
 
   /* Scene position model — quiet N+1 insertion gaps + move-here drop state (table view). */
   .scene-position-row{min-height:9px;background:transparent;border-bottom:0}
@@ -188,18 +196,22 @@
     content:"";position:absolute;left:14px;right:14px;top:50%;height:1px;
     background:var(--border-faint);transform:translateY(-50%);transition:background var(--motion-base,.12s ease);
   }
+  /* Absolutely positioned (out of flow) so the invisible-at-rest icon can't inflate
+     the row's own intrinsic height — opacity:0 and transform:scale() are both purely
+     visual and don't shrink a normal-flow box's layout size, which previously kept
+     the "compact" row at ~28px, already taller than the :hover-expanded target. */
   .position-plus{
-    position:relative;z-index:1;width:20px;height:20px;border-radius:999px;
+    position:absolute;top:50%;left:50%;z-index:1;width:20px;height:20px;border-radius:999px;
     display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1;
     color:var(--brand);background:var(--surface-elevated);border:1px solid var(--border-subtle);
-    opacity:0;transform:scale(.55);transition:opacity var(--motion-base,.12s ease),transform var(--motion-base,.12s ease);
+    opacity:0;transform:translate(-50%,-50%) scale(.55);transition:opacity var(--motion-base,.12s ease),transform var(--motion-base,.12s ease);
   }
   .position-drop-label{
     display:none;position:relative;z-index:1;font-size:11px;font-weight:700;color:#fff;
     background:var(--brand);border-radius:999px;padding:3px 10px;white-space:nowrap;
   }
   .scene-position-row:hover,.scene-position-row:focus-within{min-height:26px}
-  .scene-position-row:hover .position-plus,.scene-position-row:focus-within .position-plus{opacity:1;transform:scale(1)}
+  .scene-position-row:hover .position-plus,.scene-position-row:focus-within .position-plus{opacity:1;transform:translate(-50%,-50%) scale(1)}
   .scene-position-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   body.scene-drag-active .scene-position-row{min-height:16px}
   body.scene-drag-active .scene-position-btn::before{background:var(--border-subtle)}
