@@ -279,48 +279,14 @@ function updateInsertionCenter(){
   board.style.setProperty("--insert-center",`${Math.min(Math.max(center,24),max)}px`);
 }
 
-// Table-view insertion "+": reveal only after a short pause (not on every bare
-// :hover), so a pointer merely passing over a row boundary on its way somewhere
-// else doesn't flash the affordance — see the .hover-intent selectors in
-// timeline.css this drives. Delegated on #board (stable across re-renders,
-// unlike the row elements themselves) rather than wired per-row. Keyboard focus
-// (:focus-within) and an in-progress drag (body.scene-drag-active) are plain CSS
-// selectors, unaffected by this — both still reveal with zero delay.
-const INSERTION_HOVER_INTENT_DELAY=180;
-let insertionHoverRow=null,insertionHoverTimer=null;
-
-function clearInsertionHoverIntent(){
-  clearTimeout(insertionHoverTimer);
-  insertionHoverTimer=null;
-  if(insertionHoverRow){insertionHoverRow.classList.remove("hover-intent");insertionHoverRow=null}
-}
-
-function wireInsertionHoverIntent(){
-  const board=document.getElementById("board");
-  if(!board||board.dataset.hoverIntentWired)return;
-  board.dataset.hoverIntentWired="1";
-  board.addEventListener("pointerover",event=>{
-    if(event.pointerType==="touch")return;
-    const row=event.target.closest(".scene-position-row");
-    if(!row||row===insertionHoverRow)return;
-    clearInsertionHoverIntent();
-    insertionHoverTimer=setTimeout(()=>{row.classList.add("hover-intent");insertionHoverRow=row},INSERTION_HOVER_INTENT_DELAY);
-  });
-  board.addEventListener("pointerout",event=>{
-    const row=event.target.closest(".scene-position-row");
-    if(!row)return;
-    const to=event.relatedTarget;
-    if(to instanceof Node&&row.contains(to))return;
-    clearInsertionHoverIntent();
-  });
-}
-
 function renderChapterDivider(chapter,count,matchedCount=null){
   const summary=matchedCount===null||matchedCount===count?`${count} сцен`:`${matchedCount} из ${count} сцен`;
   return `<div class="insert-row" data-chapter-id="${esc(chapter.id)}"><div class="chapter-divider">
-    <button aria-label="${chapter.collapsed?"Развернуть":"Свернуть"} главу ${esc(chapter.title)}" onclick="toggleChapter('${jsq(chapter.id)}')">${chapter.collapsed?"▸":"▾"}</button>
-    <button class="entity-link" onclick="setFilter('chapter','${jsq(chapter.id)}')"><strong>${esc(chapter.title)}</strong></button>
-    <span class="chapter-summary">${summary}</span>
+    <div class="chapter-identity">
+      <button aria-label="${chapter.collapsed?"Развернуть":"Свернуть"} главу ${esc(chapter.title)}" onclick="toggleChapter('${jsq(chapter.id)}')">${chapter.collapsed?"▸":"▾"}</button>
+      <button class="entity-link" onclick="setFilter('chapter','${jsq(chapter.id)}')"><strong>${esc(chapter.title)}</strong></button>
+      <span class="chapter-summary">${summary}</span>
+    </div>
     <div class="chapter-actions">
       <button onclick="openNewSceneInChapter('${jsq(chapter.id)}')">＋ сцена</button>
       <button onclick="openChaptersManager()">Настроить</button>
@@ -561,5 +527,5 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter,wireInsertionHoverIntent});
-export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter,wireInsertionHoverIntent};
+Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter});
+export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter};

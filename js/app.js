@@ -151,7 +151,6 @@ document.getElementById("toggleNavigationReopen").onclick=toggleNavigationVisibl
     window.addEventListener("resize",updateInsertionCenter);
     new ResizeObserver(updateInsertionCenter).observe(insertionViewport);
   }
-  wireInsertionHoverIntent();
 }
 
 // Two-row sticky matrix header + bottom horizontal scroll rail (table view) —

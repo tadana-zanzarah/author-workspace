@@ -67,6 +67,16 @@
   }
   .sidebar-header-label{
     font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;color:var(--text-secondary);
+    /* line-height:1 (matching .sidebar-edge-toggle-icon below) instead of the
+       inherited default (~1.4-1.5): an all-caps label has no descenders, so at
+       a taller line-height the empty descender space in its own line box goes
+       unused and the glyphs read as sitting above that box's true vertical
+       center — flexbox centers the BOX correctly (confirmed: identical
+       getBoundingClientRect() center as .sidebar-collapse-btn), but the glyphs
+       inside it then look a few px high next to the button's icon, which is
+       already tightly boxed. Tightening the label's own box to its glyphs
+       removes that mismatch without any pixel/transform offset. */
+    line-height:1;
   }
   .sidebar-section{margin-bottom:18px}
   .sidebar-section.collapsed{margin-bottom:6px}
@@ -177,6 +187,20 @@
   }
   .filter-multi-trigger .filter-trigger-text{color:var(--text-primary);font-size:var(--text-xs);font-weight:400}
   .filter-multi-trigger:hover{background:var(--soft)}
+  /* Empty state (no chips yet, .filter-multi-control-empty — set in
+     filter-controls.js) must be indistinguishable from an empty single-value
+     .filter-trigger: same outer padding, label at the left/caret at the
+     right spanning the full control, and no extra inner hover fill (hovering
+     anywhere in the control still darkens the shared outer border, same as
+     .filter-trigger:hover, since that's a plain ancestor :hover rule — this
+     only cancels the additional beige patch .filter-multi-trigger:hover
+     would otherwise paint just around the label). Once a chip exists this
+     class is removed and the chip-row layout above is free to look distinct. */
+  .filter-multi-control-empty{padding:0 8px;font-size:inherit}
+  .filter-multi-control-empty .filter-multi-trigger{
+    flex:1 1 auto;align-self:stretch;margin-left:0;padding:0;justify-content:space-between;
+  }
+  .filter-multi-control-empty .filter-multi-trigger:hover{background:transparent}
   .filter-popover{
     position:absolute;top:calc(100% + 4px);left:0;z-index:70;min-width:200px;max-width:280px;
     background:var(--surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);
@@ -247,6 +271,18 @@
     min-height:48px;padding:8px 14px;
     background:#e8e1d9;border-bottom:1px solid var(--line);
     position:relative;
+  }
+  /* Chapter identity (collapse control, title, count) stays readable at the
+     left edge while the matrix scrolls horizontally through character
+     columns — same sticky-left idea as .sticky-cell for the scene column,
+     applied here since .chapter-divider itself is a full-width row that
+     otherwise scrolls off-screen with everything else. Own background so the
+     row's content scrolling underneath never shows through. Chapter actions
+     (＋ сцена / Настроить) deliberately stay in normal flow, not sticky. */
+  .chapter-identity{
+    position:sticky;left:14px;
+    display:flex;align-items:center;gap:10px;
+    background:#e8e1d9;
   }
   .chapter-divider strong{font-size:15px}
   .chapter-divider .chapter-actions{margin-left:auto;display:flex;gap:6px}

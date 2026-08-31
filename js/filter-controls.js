@@ -62,7 +62,12 @@ function renderTrigger(field){
     control.setAttribute("aria-controls","filter"+field.suffix+"List");
     return;
   }
-  // Multi-value: real removable chips + a small trigger to open/add.
+  // Multi-value: real removable chips + a small trigger to open/add. Empty
+  // (no chips yet) gets its own class so CSS can make it match the plain
+  // single-value trigger pixel-for-pixel — see .filter-multi-control-empty
+  // in css/layout.css. Once a value is picked, the chip-row layout below
+  // takes over and is allowed to look distinct.
+  control.classList.toggle("filter-multi-control-empty",!hasValue);
   control.innerHTML="";
   const shown=selected.slice(0,MAX_INLINE_CHIPS);
   const restCount=selected.length-shown.length;
@@ -95,9 +100,13 @@ function renderTrigger(field){
   trigger.setAttribute("aria-label",hasValue?`Изменить фильтр «${field.label}»`:field.label);
   trigger.dataset.filterKey=field.key;trigger.dataset.action="open";
   if(!hasValue){
+    // Same shape as the single-value trigger's empty state: label + caret,
+    // so it reads as the same control family until a value is picked.
     const text=document.createElement("span");
     text.className="filter-trigger-text";text.textContent=field.label;
-    trigger.appendChild(text);
+    const caret=document.createElement("span");
+    caret.className="filter-trigger-caret";caret.setAttribute("aria-hidden","true");caret.textContent="▾";
+    trigger.append(text,caret);
   }else{
     const caret=document.createElement("span");
     caret.className="filter-trigger-caret";caret.setAttribute("aria-hidden","true");caret.textContent="▾";

@@ -48,12 +48,6 @@
   .insert-content{
     grid-column:1/-1;display:flex;justify-content:center;align-items:center;
   }
-  .insert-content button{
-    padding:4px 12px;border-radius:999px;font-size:12px;background:var(--surface-elevated);
-  }
-  /* The empty-chapter "+ Добавить сцену" button (.insert-content > button, above)
-     stays centered on the whole (narrow, single-column) row — only the wide-matrix
-     N+1 gap control below needs viewport-relative centering. */
   /* Matrix canvas stays neutral — chronology status is a thin left-edge accent on the
      sticky title cell, not a fill across every character column (that read as
      spreadsheet conditional-formatting, not a scene-authoring surface). */
@@ -225,17 +219,17 @@
     display:none;font-size:11px;font-weight:700;color:#fff;
     background:var(--brand);border-radius:999px;padding:3px 10px;white-space:nowrap;
   }
-  /* Reveal is gated on .hover-intent (a class app.js adds after a short pause —
-     see wireInsertionHoverIntent), not bare :hover: a plain :hover reveal fired on
-     every boundary a pointer merely crossed in passing, which read as a chain of
-     flashing "+" affordances while scrolling/moving the mouse down the matrix —
-     the "белый oval постоянно виден" complaint from local review. Keyboard focus
-     and an in-progress drag stay on :hover-free selectors (:focus-within,
-     body.scene-drag-active below) so both still reveal instantly, with no delay. */
-  .scene-position-row.hover-intent,.scene-position-row:focus-within{z-index:3}
-  .scene-position-row.hover-intent .position-plus,.scene-position-row:focus-within .position-plus,
+  /* Reveal on plain :hover/:focus-within — the row's own box never changes
+     size (see the comment above), so a bare :hover carries no layout cost.
+     An earlier JS-timed "hover-intent" delay existed here to avoid a
+     flashing "+" while scrolling, but the actual cause of that complaint was
+     a stale CSS rule painting a solid pill at rest regardless of hover (fixed
+     above, .insert-content no longer styles its button); with that gone,
+     the extra JS state bought nothing and was removed. */
+  .scene-position-row:hover,.scene-position-row:focus-within{z-index:3}
+  .scene-position-row:hover .position-plus,.scene-position-row:focus-within .position-plus,
   .scene-position-btn:focus-visible .position-plus{opacity:1;transform:scale(1)}
-  .scene-position-row.hover-intent .insert-content::before,.scene-position-row:focus-within .insert-content::before{background:var(--border-subtle)}
+  .scene-position-row:hover .insert-content::before,.scene-position-row:focus-within .insert-content::before{background:var(--border-subtle)}
   .scene-position-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   body.scene-drag-active .insert-content::before{background:var(--border-subtle)}
   body.scene-drag-active .position-plus{display:none}
