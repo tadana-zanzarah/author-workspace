@@ -238,18 +238,27 @@ function loadUiState(){
   syncMatrixContentControls();
 }
 function saveUiState(){try{localStorage.setItem(activeWorkspaceContext().uiStorageKey,JSON.stringify({navigationVisible,sidebarSections,matrixContentMode}))}catch{}}
-// The sidebar collapse control lives attached to the sidebar's own edge (not a
-// standalone header button): one element whose icon/label/aria-expanded flips
-// between the open ("‹", collapse) and closed ("›", expand) states.
+// Two controls share one open/closed state: the collapse button ("‹") lives
+// inside the sidebar's own header (real DOM child, not floating chrome) and is
+// only meaningful — and only rendered visible — while the sidebar itself is
+// open (it's hidden along with the rest of .project-sidebar when collapsed, so
+// nothing is left reserved above the panel). The reopen tab ("›") is a
+// separate element outside the sidebar, shown only once the panel is gone,
+// since at that point there is nothing left to attach a control to.
 function syncSidebarEdgeToggle(){
-  const toggle=document.getElementById("toggleNavigation");
-  if(!toggle)return;
-  const icon=toggle.querySelector(".sidebar-edge-toggle-icon");
-  const label=navigationVisible?"Свернуть навигацию":"Открыть навигацию";
-  toggle.setAttribute("aria-expanded",String(navigationVisible));
-  toggle.setAttribute("aria-label",label);
-  toggle.title=label;
-  if(icon)icon.textContent=navigationVisible?"‹":"›";
+  const collapseBtn=document.getElementById("toggleNavigation");
+  const reopenBtn=document.getElementById("toggleNavigationReopen");
+  if(collapseBtn){
+    collapseBtn.setAttribute("aria-expanded",String(navigationVisible));
+    collapseBtn.setAttribute("aria-label","Свернуть навигацию");
+    collapseBtn.title="Свернуть навигацию";
+  }
+  if(reopenBtn){
+    reopenBtn.hidden=navigationVisible;
+    reopenBtn.setAttribute("aria-expanded",String(navigationVisible));
+    reopenBtn.setAttribute("aria-label","Открыть навигацию");
+    reopenBtn.title="Открыть навигацию";
+  }
 }
 function applySidebarSectionState(){
   for(const key of SIDEBAR_SECTION_KEYS){

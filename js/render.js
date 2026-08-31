@@ -44,32 +44,12 @@ function renderSceneInfo(){
     <div class="row-actions" style="margin-top:10px"><button onclick="openSceneText('${jsq(scene.id)}')">Текст</button><button onclick="editScene('${jsq(scene.id)}')">Редактировать</button></div>`;
 }
 
-// Native <select> can only ever show its *selected option's own text* in the closed
-// box — there is no separate "placeholder vs value" rendering to hook into without
-// replacing the control. Encoding the category into every option's label ("Глава: X")
-// gets a self-explaining closed box in both states (empty selection reads "Глава",
-// an active one reads "Глава: X") without introducing a custom dropdown widget.
+// The filter bar uses a custom listbox/popover control (js/filter-controls.js)
+// instead of native <select> — see that file for why. This just keeps it in
+// sync with current data/selection on every render.
 function refreshControls(){
-  const opts=(categoryLabel,items,value,label)=>`<option value="">${esc(categoryLabel)}</option>`+
-    items.map(x=>`<option value="${esc(value(x))}">${esc(categoryLabel)}: ${esc(label(x))}</option>`).join("");
-  document.getElementById("filterChapter").innerHTML=opts("Глава",data.chapters,x=>x.id,x=>x.title);
-  document.getElementById("filterCharacter").innerHTML=opts("Персонаж",data.characters,x=>x.id,x=>x.name);
-  document.getElementById("filterLocation").innerHTML=opts("Локация",data.locations,x=>x.id,x=>x.name);
-  document.getElementById("filterTag").innerHTML=opts("Тег",data.tags,x=>x.id,x=>"#"+x.name);
-  document.getElementById("filterWriting").innerHTML=opts("Написание",WRITING_STATUSES,x=>x.id,x=>x.label);
-  document.getElementById("filterPlacement").innerHTML=opts("Расположение",
-    [{id:"fixed",label:"На своём месте"},{id:"floating",label:"Нужно разместить"}],x=>x.id,x=>x.label);
-  document.getElementById("filterChapter").value=filters.chapter;
-  document.getElementById("filterCharacter").value=filters.character;
-  document.getElementById("filterLocation").value=filters.location;
-  document.getElementById("filterTag").value=filters.tag;
-  document.getElementById("filterWriting").value=filters.writing;
-  document.getElementById("filterPlacement").value=filters.placement;
+  refreshFilterControls();
   document.getElementById("projectSearch").value=filters.search;
-  ["filterChapter","filterCharacter","filterLocation","filterTag","filterWriting","filterPlacement"].forEach(id=>{
-    const select=document.getElementById(id);
-    select?.closest(".filter-field")?.classList.toggle("filter-active",!!select.value);
-  });
 }
 
 // The sidebar is entity NAVIGATION (jump to a chapter, open a character/location),
@@ -122,7 +102,13 @@ function renderStats(){
   ].map(([k,v])=>`<span class="stat-pill">${k} <strong>${v}</strong></span>`).join("");
 }
 
-function clearSingleFilter(key){filters[key]="";scheduleRender()}
+// value is only used for multi-value keys (character/tag), to remove just that
+// one selected value instead of clearing the whole filter.
+function clearSingleFilter(key,value){
+  if(isMultiFilterKey(key)&&value!==undefined)filters[key]=filterValues(key).filter(v=>v!==value);
+  else clearFilterKey(key);
+  scheduleRender();
+}
 
 function setMatrixContentMode(layer,checked){
   const other=layer==="actions"?"relations":"actions";
@@ -149,14 +135,14 @@ function renderActiveFilterChips(){
   if(clearBtn)clearBtn.hidden=!hasActiveFilters();
   if(!el)return;
   const chips=[];
-  if(filters.search.trim())chips.push(["search","Поиск",`«${filters.search.trim()}»`]);
-  if(filters.chapter)chips.push(["chapter","Глава",chapterById(filters.chapter)?.title||""]);
-  if(filters.character)chips.push(["character","Персонаж",characterName(filters.character)]);
-  if(filters.location)chips.push(["location","Локация",locationById(filters.location)?.name||""]);
-  if(filters.tag)chips.push(["tag","Тег","#"+(tagById(filters.tag)?.name||"")]);
-  if(filters.writing)chips.push(["writing","Статус",writingStatusById(filters.writing)?.label||""]);
-  if(filters.placement)chips.push(["placement","Хронология",filters.placement==="fixed"?"На своём месте":"Нужно разместить"]);
-  el.innerHTML=chips.map(([key,label,value])=>`<span class="active-filter-chip">${esc(label)}: ${esc(value)}<button type="button" aria-label="Убрать фильтр «${esc(label)}»" onclick="clearSingleFilter('${jsq(key)}')">×</button></span>`).join("");
+  if(filters.search.trim())chips.push(["search","Поиск",`«${filters.search.trim()}»`,undefined]);
+  if(filters.chapter)chips.push(["chapter","Глава",chapterById(filters.chapter)?.title||"",undefined]);
+  filterValues("character").forEach(id=>chips.push(["character","Персонаж",characterName(id),id]));
+  if(filters.location)chips.push(["location","Локация",locationById(filters.location)?.name||"",undefined]);
+  filterValues("tag").forEach(id=>chips.push(["tag","Тег","#"+(tagById(id)?.name||""),id]));
+  if(filters.writing)chips.push(["writing","Статус",writingStatusById(filters.writing)?.label||"",undefined]);
+  if(filters.placement)chips.push(["placement","Хронология",filters.placement==="fixed"?"На своём месте":"Нужно разместить",undefined]);
+  el.innerHTML=chips.map(([key,label,value,rawValue])=>`<span class="active-filter-chip">${esc(label)}: ${esc(value)}<button type="button" aria-label="Убрать фильтр «${esc(label)}: ${esc(value)}»" onclick="clearSingleFilter('${jsq(key)}'${rawValue!==undefined?`,'${jsq(rawValue)}'`:""})">×</button></span>`).join("");
 }
 
 function renderFilterSummary(){
@@ -260,6 +246,24 @@ function renderTableView(board){
   });
   if(!shown&&hasActiveFilters())html+=emptySearchMessage();
   board.innerHTML=html;
+  updateInsertionCenter();
+}
+
+// The N+1 insertion "+" in the table/matrix view is centered on the scroll
+// container's currently VISIBLE bounds, not the full (possibly 30-character-
+// column-wide) table — otherwise it drifts off past the right edge on a wide
+// matrix. --insert-center is a pixel offset from the board's own left edge (the
+// same coordinate space .insert-content boxes render in, since they span
+// grid-column:1/-1 starting at x=0), recomputed from the live scroll position
+// instead of any assumed column count. Callers: after every table render, and
+// on scroll/resize of the scrolling viewport (wired once in app.js).
+function updateInsertionCenter(){
+  const viewport=document.querySelector(".viewport.workspace-viewport");
+  const board=document.getElementById("board");
+  if(!viewport||!board||currentView!=="table")return;
+  const center=viewport.scrollLeft+viewport.clientWidth/2;
+  const max=Math.max(board.scrollWidth-24,24);
+  board.style.setProperty("--insert-center",`${Math.min(Math.max(center,24),max)}px`);
 }
 
 function renderChapterDivider(chapter,count,matchedCount=null){
@@ -508,5 +512,5 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage});
-export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage};
+Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter});
+export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter};

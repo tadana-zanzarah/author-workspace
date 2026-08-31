@@ -14,6 +14,7 @@ import "./scenes.js";
 import "./characters.js";
 import "./chapters.js";
 import "./filters.js";
+import "./filter-controls.js";
 import "./scene-positions.js";
 import "./render.js";
 import "./drag-drop.js";
@@ -115,25 +116,40 @@ document.getElementById("quickFieldModal").onclick=async event=>{
 
 
 
-["Chapter","Character","Location","Tag","Writing","Placement"].forEach(key=>{
-  const el=document.getElementById("filter"+key);
-  el.onchange=()=>{filters[key.toLowerCase()]=el.value;render()};
-});
+initFilterControls();
 
 document.getElementById("projectSearch").oninput=e=>{
   filters.search=e.target.value;
   clearTimeout(searchTimer);
   searchTimer=setTimeout(render,120);
 };
-document.getElementById("clearFilters").onclick=()=>{Object.keys(filters).forEach(k=>filters[k]="");render()};
+document.getElementById("clearFilters").onclick=()=>{
+  closeFilterPopover({restoreFocus:false});
+  Object.keys(filters).forEach(k=>{filters[k]=isMultiFilterKey(k)?[]:""});
+  render();
+};
 
-
-document.getElementById("toggleNavigation").onclick=()=>{
+function toggleNavigationVisible(){
   navigationVisible=!navigationVisible;
   document.querySelector(".app-shell").classList.toggle("navigation-hidden",!navigationVisible);
   syncSidebarEdgeToggle();
   saveUiState();
-};
+}
+document.getElementById("toggleNavigation").onclick=toggleNavigationVisible;
+document.getElementById("toggleNavigationReopen").onclick=toggleNavigationVisible;
+
+// The N+1 insertion "+" (table view) centers on the scroll viewport's visible
+// bounds — see updateInsertionCenter in render.js. Recompute on scroll/resize
+// of that viewport, and on any resize that changes its width without a window
+// resize event (e.g. the sidebar collapsing/expanding).
+{
+  const insertionViewport=document.querySelector(".viewport.workspace-viewport");
+  if(insertionViewport){
+    insertionViewport.addEventListener("scroll",updateInsertionCenter,{passive:true});
+    window.addEventListener("resize",updateInsertionCenter);
+    new ResizeObserver(updateInsertionCenter).observe(insertionViewport);
+  }
+}
 
 // <header> keeps overflow:hidden to stay one non-wrapping application row (see
 // css/base.css), but that clips any descendant rendered outside header's own box —

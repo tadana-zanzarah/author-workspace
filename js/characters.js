@@ -145,15 +145,15 @@ function renderProfileAutomaticSection(characterId){
 
 function filterCharacterLocations(characterId){
   const locations=characterLocations(characterId);hideModal("charsModal");
-  filters.character=characterId;
+  filters.character=[characterId];
   if(locations.length===1)filters.location=locations[0].id;
   render();
 }
 
 function filterCharacterTags(characterId){
   const tags=characterTags(characterId);hideModal("charsModal");
-  filters.character=characterId;
-  if(tags.length===1)filters.tag=tags[0].id;
+  filters.character=[characterId];
+  if(tags.length===1)filters.tag=[tags[0].id];
   render();
 }
 
@@ -193,7 +193,7 @@ async function deleteProfile(characterId){
       if(!confirm(`Персонаж используется в проекте (${summary}). Удалить участие и только проектные зависимости? Общий персонаж сохранится.`))return;
       result=await runCloudMutation("removeProjectCharacterCleanup",(_api,revision)=>cloudState.characterApi.removeProjectCharacter(cloudProjectSync.projectId,character.projectCharacterId,revision,{cleanupDependencies:true}),{renderAfter:false});
     }
-    if(!result.ok)return;if(filters.character===characterId)filters.character="";data=cloudProjectSync.confirmedProject;renderProfiles();render();return;
+    if(!result.ok)return;filters.character=filters.character.filter(id=>id!==characterId);data=cloudProjectSync.confirmedProject;renderProfiles();render();return;
   }
   const linkCount=linksForCharacter(characterId,data.characterLinks||[]).length;
   if(!confirm(`Удалить персонажа «${character.name}» из анкет и колонок? Данные этого персонажа в сценах также будут удалены.${linkCount?` Связанных структурных связей: ${linkCount}; они также будут удалены.`:""}`))return;
@@ -211,7 +211,7 @@ async function deleteProfile(characterId){
     removeCharacterLinksForCharacter(next,characterId);
   },{renderAfter:false});
   if(!result.ok)return;
-  if(filters.character===characterId)filters.character="";
+  filters.character=filters.character.filter(id=>id!==characterId);
   renderProfiles();render();
 }
 

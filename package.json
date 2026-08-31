@@ -45,6 +45,7 @@
     "test:core-workspace-recomposition-browser": "node tools/core-workspace-recomposition-browser.test.mjs",
     "test:workspace-density-navigation-browser": "node tools/workspace-density-navigation-browser.test.mjs",
     "test:core-production-polish-browser": "node tools/core-production-polish-browser.test.mjs",
+    "test:filter-insertion-local-review-browser": "node tools/filter-and-insertion-local-review.test.mjs",
     "test:review-badge-browser": "node tools/review-badge-browser.test.mjs",
     "test": "npm run test:unit"
   },

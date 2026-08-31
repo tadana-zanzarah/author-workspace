@@ -51,6 +51,9 @@
   .insert-content button{
     padding:4px 12px;border-radius:999px;font-size:12px;background:var(--surface-elevated);
   }
+  /* The empty-chapter "+ Добавить сцену" button (.insert-content > button, above)
+     stays centered on the whole (narrow, single-column) row — only the wide-matrix
+     N+1 gap control below needs viewport-relative centering. */
   /* Matrix canvas stays neutral — chronology status is a thin left-edge accent on the
      sticky title cell, not a fill across every character column (that read as
      spreadsheet conditional-formatting, not a scene-authoring surface). */
@@ -185,36 +188,49 @@
   .matrix-toggle-option{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-primary);cursor:pointer}
   .matrix-toggle-option input{width:auto;flex:none;accent-color:var(--brand-strong)}
 
-  /* Scene position model — quiet N+1 insertion gaps + move-here drop state (table view). */
-  .scene-position-row{min-height:9px;background:transparent;border-bottom:0}
-  .scene-position-row .insert-content{padding:0;height:100%}
-  .scene-position-btn{
-    width:100%;min-height:9px;border:0;background:transparent;cursor:pointer;
-    display:flex;align-items:center;justify-content:center;position:relative;padding:3px 0;border-radius:0;
-  }
-  .scene-position-btn::before{
+  /* Scene position model — quiet N+1 insertion gaps + move-here drop state (table
+     view). The "+" affordance is an OVERLAY: .scene-position-row's own box height
+     NEVER changes on hover/focus (it used to grow 9px -> 26px, shoving every row
+     below it up/down as the pointer crossed a boundary — the exact jitter reported
+     in local review). The trigger button is absolutely positioned and centered on
+     --insert-center, a pixel offset (from the row's own left edge, same coordinate
+     space as .board) kept in sync with the scroll viewport's CURRENTLY VISIBLE
+     bounds by updateInsertionCenter() in render.js/app.js — not the full, possibly
+     30-character-column-wide table — so it can't scroll off past the visible edge
+     on a wide matrix, and never assumes a fixed column count or hardcoded offset. */
+  .scene-position-row{min-height:9px;background:transparent;border-bottom:0;position:relative}
+  .scene-position-row .insert-content{padding:0;height:100%;position:relative}
+  /* Boundary line: spans the full row (all character columns), independent of
+     where the centered "+" trigger sits. */
+  .insert-content::before{
     content:"";position:absolute;left:14px;right:14px;top:50%;height:1px;
     background:var(--border-faint);transform:translateY(-50%);transition:background var(--motion-base,.12s ease);
   }
-  /* Absolutely positioned (out of flow) so the invisible-at-rest icon can't inflate
-     the row's own intrinsic height — opacity:0 and transform:scale() are both purely
-     visual and don't shrink a normal-flow box's layout size, which previously kept
-     the "compact" row at ~28px, already taller than the :hover-expanded target. */
+  .scene-position-btn{
+    position:absolute;top:50%;left:var(--insert-center,50%);transform:translate(-50%,-50%);
+    z-index:2;width:auto;border:0;background:transparent;cursor:pointer;border-radius:999px;
+    display:flex;align-items:center;justify-content:center;
+    /* Padding (not margin) enlarges the invisible hit target for intentional taps/
+       clicks without affecting the row's own layout size — the box is out of flow
+       (position:absolute) so this can never inflate .scene-position-row. */
+    padding:11px 16px;
+  }
   .position-plus{
-    position:absolute;top:50%;left:50%;z-index:1;width:20px;height:20px;border-radius:999px;
+    width:20px;height:20px;border-radius:999px;flex:none;
     display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1;
     color:var(--brand);background:var(--surface-elevated);border:1px solid var(--border-subtle);
-    opacity:0;transform:translate(-50%,-50%) scale(.55);transition:opacity var(--motion-base,.12s ease),transform var(--motion-base,.12s ease);
+    opacity:0;transform:scale(.55);transition:opacity var(--motion-base,.12s ease),transform var(--motion-base,.12s ease);
   }
   .position-drop-label{
-    display:none;position:relative;z-index:1;font-size:11px;font-weight:700;color:#fff;
+    display:none;font-size:11px;font-weight:700;color:#fff;
     background:var(--brand);border-radius:999px;padding:3px 10px;white-space:nowrap;
   }
-  .scene-position-row:hover,.scene-position-row:focus-within{min-height:26px}
-  .scene-position-row:hover .position-plus,.scene-position-row:focus-within .position-plus{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  .scene-position-row:hover,.scene-position-row:focus-within{z-index:3}
+  .scene-position-row:hover .position-plus,.scene-position-row:focus-within .position-plus,
+  .scene-position-btn:focus-visible .position-plus{opacity:1;transform:scale(1)}
+  .scene-position-row:hover .insert-content::before,.scene-position-row:focus-within .insert-content::before{background:var(--border-subtle)}
   .scene-position-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-  body.scene-drag-active .scene-position-row{min-height:16px}
-  body.scene-drag-active .scene-position-btn::before{background:var(--border-subtle)}
+  body.scene-drag-active .insert-content::before{background:var(--border-subtle)}
   body.scene-drag-active .position-plus{display:none}
   body.scene-drag-active .position-drop-label{display:block}
 
@@ -224,5 +240,5 @@
   .scene-reorder-btn:disabled{opacity:.35;cursor:not-allowed}
 
   @media(prefers-reduced-motion:reduce){
-    .scene-position-row,.position-plus,.scene-position-btn::before{transition:none!important}
+    .scene-position-row,.position-plus,.insert-content::before{transition:none!important}
   }

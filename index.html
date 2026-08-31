@@ -150,10 +150,11 @@
 <div id="storageBanner" class="storage-banner" role="status" aria-live="polite"></div>
 
 <div class="app-shell">
-  <button type="button" id="toggleNavigation" class="sidebar-edge-toggle" aria-expanded="true" aria-controls="projectSidebar" aria-label="Свернуть навигацию" title="Свернуть навигацию"><span class="sidebar-edge-toggle-icon" aria-hidden="true">‹</span></button>
+  <button type="button" id="toggleNavigationReopen" class="sidebar-reopen-tab" aria-expanded="false" aria-controls="projectSidebar" aria-label="Открыть навигацию" title="Открыть навигацию" hidden><span class="sidebar-edge-toggle-icon" aria-hidden="true">›</span></button>
   <aside class="project-sidebar" id="projectSidebar">
     <div class="sidebar-header">
       <span class="sidebar-header-label">Навигация</span>
+      <button type="button" id="toggleNavigation" class="sidebar-collapse-btn" aria-expanded="true" aria-controls="projectSidebar" aria-label="Свернуть навигацию" title="Свернуть навигацию"><span class="sidebar-edge-toggle-icon" aria-hidden="true">‹</span></button>
     </div>
     <div class="sidebar-section" data-sidebar-section="chapters">
       <div class="sidebar-title">
@@ -200,12 +201,44 @@
       </div>
       <div class="search-row">
         <label class="filter-field filter-field-search"><span class="visually-hidden">Поиск сцен</span><input id="projectSearch" class="search-input" placeholder="Поиск сцен: текст, персонаж, глава, локация, тег…"></label>
-        <label class="filter-field"><span class="visually-hidden">Глава</span><select id="filterChapter" aria-label="Глава"></select></label>
-        <label class="filter-field"><span class="visually-hidden">Персонаж</span><select id="filterCharacter" aria-label="Персонаж"></select></label>
-        <label class="filter-field"><span class="visually-hidden">Локация</span><select id="filterLocation" aria-label="Локация"></select></label>
-        <label class="filter-field"><span class="visually-hidden">Тег</span><select id="filterTag" aria-label="Тег"></select></label>
-        <label class="filter-field"><span class="visually-hidden">Написание</span><select id="filterWriting" aria-label="Написание"></select></label>
-        <label class="filter-field"><span class="visually-hidden">Расположение</span><select id="filterPlacement" aria-label="Расположение"></select></label>
+        <div class="filter-field filter-dropdown" data-filter-key="chapter">
+          <button type="button" id="filterChapter" class="filter-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
+          <div class="filter-popover" id="filterChapterPopover" hidden>
+            <ul class="filter-listbox" id="filterChapterList" role="listbox" aria-label="Глава" tabindex="-1"></ul>
+          </div>
+        </div>
+        <div class="filter-field filter-dropdown" data-filter-key="character">
+          <div class="filter-multi-control" id="filterCharacter"></div>
+          <div class="filter-popover" id="filterCharacterPopover" hidden>
+            <div class="filter-popover-header"><button type="button" class="filter-popover-clear" data-clear-filter-key="character">Сбросить</button></div>
+            <ul class="filter-listbox" id="filterCharacterList" role="listbox" aria-multiselectable="true" aria-label="Персонаж" tabindex="-1"></ul>
+          </div>
+        </div>
+        <div class="filter-field filter-dropdown" data-filter-key="location">
+          <button type="button" id="filterLocation" class="filter-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
+          <div class="filter-popover" id="filterLocationPopover" hidden>
+            <ul class="filter-listbox" id="filterLocationList" role="listbox" aria-label="Локация" tabindex="-1"></ul>
+          </div>
+        </div>
+        <div class="filter-field filter-dropdown" data-filter-key="tag">
+          <div class="filter-multi-control" id="filterTag"></div>
+          <div class="filter-popover" id="filterTagPopover" hidden>
+            <div class="filter-popover-header"><button type="button" class="filter-popover-clear" data-clear-filter-key="tag">Сбросить</button></div>
+            <ul class="filter-listbox" id="filterTagList" role="listbox" aria-multiselectable="true" aria-label="Тег" tabindex="-1"></ul>
+          </div>
+        </div>
+        <div class="filter-field filter-dropdown" data-filter-key="writing">
+          <button type="button" id="filterWriting" class="filter-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
+          <div class="filter-popover" id="filterWritingPopover" hidden>
+            <ul class="filter-listbox" id="filterWritingList" role="listbox" aria-label="Написание" tabindex="-1"></ul>
+          </div>
+        </div>
+        <div class="filter-field filter-dropdown" data-filter-key="placement">
+          <button type="button" id="filterPlacement" class="filter-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
+          <div class="filter-popover" id="filterPlacementPopover" hidden>
+            <ul class="filter-listbox" id="filterPlacementList" role="listbox" aria-label="Расположение" tabindex="-1"></ul>
+          </div>
+        </div>
         <button id="clearFilters" class="btn-quiet filter-reset" type="button" hidden>Сбросить ×</button>
       </div>
       <div id="activeFilterChips" class="active-filter-chips" aria-live="polite"></div>
