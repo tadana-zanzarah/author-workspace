@@ -17,6 +17,7 @@ import "./filters.js";
 import "./filter-controls.js";
 import "./scene-positions.js";
 import "./render.js";
+import "./matrix-sticky.js";
 import "./drag-drop.js";
 import "./import-export.js";
 
@@ -134,6 +135,7 @@ function toggleNavigationVisible(){
   document.querySelector(".app-shell").classList.toggle("navigation-hidden",!navigationVisible);
   syncSidebarEdgeToggle();
   saveUiState();
+  scheduleMatrixStickyUpdate();
 }
 document.getElementById("toggleNavigation").onclick=toggleNavigationVisible;
 document.getElementById("toggleNavigationReopen").onclick=toggleNavigationVisible;
@@ -148,6 +150,24 @@ document.getElementById("toggleNavigationReopen").onclick=toggleNavigationVisibl
     insertionViewport.addEventListener("scroll",updateInsertionCenter,{passive:true});
     window.addEventListener("resize",updateInsertionCenter);
     new ResizeObserver(updateInsertionCenter).observe(insertionViewport);
+  }
+  wireInsertionHoverIntent();
+}
+
+// Two-row sticky matrix header + bottom horizontal scroll rail (table view) —
+// see js/matrix-sticky.js. Recomputed on page scroll (vertical pin threshold
+// and horizontal-rail visibility both depend on where .viewport currently sits
+// relative to the header), on horizontal scroll of the matrix itself (keeps
+// the pinned character row and the rail in sync with it), and on resize
+// (.viewport's left/width, used to size/position the fixed overlays, changes
+// with the window and with the sidebar collapsing/expanding).
+{
+  const stickyViewport=document.querySelector(".viewport.workspace-viewport");
+  window.addEventListener("scroll",scheduleMatrixStickyUpdate,{passive:true});
+  window.addEventListener("resize",scheduleMatrixStickyUpdate);
+  if(stickyViewport){
+    stickyViewport.addEventListener("scroll",scheduleMatrixStickyUpdate,{passive:true});
+    new ResizeObserver(scheduleMatrixStickyUpdate).observe(stickyViewport);
   }
 }
 

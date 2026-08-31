@@ -132,7 +132,13 @@ function syncMatrixContentControls(){
 function renderActiveFilterChips(){
   const el=document.getElementById("activeFilterChips");
   const clearBtn=document.getElementById("clearFilters");
-  if(clearBtn)clearBtn.hidden=!hasActiveFilters();
+  // visibility (not the [hidden]/display:none it used to be), so the button's box
+  // always stays in the flex-wrap flow at its final rendered size — toggling
+  // display:none here changed the row's total content width the instant a filter
+  // went active, which (since every .filter-field is itself flex-grow) reflowed
+  // EVERY growing field's width/position on that line, not just Reset's — the
+  // "control I was about to click again just moved" bug local review reported.
+  if(clearBtn)clearBtn.classList.toggle("filter-reset-inactive",!hasActiveFilters());
   if(!el)return;
   const chips=[];
   if(filters.search.trim())chips.push(["search","Поиск",`«${filters.search.trim()}»`,undefined]);
@@ -175,6 +181,11 @@ function render(){
   if(matrixToolbar)matrixToolbar.hidden=currentView!=="table";
   const board=document.getElementById("board");
   board.className="board view-"+currentView+(hasActiveFilters()?" drag-disabled":"")+(data.characters.length?"":" no-characters");
+  // #board's whole subtree is about to be discarded/rebuilt below — drop any
+  // .board-head/chapter-divider node the sticky overlay currently has parked
+  // outside #board first, or it would linger as a stale duplicate once the
+  // fresh markup lands (see js/matrix-sticky.js).
+  discardMatrixStickyBeforeRerender();
   const userChapters=data.chapters.filter(c=>c.id!=="chapter-unassigned");
   if(!hasActiveFilters()&&!data.scenes.length&&!data.characters.length&&!userChapters.length&&!data.locations.length&&!data.tags.length){
     board.style.removeProperty("--cols");
@@ -187,11 +198,13 @@ function render(){
         <button onclick="openChaptersManager()">Создать главу</button>
       </div>
     </section>`;
+    scheduleMatrixStickyUpdate();
     return;
   }
   if(currentView==="cards")renderCardsView(board);
   else if(currentView==="list")renderListView(board);
   else renderTableView(board);
+  scheduleMatrixStickyUpdate();
 }
 
 function scheduleRender(){
@@ -264,6 +277,42 @@ function updateInsertionCenter(){
   const center=viewport.scrollLeft+viewport.clientWidth/2;
   const max=Math.max(board.scrollWidth-24,24);
   board.style.setProperty("--insert-center",`${Math.min(Math.max(center,24),max)}px`);
+}
+
+// Table-view insertion "+": reveal only after a short pause (not on every bare
+// :hover), so a pointer merely passing over a row boundary on its way somewhere
+// else doesn't flash the affordance — see the .hover-intent selectors in
+// timeline.css this drives. Delegated on #board (stable across re-renders,
+// unlike the row elements themselves) rather than wired per-row. Keyboard focus
+// (:focus-within) and an in-progress drag (body.scene-drag-active) are plain CSS
+// selectors, unaffected by this — both still reveal with zero delay.
+const INSERTION_HOVER_INTENT_DELAY=180;
+let insertionHoverRow=null,insertionHoverTimer=null;
+
+function clearInsertionHoverIntent(){
+  clearTimeout(insertionHoverTimer);
+  insertionHoverTimer=null;
+  if(insertionHoverRow){insertionHoverRow.classList.remove("hover-intent");insertionHoverRow=null}
+}
+
+function wireInsertionHoverIntent(){
+  const board=document.getElementById("board");
+  if(!board||board.dataset.hoverIntentWired)return;
+  board.dataset.hoverIntentWired="1";
+  board.addEventListener("pointerover",event=>{
+    if(event.pointerType==="touch")return;
+    const row=event.target.closest(".scene-position-row");
+    if(!row||row===insertionHoverRow)return;
+    clearInsertionHoverIntent();
+    insertionHoverTimer=setTimeout(()=>{row.classList.add("hover-intent");insertionHoverRow=row},INSERTION_HOVER_INTENT_DELAY);
+  });
+  board.addEventListener("pointerout",event=>{
+    const row=event.target.closest(".scene-position-row");
+    if(!row)return;
+    const to=event.relatedTarget;
+    if(to instanceof Node&&row.contains(to))return;
+    clearInsertionHoverIntent();
+  });
 }
 
 function renderChapterDivider(chapter,count,matchedCount=null){
@@ -512,5 +561,5 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
 function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
 
-Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter});
-export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter};
+Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter,wireInsertionHoverIntent});
+export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter,wireInsertionHoverIntent};

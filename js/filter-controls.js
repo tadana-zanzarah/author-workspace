@@ -20,7 +20,7 @@ const FILTER_FIELDS=[
   {key:"character",suffix:"Character",label:"Персонаж",multi:true,items:()=>data.characters.map(c=>({value:c.id,label:c.name}))},
   {key:"location",suffix:"Location",label:"Локация",multi:false,items:()=>data.locations.map(l=>({value:l.id,label:l.name}))},
   {key:"tag",suffix:"Tag",label:"Тег",multi:true,items:()=>data.tags.map(t=>({value:t.id,label:"#"+t.name}))},
-  {key:"writing",suffix:"Writing",label:"Написание",multi:false,items:()=>WRITING_STATUSES.map(s=>({value:s.id,label:s.label}))},
+  {key:"writing",suffix:"Writing",label:"Статус",multi:false,items:()=>WRITING_STATUSES.map(s=>({value:s.id,label:s.label}))},
   {key:"placement",suffix:"Placement",label:"Расположение",multi:false,items:()=>[{value:"fixed",label:"На своём месте"},{value:"floating",label:"Нужно разместить"}]}
 ];
 const MAX_INLINE_CHIPS=2;

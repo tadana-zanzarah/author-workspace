@@ -31,15 +31,25 @@
     color:var(--text-secondary);
   }
   .sidebar-reopen-tab:hover,.sidebar-reopen-tab:focus-visible{background:var(--soft);color:var(--text-primary)}
+  /* Pinned directly under the (sticky) app header, independent of whatever the
+     main-workspace column stacks above its own content (the local/cloud storage
+     banner now lives inside .main-workspace, not above .app-shell — see index.html
+     — specifically so it can no longer push the sidebar down with it). top/height
+     are derived from --topbar-h (the header's own height token) plus .app-shell's
+     own padding, not screenshot-measured pixels, so this stays correct if either
+     changes. The bottom gap left below (app-shell's own 14px bottom padding)
+     matches the main-workspace column's own trailing space, so the panel reads as
+     "fills the available height" without visually touching the viewport edge. */
   .project-sidebar{
     border:1px solid transparent;
     border-radius:var(--radius-lg);
     background:var(--surface-sidebar);
     padding:8px 10px 14px;
-    height:calc(100vh - 145px);
+    height:calc(100vh - var(--topbar-h) - 28px);
     overflow:auto;
     position:sticky;
-    top:128px;
+    top:calc(var(--topbar-h) + 14px);
+    align-self:start;
     scrollbar-width:thin;
     scrollbar-color:var(--border-subtle) transparent;
   }
@@ -106,6 +116,15 @@
   }
   .filter-field{min-width:0;flex:1 1 88px;order:2}
   .filter-field-search{flex:1 1 150px;order:0}
+  /* Placement + Reset are grouped into one flex-wrap unit (own nested flex row,
+     flex-basis:auto so the OUTER row sees its true combined content width, not a
+     token 88px placeholder) so the two can never be split by wrapping — Reset
+     either shares Placement's line or wraps to a new one WITH it, but is never
+     alone on an otherwise-empty trailing row (the exact failure a plain
+     order:<after everything> would reintroduce: at some widths every other field
+     exactly filled the line above, leaving nothing for Reset to share a row with). */
+  .filter-field-tail{display:flex;gap:7px;min-width:0;flex:1 1 auto;order:2}
+  .filter-field-tail .filter-field{flex:1 1 88px}
   .filter-field-search input{height:34px}
   .search-input{font-size:14px}
 
@@ -185,12 +204,20 @@
   .filter-option[aria-selected="true"]:hover,.filter-option[aria-selected="true"][tabindex="0"]{background:var(--brand-tint)}
   .filter-option:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
   .filter-option-all{border-bottom:1px solid var(--border-faint);border-radius:0;margin-bottom:2px;padding-bottom:9px}
-  /* Ordered right after Search (never appended last) at every width: Search reliably
-     has room on whatever line it lands on (it's the widest single field with the
-     lowest flex-grow contention), so anchoring Reset there guarantees it always shares
-     a real row with content instead of ever landing alone on a trailing one — the
-     exact bug a fixed-column grid produced here originally. */
-  .filter-reset{flex:0 0 auto;white-space:nowrap;order:1}
+  /* Ordered after every filter field (DOM order already puts it last — see
+     index.html — this just has to not fight that with a lower order value, which
+     is what broke it before: order:1 pulled it up to right after Search, so it
+     appeared BEFORE Chapter/Character/etc. and, being display:none via [hidden]
+     until a filter is active, its arrival shifted every field after it (order 1)
+     sideways the moment the user picked a first value — exactly the "control I
+     was about to use again just moved" bug local review reported. Ordered past
+     every .filter-field (order:2) instead, Reset can only ever affect what's
+     after it, i.e. nothing. */
+  .filter-reset{flex:0 0 auto;white-space:nowrap;order:3}
+  /* Inactive state hides the button (visibility, not display) without dropping it
+     out of the flex-wrap flow — see the comment on this toggle in render.js. Also
+     takes it out of tab order/the accessibility tree, same as [hidden] did. */
+  .filter-reset-inactive{visibility:hidden}
   .active-filter-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
   .active-filter-chips:empty{display:none}
   .active-filter-chip{

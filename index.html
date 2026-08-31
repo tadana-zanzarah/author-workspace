@@ -147,7 +147,6 @@
     </details>
   </div>
 </header>
-<div id="storageBanner" class="storage-banner" role="status" aria-live="polite"></div>
 
 <div class="app-shell">
   <button type="button" id="toggleNavigationReopen" class="sidebar-reopen-tab" aria-expanded="false" aria-controls="projectSidebar" aria-label="Открыть навигацию" title="Открыть навигацию" hidden><span class="sidebar-edge-toggle-icon" aria-hidden="true">›</span></button>
@@ -179,6 +178,7 @@
     </div>
   </aside>
   <main class="main-workspace">
+    <div id="storageBanner" class="storage-banner" role="status" aria-live="polite"></div>
     <section id="projectDashboard" class="project-dashboard"></section>
     <div id="statsStrip" class="stats-strip"></div>
     <section class="toolbar-panel">
@@ -230,16 +230,18 @@
         <div class="filter-field filter-dropdown" data-filter-key="writing">
           <button type="button" id="filterWriting" class="filter-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
           <div class="filter-popover" id="filterWritingPopover" hidden>
-            <ul class="filter-listbox" id="filterWritingList" role="listbox" aria-label="Написание" tabindex="-1"></ul>
+            <ul class="filter-listbox" id="filterWritingList" role="listbox" aria-label="Статус" tabindex="-1"></ul>
           </div>
         </div>
-        <div class="filter-field filter-dropdown" data-filter-key="placement">
-          <button type="button" id="filterPlacement" class="filter-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
-          <div class="filter-popover" id="filterPlacementPopover" hidden>
-            <ul class="filter-listbox" id="filterPlacementList" role="listbox" aria-label="Расположение" tabindex="-1"></ul>
+        <div class="filter-field-tail">
+          <div class="filter-field filter-dropdown" data-filter-key="placement">
+            <button type="button" id="filterPlacement" class="filter-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
+            <div class="filter-popover" id="filterPlacementPopover" hidden>
+              <ul class="filter-listbox" id="filterPlacementList" role="listbox" aria-label="Расположение" tabindex="-1"></ul>
+            </div>
           </div>
+          <button id="clearFilters" class="btn-quiet filter-reset filter-reset-inactive" type="button">Сбросить ×</button>
         </div>
-        <button id="clearFilters" class="btn-quiet filter-reset" type="button" hidden>Сбросить ×</button>
       </div>
       <div id="activeFilterChips" class="active-filter-chips" aria-live="polite"></div>
       <div id="filterSummary" class="filter-summary" role="status" aria-live="polite" hidden></div>
