@@ -43,6 +43,7 @@
     "test:scene-position-interactions-browser": "node tools/scene-position-interactions-browser.test.mjs",
     "test:core-workspace-recomposition-browser": "node tools/core-workspace-recomposition-browser.test.mjs",
     "test:workspace-density-navigation-browser": "node tools/workspace-density-navigation-browser.test.mjs",
+    "test:core-production-polish-browser": "node tools/core-production-polish-browser.test.mjs",
     "test": "npm run test:unit"
   },
   "devDependencies": {
