@@ -46,5 +46,68 @@ function createMultiValueCombobox({host,suggestions=[],values=[],placeholder="Д
   return {getValues:()=>[...current],setValues(next){current=normalizeMultiValue(next);input.value="";close();renderChips()},open:show,close,input};
 }
 
-Object.assign(globalThis,{multiValueInputs,createMultiValueCombobox});
-export {multiValueInputs,createMultiValueCombobox};
+const singleValueInputs={};
+
+// Single-choice-with-optional-custom-text control (race, build, profession…):
+// an app-styled popover replacing the browser-native <datalist> suggestion UI,
+// which on this app's fields wouldn't reliably reopen once a value was already
+// picked. Deliberately thin compared to createMultiValueCombobox above: there
+// are no chips, so the underlying <input>'s own value IS the field's value —
+// callers keep reading/writing it exactly as a plain text input (el.value),
+// this only adds the popover open/filter/keyboard layer on top.
+function createSingleValueCombobox({host,input,toggle,list,suggestions=[],allowCustom=true}){
+  let filtered=[],active=-1,open=false,typedQuery=null;
+  const html=value=>String(value).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);
+  const key=value=>value.toLocaleLowerCase("ru");
+  function computeFiltered(){
+    const query=(typedQuery==null?"":typedQuery).trim();
+    const options=suggestions.filter(option=>!query||key(option).includes(key(query))).map(value=>({value,label:value,custom:false}));
+    const exact=suggestions.some(option=>key(option)===key(query));
+    if(allowCustom&&query&&!exact)options.push({value:query,label:`Добавить «${query}»`,custom:true});
+    return options;
+  }
+  function close(){open=false;active=-1;list.hidden=true;input.setAttribute("aria-expanded","false");input.removeAttribute("aria-activedescendant")}
+  function render(){
+    filtered=computeFiltered();
+    list.innerHTML=filtered.length?filtered.map((item,index)=>`<div id="${list.id}-${index}" role="option" aria-selected="${item.value===input.value}" data-index="${index}" class="${index===active?"active":""}">${html(item.label)}</div>`).join(""):`<div class="combobox-empty">Нет совпадений</div>`;
+    list.hidden=!open;input.setAttribute("aria-expanded",String(open));
+    if(active>=0&&filtered[active])input.setAttribute("aria-activedescendant",`${list.id}-${active}`);else input.removeAttribute("aria-activedescendant");
+  }
+  function show(){open=true;typedQuery=null;active=-1;render()}
+  // Dispatch "change", not "input": this input's own "input" listener below
+  // treats every input event as fresh typing and reopens the popover to
+  // refilter — firing that here would immediately undo the close() above.
+  // Dirty-state tracking listens for both event types, so "change" alone
+  // still marks the form dirty.
+  function select(value){input.value=value;close();input.dispatchEvent(new Event("change",{bubbles:true}));input.focus()}
+  input.addEventListener("focus",show);
+  input.addEventListener("click",show);
+  input.addEventListener("input",()=>{typedQuery=input.value;active=-1;open=true;render()});
+  // Modal manager's own Escape handling intercepts before this element's
+  // keydown ever fires (it looks for any [role=combobox][aria-expanded=true]
+  // inside the top modal and dispatches this event instead of letting Escape
+  // bubble/close the modal) — see handleKeydown in modal-manager.js. The
+  // multi-value combobox above relies on the same contract.
+  input.addEventListener("multi-value-close",close);
+  toggle?.addEventListener("click",()=>{open?close():show();input.focus()});
+  list.addEventListener("mousedown",event=>event.preventDefault());
+  list.addEventListener("click",event=>{const option=event.target.closest("[data-index]");if(option)select(filtered[Number(option.dataset.index)]?.value)});
+  input.addEventListener("keydown",event=>{
+    if(event.key==="Escape"&&open){event.preventDefault();event.stopImmediatePropagation();close();return}
+    if(event.key==="ArrowDown"||event.key==="ArrowUp"){
+      event.preventDefault();if(!open)show();if(!filtered.length)return;
+      active=(active+(event.key==="ArrowDown"?1:-1)+filtered.length)%filtered.length;render();return;
+    }
+    if(event.key==="Enter"){
+      if(!open){event.preventDefault();show();return}
+      const item=active>=0?filtered[active]:(input.value.trim()?filtered.find(x=>x.custom):undefined);
+      if(item){event.preventDefault();select(item.value)}
+    }
+  });
+  host.addEventListener("focusout",event=>{if(!host.contains(event.relatedTarget))close()});
+  close();
+  return {refresh(){if(open)render()}};
+}
+
+Object.assign(globalThis,{multiValueInputs,createMultiValueCombobox,singleValueInputs,createSingleValueCombobox});
+export {multiValueInputs,createMultiValueCombobox,singleValueInputs,createSingleValueCombobox};

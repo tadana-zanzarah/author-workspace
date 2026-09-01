@@ -525,18 +525,20 @@
   <div class="modal" style="width:min(1050px,100%);max-height:94vh">
     <h2 id="profileEditorTitle">Анкета персонажа</h2>
 
-    <div id="cloudProfileScope" class="profile-field full" hidden>
-      <div class="profile-field-top"><strong>Общие данные и данные проекта</strong></div>
-      <label>Куда сохранить изменения
-        <select id="profileSaveScope"><option value="project">Только в этом проекте (override)</option><option value="global">Общие данные персонажа</option></select>
+    <div id="cloudProfileScope" class="profile-field full profile-scope-field" hidden>
+      <label class="profile-scope-row">
+        <span>Изменения персонажа</span>
+        <select id="profileSaveScope"><option value="project">Только для этого проекта</option><option value="global">Для персонажа везде</option></select>
       </label>
-      <p class="profile-note">Project override имеет приоритет. Поля, совпадающие с общими данными, снова наследуются и не сохраняются копией.</p>
+      <p class="profile-note" id="profileScopeHelp"></p>
     </div>
 
     <div class="profile-field full">
       <div class="profile-field-top"><strong>Фото и визуализации</strong></div>
-      <label for="profilePhotosInput">Добавить фотографии</label>
-      <input id="profilePhotosInput" type="file" accept="image/*" multiple>
+      <div class="photo-upload-row">
+        <input id="profilePhotosInput" type="file" accept="image/*" multiple class="visually-hidden-input">
+        <label for="profilePhotosInput" class="photo-upload-button">＋ Добавить фото</label>
+      </div>
       <div id="profilePhotosGrid" class="photos-grid"></div>
     </div>
 
@@ -554,7 +556,11 @@
 
         <div class="profile-field">
           <div class="profile-field-top"><strong>Раса</strong><label class="hide-field"><input id="hide_race" type="checkbox"> не указывать</label></div>
-          <input id="pf_race" list="raceOptions" placeholder="Выберите или введите вручную">
+          <div class="combobox-host" id="pf_race_host">
+            <input id="pf_race" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pf_race_listbox" autocomplete="off" placeholder="Выберите или введите вручную">
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="Открыть список: Раса">▾</button>
+            <div id="pf_race_listbox" class="combobox-list" role="listbox" hidden></div>
+          </div>
         </div>
         <div class="profile-field">
           <div class="profile-field-top"><strong>Пол</strong><label class="hide-field"><input id="hide_sex" type="checkbox"> не указывать</label></div>
@@ -565,7 +571,11 @@
 
         <div class="profile-field">
           <div class="profile-field-top"><strong>Вторичный пол</strong><label class="hide-field"><input id="hide_secondarySex" type="checkbox"> не указывать</label></div>
-          <input id="pf_secondarySex" list="secondarySexOptions" placeholder="Выберите или введите вручную">
+          <div class="combobox-host" id="pf_secondarySex_host">
+            <input id="pf_secondarySex" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pf_secondarySex_listbox" autocomplete="off" placeholder="Выберите или введите вручную">
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="Открыть список: Вторичный пол">▾</button>
+            <div id="pf_secondarySex_listbox" class="combobox-list" role="listbox" hidden></div>
+          </div>
         </div>
         <div class="profile-field">
           <div class="profile-field-top"><strong>Возраст на начало истории</strong><label class="hide-field"><input id="hide_age" type="checkbox"> не указывать</label></div>
@@ -588,7 +598,7 @@
     </section>
 
     <section class="profile-section">
-      <h3 class="profile-section-title">Образ жизни</h3>
+      <h3 class="profile-section-title">Внешность</h3>
       <div class="profile-editor-grid">
         <div class="profile-field">
           <div class="profile-field-top"><strong>Рост</strong><label class="hide-field"><input id="hide_height" type="checkbox"> не указывать</label></div>
@@ -596,16 +606,63 @@
         </div>
         <div class="profile-field">
           <div class="profile-field-top"><strong>Телосложение</strong><label class="hide-field"><input id="hide_build" type="checkbox"> не указывать</label></div>
-          <input id="pf_build" list="buildOptions" placeholder="Выберите или введите вручную">
+          <div class="combobox-host" id="pf_build_host">
+            <input id="pf_build" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pf_build_listbox" autocomplete="off" placeholder="Выберите или введите вручную">
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="Открыть список: Телосложение">▾</button>
+            <div id="pf_build_listbox" class="combobox-list" role="listbox" hidden></div>
+          </div>
         </div>
 
         <div class="profile-field">
+          <div class="profile-field-top"><strong>Цвет глаз</strong><label class="hide-field"><input id="hide_eyeColor" type="checkbox"> не указывать</label></div>
+          <div class="combobox-host" id="pf_eyeColor_host">
+            <input id="pf_eyeColor" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pf_eyeColor_listbox" autocomplete="off" placeholder="Выберите или введите вручную">
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="Открыть список: Цвет глаз">▾</button>
+            <div id="pf_eyeColor_listbox" class="combobox-list" role="listbox" hidden></div>
+          </div>
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Цвет волос</strong><label class="hide-field"><input id="hide_hairColor" type="checkbox"> не указывать</label></div>
+          <div class="combobox-host" id="pf_hairColor_host">
+            <input id="pf_hairColor" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pf_hairColor_listbox" autocomplete="off" placeholder="Выберите или введите вручную">
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="Открыть список: Цвет волос">▾</button>
+            <div id="pf_hairColor_listbox" class="combobox-list" role="listbox" hidden></div>
+          </div>
+        </div>
+
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Причёска</strong><label class="hide-field"><input id="hide_hairstyle" type="checkbox"> не указывать</label></div>
+          <div class="combobox-host" id="pf_hairstyle_host">
+            <input id="pf_hairstyle" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pf_hairstyle_listbox" autocomplete="off" placeholder="Выберите или введите вручную">
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="Открыть список: Причёска">▾</button>
+            <div id="pf_hairstyle_listbox" class="combobox-list" role="listbox" hidden></div>
+          </div>
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Особенности</strong><label class="hide-field"><input id="hide_features" type="checkbox"> не указывать</label></div>
+          <textarea id="pf_features" style="min-height:44px" placeholder="Например: левша, гетерохромия, топографическая дезориентация"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <section class="profile-section">
+      <h3 class="profile-section-title">Образ жизни</h3>
+      <div class="profile-editor-grid">
+        <div class="profile-field">
           <div class="profile-field-top"><strong>Профессия / сфера занятости</strong><label class="hide-field"><input id="hide_profession" type="checkbox"> не указывать</label></div>
-          <input id="pf_profession" list="professionOptions" placeholder="Выберите или введите вручную">
+          <div class="combobox-host" id="pf_profession_host">
+            <input id="pf_profession" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pf_profession_listbox" autocomplete="off" placeholder="Выберите или введите вручную">
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="Открыть список: Профессия / сфера занятости">▾</button>
+            <div id="pf_profession_listbox" class="combobox-list" role="listbox" hidden></div>
+          </div>
         </div>
         <div class="profile-field">
           <div class="profile-field-top"><strong>Сексуальная ориентация</strong><label class="hide-field"><input id="hide_orientation" type="checkbox"> не указывать</label></div>
-          <input id="pf_orientation" list="orientationOptions" placeholder="Выберите или введите вручную">
+          <div class="combobox-host" id="pf_orientation_host">
+            <input id="pf_orientation" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pf_orientation_listbox" autocomplete="off" placeholder="Выберите или введите вручную">
+            <button type="button" class="combobox-toggle" tabindex="-1" aria-label="Открыть список: Сексуальная ориентация">▾</button>
+            <div id="pf_orientation_listbox" class="combobox-list" role="listbox" hidden></div>
+          </div>
         </div>
 
         <div class="profile-field">
@@ -622,13 +679,9 @@
     <section class="profile-section">
       <h3 class="profile-section-title">Характер и описание</h3>
       <div class="profile-editor-grid">
-        <div class="profile-field">
+        <div class="profile-field full">
           <div class="profile-field-top"><strong>Характер</strong><label class="hide-field"><input id="hide_character" type="checkbox"> не указывать</label></div>
-          <textarea id="pf_character" list="characterOptions" style="min-height:90px" placeholder="Можно перечислить несколько черт"></textarea>
-        </div>
-        <div class="profile-field">
-          <div class="profile-field-top"><strong>Особенности</strong><label class="hide-field"><input id="hide_features" type="checkbox"> не указывать</label></div>
-          <textarea id="pf_features" style="min-height:90px" placeholder="Например: левша, гетерохромия, топографическая дезориентация"></textarea>
+          <textarea id="pf_character" style="min-height:90px" placeholder="Можно перечислить несколько черт"></textarea>
         </div>
 
         <div class="profile-field full">
@@ -719,6 +772,21 @@
   <option value="Худощавое"><option value="Стройное"><option value="Подтянутое"><option value="Спортивное">
   <option value="Атлетическое"><option value="Мускулистое"><option value="Коренастое"><option value="Плотное">
   <option value="Крупное"><option value="Хрупкое"><option value="Миниатюрное"><option value="Неизвестно">
+</datalist>
+<datalist id="eyeColorOptions">
+  <option value="Карие"><option value="Голубые"><option value="Зелёные"><option value="Серые">
+  <option value="Чёрные"><option value="Ореховые"><option value="Янтарные"><option value="Гетерохромия">
+  <option value="Неизвестно">
+</datalist>
+<datalist id="hairColorOptions">
+  <option value="Чёрные"><option value="Тёмно-русые"><option value="Русые"><option value="Светло-русые">
+  <option value="Блонд"><option value="Рыжие"><option value="Каштановые"><option value="Седые">
+  <option value="Белые"><option value="Неизвестно">
+</datalist>
+<datalist id="hairstyleOptions">
+  <option value="Короткая"><option value="Средней длины"><option value="Длинная"><option value="Кудрявые">
+  <option value="Волнистые"><option value="Прямые"><option value="Хвост"><option value="Коса">
+  <option value="Лысый / лысая"><option value="Неизвестно">
 </datalist>
 <datalist id="professionOptions">
   <option value="Школьник"><option value="Студент"><option value="Аспирант"><option value="Стажёр">

@@ -179,6 +179,11 @@
      included, migration wizard, recovery candidates, relation visibility)
      that had no override and was still rendering the OS/browser default blue. */
   input[type="checkbox"],input[type="radio"]{accent-color:var(--brand-strong)}
+  /* Same "no accidental blue" rule extended to range inputs — the crop
+     modal's "Масштаб" slider was still full browser-default blue.
+     accent-color recolors the native track+thumb in every browser that
+     matters here without touching focus/keyboard behavior. */
+  input[type="range"]{accent-color:var(--brand-strong)}
   :where(button,input,textarea,select,summary,a,[tabindex]):focus-visible{
     outline:3px solid var(--focus-ring);
     outline-offset:2px;
@@ -186,6 +191,9 @@
   }
   .hint{color:var(--text-secondary);font-size:13px}
   [hidden]{display:none!important}
+  /* Text-selection highlight: browsers default this to a cool blue tint
+     (Chrome/Firefox alike) that had no override anywhere in the app. */
+  ::selection{background:var(--brand-tint);color:var(--text-primary)}
   @media(prefers-reduced-motion:reduce){
     *,*::before,*::after{
       animation-duration:.001ms!important;animation-iteration-count:1!important;

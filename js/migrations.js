@@ -245,7 +245,7 @@ function normalizeTags(tags){
   return tags.map(t=>({...safeOwnCopy(t),id:String(t.id),name:canonicalTagName(t.name)}));
 }
 function emptyProfile(characterId="",name=""){
-  return {id:characterId,characterId,name,surname:"",photos:[],race:"",sex:"",secondarySex:"",age:"",birthday:{year:"",month:"",day:""},zodiac:"",height:"",build:"",profession:"",orientation:"",favorites:[],hobbies:[],character:"",features:"",description:"",hidden:{},initialRelations:{}};
+  return {id:characterId,characterId,name,surname:"",photos:[],race:"",sex:"",secondarySex:"",age:"",birthday:{year:"",month:"",day:""},zodiac:"",height:"",build:"",eyeColor:"",hairColor:"",hairstyle:"",profession:"",orientation:"",favorites:[],hobbies:[],character:"",features:"",description:"",hidden:{},initialRelations:{}};
 }
 function normalizeProfile(profile,character){
   const p=safeOwnCopy(profile||{}),base=emptyProfile(character.id,character.name);

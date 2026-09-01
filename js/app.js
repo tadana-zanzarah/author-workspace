@@ -45,6 +45,8 @@ document.getElementById("confirmActionCancel").onclick=()=>resolveConfirmAction(
 document.getElementById("confirmActionConfirm").onclick=()=>resolveConfirmAction(true);
 document.getElementById("confirmActionModal").onclick=e=>{if(e.target.id==="confirmActionModal")resolveConfirmAction(false)};
 
+document.getElementById("profileSaveScope").addEventListener("change",updateProfileScopeHelp);
+
 document.querySelectorAll("#profileEditorModal .profile-field").forEach((field,index)=>{
   const heading=field.querySelector(".profile-field-top > strong");if(!heading)return;
   if(!heading.id)heading.id=`profileFieldLabel${index+1}`;
@@ -698,7 +700,7 @@ document.getElementById("saveProfile").onclick=async()=>{
   const wasNewCharacter=!!profileDraftCharacter;
   const old=normalizeProfile(data.profiles?.[character.id],character);
   const hidden={};
-  ["race","sex","secondarySex","age","birthday","zodiac","height","build","profession",
+  ["race","sex","secondarySex","age","birthday","zodiac","height","build","eyeColor","hairColor","hairstyle","profession",
    "orientation","favorites","hobbies","character","features","description"].forEach(key=>{
     hidden[key]=document.getElementById("hide_"+key).checked;
   });
@@ -727,6 +729,9 @@ document.getElementById("saveProfile").onclick=async()=>{
     zodiac:document.getElementById("pf_zodiac").value,
     height:document.getElementById("pf_height").value.trim(),
     build:document.getElementById("pf_build").value.trim(),
+    eyeColor:document.getElementById("pf_eyeColor").value.trim(),
+    hairColor:document.getElementById("pf_hairColor").value.trim(),
+    hairstyle:document.getElementById("pf_hairstyle").value.trim(),
     profession:document.getElementById("pf_profession").value.trim(),
     orientation:document.getElementById("pf_orientation").value.trim(),
     favorites:multiValueInputs.favorites.getValues(),

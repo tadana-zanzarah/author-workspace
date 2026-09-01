@@ -9,6 +9,13 @@
      element (full-bleed cover); everything below it is compact/dense, not a
      Dribbble-oversized card. */
   .profile-card{
+    display:flex;flex-direction:column;
+    /* Viewport-aware cap so cards read as stable columns of roughly equal
+       height instead of documents of arbitrary length — the budget leaves
+       room for the gallery modal's own header/description/actions chrome
+       above and below the grid. Content beyond the cap scrolls inside
+       .profile-card-scroll rather than growing the card. */
+    max-height:min(560px,calc(100vh - 260px));
     border:1px solid var(--border-subtle);
     border-radius:var(--radius-lg);
     overflow:hidden;
@@ -29,6 +36,7 @@
   }
   .profile-drag-handle:active{cursor:grabbing}
   .profile-cover{
+    flex:none;
     height:200px;
     background:var(--soft);
     display:flex;
@@ -41,14 +49,33 @@
   .profile-cover img{width:100%;height:100%;object-fit:cover}
   .profile-cover-button{width:100%;height:100%;padding:0;border:0;border-radius:0;overflow:hidden;background:transparent}
   .profile-cover-button img{transition:transform .15s ease}
-  .profile-body{padding:var(--space-3) var(--space-4) var(--space-4)}
+  .profile-body{
+    display:flex;flex-direction:column;flex:1;min-height:0;
+    padding:var(--space-3) var(--space-4) var(--space-4);
+  }
   /* Name owns the top of the body, immediately under the photo — the
      preferred hierarchy (photo → name → identity/context → metadata →
      relationships → actions) reads top to bottom without extra chrome. */
-  .profile-name{font-size:17px;font-weight:750;line-height:1.25;margin-bottom:7px;color:var(--text-primary)}
+  .profile-name{flex:none;font-size:17px;font-weight:750;line-height:1.25;margin-bottom:7px;color:var(--text-primary)}
+  /* Only this region scrolls when a character's content (facts, links,
+     stats) exceeds the card's height budget — the name above and the
+     action row below (added by .profile-card-actions, flex:none) stay put,
+     so footers land at the same position across cards regardless of how
+     much any one character has filled in. No nested scrollers inside. */
+  .profile-card-scroll{
+    flex:1;min-height:0;overflow:auto;
+    scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent;
+  }
+  .profile-card-scroll::-webkit-scrollbar{width:8px}
+  .profile-card-scroll::-webkit-scrollbar-track{background:transparent}
+  .profile-card-scroll::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px}
+  .profile-card-scroll::-webkit-scrollbar-thumb:hover{background:var(--text-secondary)}
   .profile-facts{display:grid;gap:4px;font-size:var(--text-sm)}
-  .profile-fact{color:var(--text-primary)}
-  .profile-fact strong{color:var(--text-secondary);font-weight:600}
+  /* Label carries the stronger weight (bold, primary ink); the value stays
+     regular weight in secondary ink — scannable without bolding the whole
+     line. */
+  .profile-fact{color:var(--text-secondary)}
+  .profile-fact strong{color:var(--text-primary);font-weight:700}
   .profile-description{
     margin-top:9px;padding-top:9px;border-top:1px solid var(--border-faint);
     white-space:pre-wrap;line-height:1.4;font-size:var(--text-sm);color:var(--text-primary);
@@ -60,9 +87,11 @@
   .character-link-actions{display:flex;gap:6px;flex-wrap:wrap}.character-link-actions button{min-height:36px}
   .character-link-modal{width:min(700px,100%);max-height:94vh}.character-link-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.character-link-editor-grid label{display:grid;gap:5px}.character-link-editor-grid .full{grid-column:1/-1}.form-error{min-height:1.4em;color:var(--danger)}
   .profile-card-actions{
-    display:flex;gap:6px;flex-wrap:wrap;margin-top:11px;padding-top:11px;border-top:1px solid var(--border-faint);
+    flex:none;
+    display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:11px;padding-top:11px;border-top:1px solid var(--border-faint);
   }
   .profile-card-actions button{padding:6px 8px;font-size:12px}
+  .profile-card-actions-spacer{flex:1 0 0;min-width:0}
 
   /* ---- Profile editor (character form) ------------------------------- */
 
@@ -90,6 +119,20 @@
     min-width:0;
   }
   #profilePhotosInput{min-width:0;max-width:100%}
+  /* App-styled upload trigger: the raw "Выбрать файлы / Файл не выбран"
+     control read as bare browser chrome. The native input stays functional
+     and keyboard-reachable (clipped, not display:none, so it keeps its tab
+     stop) — the visible label triggers the same file picker via `for`. */
+  .visually-hidden-input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .photo-upload-row{margin-top:2px}
+  .photo-upload-button{
+    display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+    padding:7px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+    background:var(--surface-elevated);color:var(--text-primary);font-size:13px;font-weight:600;
+    transition:border-color var(--motion-fast),background var(--motion-fast);
+  }
+  .photo-upload-button:hover{background:var(--soft);border-color:#cfc3b4}
+  .visually-hidden-input:focus-visible + .photo-upload-button{outline:3px solid var(--focus-ring);outline-offset:2px}
   .profile-field.full{grid-column:1/-1}
   /* Structurally denser fields (photo grid, long-form description,
      relationship/link lists, the cloud project-override scope picker) keep a
@@ -100,6 +143,17 @@
     background:var(--paper);border:1px solid var(--border-faint);border-radius:var(--radius-md);
     padding:var(--space-4);
   }
+  /* Compact save-scope control — a single row, not a full bordered card like
+     the photo/links sections, since it's one decision rather than a data
+     group. Wording is deliberately plain-language (no "override"/
+     "inheritance"); the underlying scope contract is unchanged. */
+  #profileEditorModal .profile-field.profile-scope-field{padding:10px 14px}
+  .profile-scope-row{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    font-size:var(--text-sm);font-weight:600;color:var(--text-secondary);
+  }
+  .profile-scope-row select{width:auto;min-width:230px;flex:none}
+  .profile-scope-field .profile-note{margin:6px 0 0}
   .profile-field-top{
     display:flex;justify-content:space-between;gap:10px;align-items:center;
     margin-bottom:6px;
@@ -122,20 +176,46 @@
   .multi-value-list{position:absolute;z-index:20;left:0;right:0;top:100%;max-height:min(240px,40vh);overflow:auto;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--surface-elevated);box-shadow:var(--shadow-md)}
   .multi-value-list [role=option]{padding:8px 10px;cursor:pointer;overflow-wrap:anywhere;font-size:var(--text-sm)}
   .multi-value-list [role=option]:hover,.multi-value-list [role=option].active{background:var(--soft)}
+  /* Single-choice-with-custom-text popover (race, build, profession…) — same
+     visual language as .multi-value-list, replacing the browser-native
+     <datalist> suggestion UI that wouldn't reliably reopen once a value was
+     already picked (see createSingleValueCombobox). */
+  .combobox-host{position:relative;min-width:0}
+  .combobox-host input{padding-right:34px}
+  .combobox-toggle{position:absolute;right:2px;top:2px;bottom:2px;width:30px;padding:0;border:0;background:transparent;color:var(--text-secondary)}
+  .combobox-list{
+    position:absolute;z-index:20;left:0;right:0;top:100%;margin-top:2px;
+    max-height:min(240px,40vh);overflow:auto;
+    border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--surface-elevated);box-shadow:var(--shadow-md);
+    scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent;
+  }
+  .combobox-list::-webkit-scrollbar{width:8px}
+  .combobox-list::-webkit-scrollbar-track{background:transparent}
+  .combobox-list::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px}
+  .combobox-list [role=option]{padding:8px 10px;cursor:pointer;overflow-wrap:anywhere;font-size:var(--text-sm)}
+  .combobox-list [role=option]:hover,.combobox-list [role=option].active{background:var(--soft)}
+  .combobox-list [role=option][aria-selected=true]{font-weight:700;color:var(--text-primary)}
+  .combobox-empty{padding:8px 10px;font-size:var(--text-sm);color:var(--text-secondary)}
   .birthday-grid{
     display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;
   }
   .photos-grid{
-    display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:9px;
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;
+    /* align-items:start (CSS Grid's default is stretch) — each photo card
+       sizes to its own content and ends there. Without this, a taller
+       sibling (e.g. a non-primary photo whose action row wraps to fit
+       "Сделать главным") stretched every card in the row to match, leaving
+       a visible --soft-colored gap below the shorter cards' own content. */
+    align-items:start;
     margin-top:9px;
   }
   .photo-item{
     position:relative;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden;
-    min-height:210px;background:var(--soft);
+    background:var(--soft);
   }
-  .photo-item img{width:100%;height:145px;object-fit:cover;display:block}
-  .photo-actions{display:flex;gap:5px;flex-wrap:wrap;padding:7px;background:var(--surface-elevated);position:relative}
-  .photo-actions button{padding:5px 7px;font-size:11px}
+  .photo-item img{width:100%;height:110px;object-fit:cover;display:block}
+  .photo-actions{display:flex;gap:4px;flex-wrap:wrap;padding:6px;background:var(--surface-elevated);position:relative}
+  .photo-actions button{padding:4px 6px;font-size:11px}
   .photo-primary{position:absolute;left:6px;top:6px;z-index:2;padding:3px 6px;border-radius:999px;background:rgba(255,255,255,.92);font-size:11px;font-weight:700;color:var(--brand-strong)}
   .photo-crop-modal{width:min(680px,100%);max-height:94vh}
   .photo-crop-viewport{width:min(100%,520px);aspect-ratio:260/210;margin:10px auto;overflow:hidden;border:2px solid var(--brand);border-radius:var(--radius-md);background:#222;touch-action:none;cursor:grab}

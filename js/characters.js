@@ -77,23 +77,26 @@ function renderProfiles(){
       ["Занятость",profileDisplayValue(p,"profession")],["Ориентация",profileDisplayValue(p,"orientation")]
     ].filter(([,v])=>v!==null);
     const primary=p.photos.find(photo=>photo.id===p.primaryPhotoId)||p.photos[0];
-    const structural=linksForCharacter(character.id,data.characterLinks||[]).slice(0,2);
+    const structural=linksForCharacter(character.id,data.characterLinks||[]);
     const cover=primary?`<button type="button" class="profile-cover-button" aria-label="Открыть оригинальное изображение персонажа ${esc(full||character.name)}" onclick="openPhotoLightboxByCharacter('${jsq(character.id)}','${jsq(primary.id)}')"><img src="${esc(primary.source.value)}" alt="${esc(primary.alt||"")}" style="${cropImageStyle(primary.crop)}"></button>`:`Нет изображения`;
     return `<article class="profile-card" data-character-id="${esc(character.id)}" ondragover="characterDragOver(event,'${jsq(character.id)}')" ondragleave="characterDragLeave(event)" ondrop="characterDropProfile(event,'${jsq(character.id)}')" ondragend="characterDragEnd(event)">
       <div class="profile-drag-handle" draggable="true" aria-label="Перетащить персонажа ${esc(character.name)} для изменения порядка" ondragstart="characterDragStart(event,'${jsq(character.id)}')">↕</div>
       <div class="profile-cover">${cover}</div>
       <div class="profile-body">
         <div class="profile-name">${esc(full||character.name)}</div>
-        <div class="profile-facts">${facts.map(([k,v])=>`<div class="profile-fact"><strong>${k}:</strong> ${esc(v)}</div>`).join("")}</div>
-        ${!p.hidden?.description&&p.description?`<div class="profile-description">${esc(p.description)}</div>`:""}
-        ${structural.length?`<div class="profile-structural-summary"><strong>Связи:</strong>${structural.map(link=>{const other=link.fromCharacterId===character.id?link.toCharacterId:link.fromCharacterId;return `<div>${esc(characterName(other))} — ${esc(characterLinkDisplayLabel(link,character.id))}</div>`}).join("")}${(data.characterLinks||[]).filter(link=>link.fromCharacterId===character.id||link.toCharacterId===character.id).length>2?`<div>И ещё ${(data.characterLinks||[]).filter(link=>link.fromCharacterId===character.id||link.toCharacterId===character.id).length-2}</div>`:""}</div>`:""}
-        ${renderProfileAutomaticSection(character.id)}
+        <div class="profile-card-scroll">
+          <div class="profile-facts">${facts.map(([k,v])=>`<div class="profile-fact"><strong>${k}:</strong> ${esc(v)}</div>`).join("")}</div>
+          ${!p.hidden?.description&&p.description?`<div class="profile-description">${esc(p.description)}</div>`:""}
+          ${structural.length?`<div class="profile-structural-summary"><strong>Связи:</strong>${structural.map(link=>{const other=link.fromCharacterId===character.id?link.toCharacterId:link.fromCharacterId;return `<div>${esc(characterName(other))} — ${esc(characterLinkDisplayLabel(link,character.id))}</div>`}).join("")}</div>`:""}
+          ${renderProfileAutomaticSection(character.id)}
+        </div>
         <div class="profile-card-actions">
-          <button onclick="openCharacterTimeline('${jsq(character.id)}')">Личная хронология</button>
-          <button onclick="editProfile('${jsq(character.id)}')">Открыть анкету</button>
+          <button class="row-action-quiet" aria-label="Личная хронология: ${esc(character.name)}" title="Личная хронология" onclick="openCharacterTimeline('${jsq(character.id)}')">🕘</button>
           <button aria-label="Переместить персонажа ${esc(character.name)} влево" onclick="moveProfile('${jsq(character.id)}',-1)">←</button>
           <button aria-label="Переместить персонажа ${esc(character.name)} вправо" onclick="moveProfile('${jsq(character.id)}',1)">→</button>
-          <button class="danger" onclick="deleteProfile('${jsq(character.id)}')">Удалить</button>
+          <span class="profile-card-actions-spacer" aria-hidden="true"></span>
+          <button class="row-action-icon" aria-label="Редактировать анкету: ${esc(character.name)}" title="Редактировать" onclick="editProfile('${jsq(character.id)}')">✎</button>
+          <button class="row-action-quiet danger-quiet" aria-label="Удалить персонажа ${esc(character.name)}" title="Удалить" onclick="deleteProfile('${jsq(character.id)}')">🗑</button>
         </div>
       </div>
     </article>`;
@@ -128,18 +131,12 @@ function renderProfileAutomaticSection(characterId){
   const entries=characterSceneEntries(characterId);
   const locations=characterLocations(characterId);
   const tags=characterTags(characterId);
-  const words=entries.reduce((n,x)=>n+countWords(x.scene.sceneText),0);
-  const relations=characterRelations(characterId);
   return `<div class="profile-auto">
     <div class="profile-auto-grid">
       <button class="profile-auto-card" onclick="setFilter('character','${jsq(characterId)}');hideModal('charsModal')"><strong>${entries.length}</strong>Все сцены</button>
-      <button class="profile-auto-card" onclick="openCharacterTimeline('${jsq(characterId)}')"><strong>${entries.length}</strong>Хронология</button>
       <button class="profile-auto-card" onclick="filterCharacterLocations('${jsq(characterId)}')"><strong>${locations.length}</strong>Локации</button>
       <button class="profile-auto-card" onclick="filterCharacterTags('${jsq(characterId)}')"><strong>${tags.length}</strong>Теги</button>
-      <div class="profile-auto-card"><strong>${words}</strong>Слов в сценах</div>
-      <div class="profile-auto-card"><strong>${Object.keys(relations).length}</strong>Отношений</div>
     </div>
-    ${Object.keys(relations).length?`<div class="profile-relations-list" style="margin-top:8px">${Object.entries(relations).map(([t,v])=>`<div><strong>${esc(characterName(t))}:</strong> ${esc(v)}</div>`).join("")}</div>`:""}
   </div>`;
 }
 
@@ -246,6 +243,22 @@ function updateZodiac(){
   );
 }
 
+function updateProfileScopeHelp(){
+  const help=document.getElementById("profileScopeHelp");if(!help)return;
+  help.textContent=document.getElementById("profileSaveScope").value==="global"
+    ?"Изменения будут применены к персонажу везде, где он используется — во всех проектах."
+    :"Изменения будут действовать только в этом проекте. Общая анкета персонажа останется без изменений.";
+}
+
+function setupSingleValueCombobox(field,datalistId){
+  if(singleValueInputs[field])return;
+  const host=document.getElementById(`pf_${field}_host`);if(!host)return;
+  singleValueInputs[field]=createSingleValueCombobox({
+    host,input:document.getElementById(`pf_${field}`),toggle:host.querySelector(".combobox-toggle"),list:document.getElementById(`pf_${field}_listbox`),
+    suggestions:[...document.querySelectorAll(`#${datalistId} option`)].map(x=>x.value)
+  });
+}
+
 function editProfile(characterId){
   return requestEditorTransition(()=>editProfileNow(characterId));
 }
@@ -255,12 +268,13 @@ function editProfileNow(characterId){
   profileEditingId=characterId;
   const character=characterById(characterId)||profileDraftCharacter;if(!character||character.id!==characterId)return;
   const p=normalizeProfile(data.profiles?.[characterId],character);
-  document.getElementById("cloudProfileScope").hidden=!isCloudWorkspace();document.getElementById("profileSaveScope").value="project";
+  document.getElementById("cloudProfileScope").hidden=!isCloudWorkspace();document.getElementById("profileSaveScope").value="project";updateProfileScopeHelp();
   profileDraftPhotoFiles=new Map();profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";profileDraftCharacterLinks=safeOwnCopy(data.characterLinks||[]);
   document.getElementById("profileEditorTitle").textContent=p.name||character.name?`Анкета: ${p.name||character.name}`:"Новый персонаж";
   const values={
     name:p.name||character.name,surname:p.surname,race:p.race,sex:p.sex,secondarySex:p.secondarySex,
-    age:p.age,height:p.height,build:p.build,profession:p.profession,orientation:p.orientation,
+    age:p.age,height:p.height,build:p.build,eyeColor:p.eyeColor,hairColor:p.hairColor,hairstyle:p.hairstyle,
+    profession:p.profession,orientation:p.orientation,
     character:p.character,features:p.features,
     description:p.description
   };
@@ -272,11 +286,19 @@ function editProfileNow(characterId){
   multiValueInputs.hobbies ||= createMultiValueCombobox({host:document.getElementById("pf_hobbies"),suggestions:[...document.querySelectorAll("#hobbyOptions option")].map(x=>x.value),placeholder:"Добавить хобби…",label:"Хобби и увлечения",onChange:syncBeforeUnload});
   multiValueInputs.favorites.setValues(p.favorites);
   multiValueInputs.hobbies.setValues(p.hobbies);
+  setupSingleValueCombobox("race","raceOptions");
+  setupSingleValueCombobox("secondarySex","secondarySexOptions");
+  setupSingleValueCombobox("build","buildOptions");
+  setupSingleValueCombobox("eyeColor","eyeColorOptions");
+  setupSingleValueCombobox("hairColor","hairColorOptions");
+  setupSingleValueCombobox("hairstyle","hairstyleOptions");
+  setupSingleValueCombobox("profession","professionOptions");
+  setupSingleValueCombobox("orientation","orientationOptions");
   document.getElementById("pf_birthYear").value=p.birthday?.year||"";
   document.getElementById("pf_birthMonth").value=p.birthday?.month||"";
   document.getElementById("pf_birthDay").value=p.birthday?.day||"";
   updateZodiac();
-  ["race","sex","secondarySex","age","birthday","zodiac","height","build","profession",
+  ["race","sex","secondarySex","age","birthday","zodiac","height","build","eyeColor","hairColor","hairstyle","profession",
    "orientation","favorites","hobbies","character","features","description"].forEach(key=>{
     document.getElementById("hide_"+key).checked=!!p.hidden?.[key];
   });
@@ -370,5 +392,5 @@ function birthdayDisplay(profile){
   return result||"Не указано";
 }
 
-Object.assign(globalThis,{characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
-export {characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};
+Object.assign(globalThis,{characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
+export {characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};
