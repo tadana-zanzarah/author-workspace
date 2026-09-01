@@ -51,6 +51,7 @@
     "test:character-surfaces-visual-system-browser": "node tools/character-surfaces-visual-system-browser.test.mjs",
     "test:character-surfaces-refinement-browser": "node tools/character-surfaces-refinement-browser.test.mjs",
     "test:character-card-profile-top-layout-browser": "node tools/character-card-profile-top-layout-browser.test.mjs",
+    "test:character-profile-resume-layout-browser": "node tools/character-profile-resume-layout-browser.test.mjs",
     "test": "npm run test:unit"
   },
   "devDependencies": {

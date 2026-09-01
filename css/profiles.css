@@ -14,10 +14,11 @@
        height instead of documents of arbitrary length — the budget leaves
        room for the gallery modal's own header/description/actions chrome
        above and below the grid. Content beyond the cap scrolls inside
-       .profile-card-scroll rather than growing the card. Raised from the
-       560px-based budget so the 1/3-photo / 2/3-info composition has room
-       to breathe instead of reading as a cramped photo tile with a footer. */
-    max-height:min(640px,calc(100vh - 230px));
+       .profile-card-scroll rather than growing the card. Raised again (from
+       640px) so cards read as substantial character dossiers and use more
+       of the available vertical space at common desktop viewports (e.g.
+       1440×900) instead of stopping short of it. */
+    max-height:min(760px,calc(100vh - 190px));
     border:1px solid var(--border-subtle);
     border-radius:var(--radius-lg);
     overflow:hidden;
@@ -43,7 +44,7 @@
        so the photo reads as substantial without the text/info area — which
        clearly owns the remaining ~2/3 — feeling like a cramped footer under
        a photo tile. */
-    height:224px;
+    height:248px;
     background:var(--soft);
     display:flex;
     align-items:center;
@@ -154,48 +155,63 @@
     background:var(--paper);border:1px solid var(--border-faint);border-radius:var(--radius-md);
     padding:var(--space-4);
   }
-  /* Compact top header: photo strip + save-scope share one region instead of
-     two large stacked cards ("Фото и визуализации" / "Изменения персонажа"),
-     so the first actual profile fields ("Личность") land within the first
-     viewport. Each side keeps its own boxed surface sized to its own content
-     (flex:0 1 auto, not stretched) rather than one shared full-width box —
-     with #cloudProfileScope hidden (local/non-cloud workspace) that means the
-     photo box hugs its 1-2 thumbnails instead of stretching into a mostly
-     empty rectangle beside them. */
-  .profile-top-header{
-    display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-start;
-    margin-bottom:var(--space-3);
+  /* Character résumé header: the first thing an author sees is the
+     character (portrait + name/surname/birth-facts), not persistence
+     chrome — save-scope now lives in the sticky footer (see
+     .profile-scope-footer) and photo management is folded into the
+     portrait's own compact action row instead of a separate labelled
+     panel. Photo column stays a fixed compact width so identity fields
+     dominate the row. */
+  .profile-resume{
+    display:flex;flex-wrap:wrap;gap:var(--space-5);align-items:flex-start;
+    margin-bottom:var(--space-4);
   }
-  .profile-photo-compact{
-    flex:0 1 auto;min-width:0;max-width:100%;
-    background:var(--paper);border:1px solid var(--border-faint);border-radius:var(--radius-md);
-    padding:var(--space-3) var(--space-4);
-  }
-  .profile-scope-compact{
-    flex:0 1 260px;min-width:200px;max-width:300px;
-    background:var(--paper);border:1px solid var(--border-faint);border-radius:var(--radius-md);
-    padding:var(--space-3) var(--space-4);
-  }
-  .profile-scope-row{
-    display:flex;flex-direction:column;align-items:flex-start;gap:6px;
-    font-size:var(--text-sm);font-weight:600;color:var(--text-secondary);
-  }
-  .profile-scope-row select{width:100%;min-width:0}
-  .profile-scope-compact .profile-note{margin:6px 0 0}
-  /* Compact media strip: fixed-width tiles (not 1fr) so a single photo
-     doesn't stretch to fill the whole header width, and a capped scrollable
-     height so many photos wrap/scroll instead of growing the top area. */
-  .photos-grid-compact{
-    grid-template-columns:repeat(auto-fill,84px);gap:6px;
-    max-height:172px;overflow-y:auto;padding-right:2px;
+  .profile-resume-photo{flex:0 0 auto;width:156px;max-width:100%}
+  .profile-resume-identity{flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:var(--space-3)}
+  .profile-resume-row{display:grid;gap:var(--space-4)}
+  .profile-resume-names{grid-template-columns:1fr 1fr}
+  .profile-resume-facts{grid-template-columns:minmax(0,2.2fr) minmax(0,.6fr) minmax(0,.75fr)}
+  .profile-resume-facts .birthday-grid select{font-size:13px}
+  /* Portrait + thumbnail strip: the primary photo (.photo-item-primary,
+     always rendered first — see renderProfilePhotos) reads as a dossier
+     portrait; any other photos wrap below it as a small compact strip
+     instead of a uniform grid, so 1-2 photos don't inflate the résumé and
+     many photos scroll instead of growing it. */
+  .profile-resume-photos{
+    display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;
+    max-height:280px;overflow-y:auto;padding-right:2px;
     scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent;
   }
-  .photos-grid-compact::-webkit-scrollbar{width:8px}
-  .photos-grid-compact::-webkit-scrollbar-track{background:transparent}
-  .photos-grid-compact::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px}
-  .photos-grid-compact .photo-item img{height:70px}
-  .photos-grid-compact .photo-actions{padding:4px;gap:3px}
-  .photos-grid-compact .photo-actions button{padding:3px 5px;font-size:10px}
+  .profile-resume-photos::-webkit-scrollbar{width:8px}
+  .profile-resume-photos::-webkit-scrollbar-track{background:transparent}
+  .profile-resume-photos::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px}
+  .profile-resume-photos .photo-item{width:70px}
+  .profile-resume-photos .photo-item img{height:64px}
+  .profile-resume-photos .photo-item .photo-actions{padding:3px;gap:2px}
+  .profile-resume-photos .photo-item .photo-actions button{padding:2px 4px;font-size:10px;min-width:0}
+  .profile-resume-photos .photo-item-primary{width:156px}
+  .profile-resume-photos .photo-item-primary img{height:180px}
+  .profile-resume-photos .photo-item-primary .photo-actions{padding:5px;gap:4px}
+  .profile-resume-photos .photo-item-primary .photo-actions button{padding:4px 6px;font-size:11px}
+  .photo-item-empty{
+    width:156px;height:180px;display:flex;align-items:center;justify-content:center;
+    border:1px dashed var(--border-subtle);border-radius:var(--radius-sm);
+    background:var(--soft);color:var(--text-secondary);font-size:var(--text-sm);
+  }
+  .profile-resume-photo .photo-upload-row{margin-top:8px}
+  .profile-resume-photo .photo-upload-button{width:100%;justify-content:center}
+  /* Save scope moved to the sticky footer (see .profile-modal-actions):
+     radio choice reads as part of "what happens when I save", not
+     character identity. Buttons stay pinned right via margin-left:auto on
+     .profile-modal-actions-buttons regardless of whether the scope block
+     is present (hidden in non-cloud workspaces). */
+  .profile-modal-actions{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-4)}
+  .profile-modal-actions-buttons{display:flex;gap:8px;margin-left:auto;flex:none}
+  .profile-scope-footer{flex:1 1 320px;min-width:220px;max-width:560px}
+  .profile-scope-radios{display:flex;flex-wrap:wrap;gap:4px var(--space-4);border:0;padding:0;margin:0}
+  .profile-scope-option{display:flex;align-items:center;gap:6px;font-size:var(--text-sm);font-weight:600;color:var(--text-primary);cursor:pointer}
+  .profile-scope-option input{width:auto;flex:none;margin:0}
+  .profile-scope-footer .profile-note{margin:4px 0 0}
   .profile-field-top{
     display:flex;justify-content:space-between;gap:10px;align-items:center;
     margin-bottom:6px;
@@ -288,7 +304,11 @@
   @media(max-width:800px){
     .profile-editor-grid{grid-template-columns:minmax(0,1fr)}
     .profile-field.full{grid-column:auto}
-    .profile-scope-compact{max-width:none;flex-basis:100%}
+    .profile-resume-photo{width:100%}
+    .profile-resume-names{grid-template-columns:1fr}
+    .profile-resume-facts{grid-template-columns:1fr}
+    .profile-scope-footer{max-width:none;flex-basis:100%}
+    .profile-modal-actions-buttons{margin-left:0;width:100%;justify-content:flex-end}
     .initial-relation-row{grid-template-columns:1fr}
     .photo-crop-modal{padding:14px}.photo-crop-viewport{width:100%}.photo-actions button{flex:1 1 auto}
     .character-link-row{align-items:stretch;flex-direction:column}.character-link-actions button{flex:1}.character-link-editor-grid{grid-template-columns:1fr}.character-link-editor-grid .full{grid-column:auto}

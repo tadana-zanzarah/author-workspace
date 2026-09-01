@@ -45,7 +45,7 @@ document.getElementById("confirmActionCancel").onclick=()=>resolveConfirmAction(
 document.getElementById("confirmActionConfirm").onclick=()=>resolveConfirmAction(true);
 document.getElementById("confirmActionModal").onclick=e=>{if(e.target.id==="confirmActionModal")resolveConfirmAction(false)};
 
-document.getElementById("profileSaveScope").addEventListener("change",updateProfileScopeHelp);
+document.querySelectorAll('input[name="profileSaveScope"]').forEach(radio=>radio.addEventListener("change",updateProfileScopeHelp));
 
 document.querySelectorAll("#profileEditorModal .profile-field").forEach((field,index)=>{
   const heading=field.querySelector(".profile-field-top > strong");if(!heading)return;
@@ -755,7 +755,7 @@ document.getElementById("saveProfile").onclick=async()=>{
           profileEditingId=newId;profileDraftCharacter=null;
         }
       }
-    }else if(document.getElementById("profileSaveScope").value==="global"){
+    }else if(profileSaveScopeValue()==="global"){
       result=await api.updateCharacter(character.id,character.characterRevision,{name:newName,surname:profile.surname,baseProfile:profilePayload});
       if(result.ok){const loaded=await cloudProjectSync.reload();if(loaded.ok)data=loaded.data;else showStorageMessage(loaded.message||"Не удалось обновить данные после сохранения.","error")}
     }else{
@@ -765,7 +765,7 @@ document.getElementById("saveProfile").onclick=async()=>{
     }
     if(!result?.ok){showStorageMessage(result?.message||"Не удалось сохранить анкету.","error");return}
     const createdId=result.data?.character?.id,current=cloudProjectSync.confirmedProject.characters.find(item=>item.id===(createdId||character.id));
-    const imageResult=current?await syncCloudCharacterImages(current,old.photos||[],profileDraftPhotos,profileDraftPrimaryPhotoId,document.getElementById("profileSaveScope").value):{ok:true};
+    const imageResult=current?await syncCloudCharacterImages(current,old.photos||[],profileDraftPhotos,profileDraftPrimaryPhotoId,profileSaveScopeValue()):{ok:true};
     if(!imageResult.ok){showStorageMessage(imageResult.message||"Не удалось сохранить изображения персонажа.","error");return}
     if(current){
       const existingInitialRelations=cloudProjectSync.confirmedProject.profiles[current.id]?.initialRelations||{};

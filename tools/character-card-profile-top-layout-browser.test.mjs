@@ -144,40 +144,47 @@ try{
   }
 
   // ================= PROFILE TOP =================
+  // Superseded by the design/character-profile-resume-layout branch: the
+  // photo-strip + save-scope shared header this file originally checked was
+  // replaced by a character résumé header (photo + name/birth facts) with
+  // save-scope moved to the sticky footer as a radio choice. See
+  // tools/character-profile-resume-layout-browser.test.mjs for the dedicated
+  // suite; this block keeps only what is still true (compact header region,
+  // first-viewport fields, photo-tile geometry, photo-management actions).
   {
     await page.locator('.profile-card[data-character-id="layout-long"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
 
-    // 13. No two giant stacked top cards: photo strip and (once visible)
-    // save-scope live inside one shared flex header, not two separate
-    // full-width bordered blocks stacked vertically.
+    // 13. Photo + identity fields live inside one compact resume header
+    // region, not stacked full-width cards; save-scope is not part of it.
     const headerInfo=await page.evaluate(()=>{
-      const header=document.querySelector(".profile-top-header");
-      const photo=document.querySelector(".profile-photo-compact");
+      const header=document.querySelector(".profile-resume");
+      const photo=document.querySelector(".profile-resume-photo");
       return {
         hasHeader:!!header,
         display:header?getComputedStyle(header).display:null,
         photoWidth:photo.getBoundingClientRect().width,
-        modalWidth:document.getElementById("profileEditorModal").getBoundingClientRect().width
+        modalWidth:document.getElementById("profileEditorModal").getBoundingClientRect().width,
+        scopeInsideHeader:!!header.querySelector("#cloudProfileScope")
       };
     });
-    if(!headerInfo.hasHeader)throw new Error("Compact .profile-top-header region is missing");
-    if(headerInfo.display!=="flex")throw new Error(`Top header is not a single flex region: display=${headerInfo.display}`);
+    if(!headerInfo.hasHeader)throw new Error("Compact .profile-resume header region is missing");
+    if(headerInfo.display!=="flex")throw new Error(`Resume header is not a single flex region: display=${headerInfo.display}`);
+    if(headerInfo.scopeInsideHeader)throw new Error("Save-scope control is still inside the resume header — it must live in the sticky footer");
 
-    // 15. A single/couple photos do not stretch the photo box to the full
-    // modal width (no large empty space beside the thumbnails).
-    if(headerInfo.photoWidth>headerInfo.modalWidth*0.6)throw new Error(`Photo box stretched too wide for its content: ${headerInfo.photoWidth} of ${headerInfo.modalWidth}`);
+    // 15. A single/couple photos do not stretch the photo column to the
+    // full modal width (no large empty space beside the portrait).
+    if(headerInfo.photoWidth>headerInfo.modalWidth*0.6)throw new Error(`Photo column stretched too wide for its content: ${headerInfo.photoWidth} of ${headerInfo.modalWidth}`);
 
-    // 12. Toggle the cloud save-scope control on (as it would appear in a
-    // cloud workspace) and confirm it shares the same compact top region,
-    // vertically aligned with the photo strip, not a separate stacked card.
-    await page.evaluate(()=>{document.getElementById("cloudProfileScope").hidden=false});
-    const shareInfo=await page.evaluate(()=>{
-      const photo=document.querySelector(".profile-photo-compact").getBoundingClientRect();
-      const scope=document.getElementById("cloudProfileScope").getBoundingClientRect();
-      return {photoTop:photo.top,scopeTop:scope.top,sameRow:Math.abs(photo.top-scope.top)<2};
+    // 12. Save-scope now lives in the sticky footer, not the resume header.
+    const footerInfo=await page.evaluate(()=>{
+      document.getElementById("cloudProfileScope").hidden=false;
+      const footer=document.querySelector(".profile-modal-actions");
+      const scope=document.getElementById("cloudProfileScope");
+      return {scopeInsideFooter:footer.contains(scope),radios:[...document.querySelectorAll('input[name="profileSaveScope"]')].length};
     });
-    if(!shareInfo.sameRow)throw new Error(`Photo strip and save-scope are not in the same compact row: photoTop=${shareInfo.photoTop} scopeTop=${shareInfo.scopeTop}`);
+    if(!footerInfo.scopeInsideFooter)throw new Error("Save-scope control is not inside the sticky footer (.profile-modal-actions)");
+    if(footerInfo.radios!==2)throw new Error(`Expected 2 save-scope radio options, found ${footerInfo.radios}`);
     await page.evaluate(()=>{document.getElementById("cloudProfileScope").hidden=true});
 
     // 14. First profile fields land well within the first viewport (this
@@ -187,9 +194,9 @@ try{
     const nameFieldTop=await page.locator("#pf_name").evaluate(el=>el.getBoundingClientRect().top);
     if(nameFieldTop>460)throw new Error(`First profile field (#pf_name) is not within the first viewport: top=${nameFieldTop}`);
 
-    // 16. Two photos do not create artificial extra height in the compact
-    // media strip: each tile ends at its own content height (mirrors the
-    // no-leftover-space contract already enforced for the full-size grid).
+    // 16. Photo tiles (portrait + compact strip) end at their own content
+    // height: no leftover space below either the large primary tile or the
+    // small secondary tiles.
     const photoGeometry=await page.evaluate(()=>[...document.querySelectorAll("#profilePhotosGrid .photo-item")].map(item=>{
       const img=item.querySelector("img"),actions=item.querySelector(".photo-actions");
       const style=getComputedStyle(item);
@@ -201,15 +208,14 @@ try{
     }));
     for(const g of photoGeometry){
       const slack=g.itemHeight-(g.contentHeight+g.borderTop+g.borderBottom);
-      if(Math.abs(slack)>1.5)throw new Error(`Compact photo tile has leftover space below its content: ${JSON.stringify(g)}`);
+      if(Math.abs(slack)>1.5)throw new Error(`Photo tile has leftover space below its content: ${JSON.stringify(g)}`);
     }
-    const gridHeight=await page.locator("#profilePhotosGrid").evaluate(el=>el.getBoundingClientRect().height);
-    if(gridHeight>200)throw new Error(`Compact photo strip grew too tall for two photos: ${gridHeight}px`);
 
     // 17. Upload/preview/crop/make-primary/delete still work from the
-    // compact strip.
+    // resume photo column (secondary tiles use abbreviated visible text but
+    // keep the original accessible name via aria-label/title).
     await page.locator('[data-photo-id="photo-long-2"]').getByRole("button",{name:"Сделать главным"}).click();
-    if(!await page.locator('[data-photo-id="photo-long-2"] .photo-primary').count())throw new Error("Make-primary no longer works from the compact strip");
+    if(!await page.locator('[data-photo-id="photo-long-2"] .photo-primary').count())throw new Error("Make-primary no longer works from the resume photo column");
     await page.locator('[data-photo-id="photo-long-1"]').getByRole("button",{name:"Кадрировать"}).click();
     await page.waitForSelector("#photoCropModal",{state:"visible"});
     await page.click("#cancelPhotoCrop");
@@ -221,16 +227,17 @@ try{
     const beforeCount=await page.locator("#profilePhotosGrid .photo-item").count();
     await page.locator('[data-photo-id="photo-long-2"] button.danger').click();
     const afterCount=await page.locator("#profilePhotosGrid .photo-item").count();
-    if(afterCount!==beforeCount-1)throw new Error(`Delete photo did not work from the compact strip: ${beforeCount} -> ${afterCount}`);
+    if(afterCount!==beforeCount-1)throw new Error(`Delete photo did not work from the resume photo column: ${beforeCount} -> ${afterCount}`);
 
-    // 18. Save-scope behavior (help text swap) is unchanged.
+    // 18. Save-scope behavior (help text swap) is unchanged, now driven by
+    // the footer radio group instead of a <select>.
     await page.evaluate(()=>{document.getElementById("cloudProfileScope").hidden=false;updateProfileScopeHelp()});
     const projectHelp=await page.locator("#profileScopeHelp").textContent();
-    await page.selectOption("#profileSaveScope","global");
+    await page.check("#profileSaveScopeGlobal");
     await page.evaluate(()=>updateProfileScopeHelp());
     const globalHelp=await page.locator("#profileScopeHelp").textContent();
     if(!projectHelp.includes("только в этом проекте"))throw new Error(`Project-scope help text regressed: ${projectHelp}`);
-    if(!globalHelp.includes("везде"))throw new Error(`Global-scope help text regressed: ${globalHelp}`);
+    if(!globalHelp.includes("во всех проектах"))throw new Error(`Global-scope help text regressed: ${globalHelp}`);
 
     await page.click("#cancelProfile");
     if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
