@@ -482,13 +482,9 @@
 </div>
 
 
-<div class="modal-backdrop" id="charsModal" role="dialog" aria-modal="true" aria-labelledby="charsModalTitle" aria-describedby="charsModalDescription">
+<div class="modal-backdrop" id="charsModal" role="dialog" aria-modal="true" aria-labelledby="charsModalTitle">
   <div class="modal" style="width:min(1180px,100%);max-height:94vh">
     <h2 id="charsModalTitle">Анкеты персонажей</h2>
-    <p class="profile-note" id="charsModalDescription">
-      Отношения, указанные в анкете, считаются отношениями на начало истории и становятся исходными для первой сцены.
-      Фотографии сохраняются внутри файла данных браузера, поэтому лучше не загружать слишком много очень больших изображений.
-    </p>
     <div id="profilesGrid" class="profiles-grid"></div>
     <div class="modal-actions">
       <button id="closeChars">Закрыть</button>
@@ -527,7 +523,7 @@
 
     <div class="profile-resume">
       <div class="profile-resume-photo">
-        <div id="profilePhotosGrid" class="photos-grid profile-resume-photos"></div>
+        <div id="profilePhotosGrid" class="profile-resume-photos"></div>
         <div class="photo-upload-row">
           <input id="profilePhotosInput" type="file" accept="image/*" multiple class="visually-hidden-input">
           <label for="profilePhotosInput" class="photo-upload-button">＋ Добавить фото</label>
@@ -545,17 +541,20 @@
             <input id="pf_surname" placeholder="Фамилия">
           </div>
         </div>
-        <div class="profile-resume-row profile-resume-facts">
-          <div class="profile-field">
-            <div class="profile-field-top"><strong>Дата рождения</strong><label class="hide-field"><input id="hide_birthday" type="checkbox"> не указывать</label></div>
-            <div class="birthday-grid">
-              <input id="pf_birthYear" type="number" min="1" placeholder="Год необязателен">
-              <select id="pf_birthMonth"></select>
-              <select id="pf_birthDay"></select>
-            </div>
+        <div class="profile-field profile-resume-birthday">
+          <div class="profile-field-top"><strong>Дата рождения</strong><label class="hide-field"><input id="hide_birthday" type="checkbox"> не указывать</label></div>
+          <div class="birthday-grid">
+            <input id="pf_birthYear" type="number" min="1" placeholder="Год необязателен">
+            <select id="pf_birthMonth"></select>
+            <select id="pf_birthDay"></select>
           </div>
+        </div>
+        <div class="profile-resume-row profile-resume-vitals">
           <div class="profile-field">
-            <div class="profile-field-top"><strong>Возраст на начало истории</strong><label class="hide-field"><input id="hide_age" type="checkbox"> не указывать</label></div>
+            <div class="profile-field-top">
+              <strong>Возраст <span class="profile-field-sublabel">на начало истории</span></strong>
+              <label class="hide-field"><input id="hide_age" type="checkbox"> не указывать</label>
+            </div>
             <input id="pf_age" type="number" min="0" step="1" placeholder="Не указано">
           </div>
           <div class="profile-field">

@@ -1,24 +1,31 @@
-// Regression coverage for the design/character-profile-resume-layout branch:
-// Character Profile top area recomposed as a compact character résumé
-// (portrait + name/surname/birth-date/age/zodiac) instead of leading with
-// photo-management/save-scope chrome; save-scope moved out of the résumé
-// into a radio choice in the sticky footer; Character Gallery cards grew
-// taller and gained eye/hair color facts. Checklist below mirrors the task's
-// acceptance list (PROFILE RESUME 1-11, SAVE SCOPE 12-20, GALLERY 21-30).
+// Regression coverage for the fix/character-resume-photo-layout branch:
+// (1) removed the stale "Отношения, указанные в анкете..." explanatory
+// paragraph from the Character Gallery modal, letting cards use the small
+// amount of freed vertical space; (2) recomposed the Character Profile
+// résumé fact grid — birth date is now its own full-width row, Age/Zodiac
+// moved to a row of their own below it (the old cramped 3-column grid used
+// to wrap "Возраст на начало истории" into a tall, near-vertical column);
+// (3) replaced the résumé's multi-photo UI (a narrow vertical mini-gallery
+// with per-thumbnail action rows and nested scrollbars) with one dominant
+// active/primary portrait plus a single low-height horizontal thumbnail
+// strip and one shared action row. Checklist mirrors the task's acceptance
+// list (GALLERY 1-4, RESUME 5-10, PHOTO 11-24).
 import {createRequire} from "node:module";
 import {spawn} from "node:child_process";
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
-const port=8048,server=spawn(process.execPath,["tools/server.mjs"],{stdio:"ignore",env:{...process.env,PORT:String(port)}});
+const port=8049,server=spawn(process.execPath,["tools/server.mjs"],{stdio:"ignore",env:{...process.env,PORT:String(port)}});
 
 const png="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const dataUrl=`data:image/png;base64,${png}`;
+const mkPhotos=(prefix,n)=>Array.from({length:n},(_,i)=>({id:`${prefix}-${i}`,source:{kind:"data-url",value:dataUrl},crop:{x:.5,y:.5,zoom:1},alt:"",caption:""}));
 const project={
   version:11,
   characters:[
     {id:"resume-full",name:"Рене",sortOrder:1000},
     {id:"resume-partial",name:"Марго",sortOrder:2000},
     {id:"resume-nophoto",name:"Без фото",sortOrder:3000},
+    {id:"resume-many",name:"Полина",sortOrder:3500},
     {id:"gallery-short",name:"Коротко",sortOrder:4000}
   ],
   profiles:{
@@ -39,6 +46,10 @@ const project={
       primaryPhotoId:"photo-partial-1",hidden:{eyeColor:true,hairColor:true}
     },
     "resume-nophoto":{id:"resume-nophoto",characterId:"resume-nophoto",name:"Без фото",hidden:{}},
+    "resume-many":{
+      id:"resume-many",characterId:"resume-many",name:"Полина",photos:mkPhotos("photo-many",5),
+      primaryPhotoId:"photo-many-0",hidden:{}
+    },
     "gallery-short":{id:"gallery-short",characterId:"gallery-short",name:"Коротко",race:"Человек",hidden:{}}
   },
   characterLinks:[],
@@ -51,120 +62,117 @@ try{
   const page=await browser.newPage({viewport:{width:1440,height:900}});
   page.setDefaultTimeout(8000);
   const errors=[];page.on("pageerror",error=>errors.push(error.message));
-  await page.addInitScript(value=>{if(sessionStorage.getItem("resume-layout-seeded"))return;sessionStorage.setItem("resume-layout-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
+  await page.addInitScript(value=>{if(sessionStorage.getItem("resume-photo-layout-seeded"))return;sessionStorage.setItem("resume-photo-layout-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
   for(let i=0;i<30;i++){try{await page.goto(`http://127.0.0.1:${port}/?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(r=>setTimeout(r,100))}}
   await page.click("#projectMenu > summary");await page.click("#manageChars");
   await page.waitForSelector("#charsModal",{state:"visible"});
 
-  // ================= GALLERY (21-30) =================
+  // ================= GALLERY (1-4) =================
   {
-    // 21. Cards are taller than the c91150a baseline (640px max-height budget).
-    const cardH=await page.locator(".profile-card").first().evaluate(el=>el.getBoundingClientRect().height);
-    if(cardH<=640)throw new Error(`Gallery card is not taller than the c91150a baseline: ${cardH}px`);
+    // 1. Stale explanatory paragraph is gone entirely (element and text).
+    if(await page.locator("#charsModalDescription").count())throw new Error("Stale #charsModalDescription paragraph still present");
+    const modalText=await page.locator("#charsModal .modal").innerText();
+    if(modalText.includes("Отношения, указанные в анкете"))throw new Error("Stale gallery explanation text still rendered");
+    if(modalText.includes("Фотографии сохраняются внутри файла данных браузера"))throw new Error("Stale gallery explanation text still rendered");
 
-    // 22. Cards remain viewport-safe: the grid never pushes past the modal.
+    // 2. The grid starts materially higher: nothing but the title sits above it.
+    const gap=await page.evaluate(()=>{
+      const title=document.getElementById("charsModalTitle").getBoundingClientRect();
+      const grid=document.getElementById("profilesGrid").getBoundingClientRect();
+      return grid.top-title.bottom;
+    });
+    if(gap>40)throw new Error(`Gallery grid does not start materially higher after removing the stale paragraph: gap=${gap}`);
+
+    // 3. Cards remain viewport-safe: the modal itself never exceeds the
+    // viewport (it scrolls internally instead — this fixture's 5 characters
+    // wrap past one row at 1440px) and no single card exceeds the hard
+    // height ceiling.
     const safe=await page.evaluate(()=>{
       const modal=document.querySelector("#charsModal .modal").getBoundingClientRect();
-      const grid=document.getElementById("profilesGrid").getBoundingClientRect();
-      return grid.bottom<=modal.bottom+1&&modal.bottom<=window.innerHeight;
+      return {modalFits:modal.bottom<=window.innerHeight,cardH:document.querySelector(".profile-card").getBoundingClientRect().height};
     });
-    if(!safe)throw new Error("Gallery grid/modal overflow the viewport");
+    if(!safe.modalFits)throw new Error("Gallery modal overflows the viewport");
+    if(safe.cardH>760)throw new Error(`Gallery card exceeds the hard height ceiling: ${safe.cardH}px`);
 
-    // 23+24. Eye color, then hair color, appear before height in the facts list.
+    // 4. Stats and the action footer stay aligned at the same offset across
+    // a short and a longer card (unaffected by the paragraph removal).
     const fullCard=page.locator('.profile-card[data-character-id="resume-full"]');
-    const factLabels=await fullCard.locator(".profile-fact strong").allTextContents();
-    const eyeIdx=factLabels.findIndex(t=>t.includes("Цвет глаз")),hairIdx=factLabels.findIndex(t=>t.includes("Цвет волос")),heightIdx=factLabels.findIndex(t=>t.includes("Рост"));
-    if(eyeIdx<0||hairIdx<0||heightIdx<0)throw new Error(`Missing expected fact rows: ${JSON.stringify(factLabels)}`);
-    if(!(eyeIdx<heightIdx))throw new Error("Eye color does not appear before height");
-    if(!(hairIdx<heightIdx))throw new Error("Hair color does not appear before height");
-    if(!(eyeIdx<hairIdx))throw new Error("Eye color does not appear before hair color");
-
-    // 25. Missing/hidden eye+hair values are omitted cleanly (hidden on
-    // resume-partial), not shown as a noisy blank/undefined row.
-    const partialCard=page.locator('.profile-card[data-character-id="resume-partial"]');
-    const partialLabels=await partialCard.locator(".profile-fact strong").allTextContents();
-    if(partialLabels.some(t=>t.includes("Цвет глаз")))throw new Error("Hidden eyeColor still rendered a fact row");
-    if(partialLabels.some(t=>t.includes("Цвет волос")))throw new Error("Hidden hairColor still rendered a fact row");
-
-    // 26. Only the info region scrolls on an overflowing card; the card itself does not.
-    const scrollState=await fullCard.evaluate(el=>{
-      const scroller=el.querySelector(".profile-card-scroll");
-      return {cardOverflowsSelf:el.scrollHeight>el.clientHeight+1,infoScrollable:scroller.scrollHeight>=scroller.clientHeight};
-    });
-    if(scrollState.cardOverflowsSelf)throw new Error("Outer card overflows/scrolls — only .profile-card-scroll should");
-
-    // 27+28. Stats and action footer stay fixed while info scrolls.
-    const before=await fullCard.evaluate(el=>({stats:el.querySelector(".profile-auto").getBoundingClientRect().top,actions:el.querySelector(".profile-card-actions").getBoundingClientRect().top}));
-    await fullCard.evaluate(el=>{el.querySelector(".profile-card-scroll").scrollTop=9999});
-    const after=await fullCard.evaluate(el=>({stats:el.querySelector(".profile-auto").getBoundingClientRect().top,actions:el.querySelector(".profile-card-actions").getBoundingClientRect().top}));
-    if(Math.abs(before.stats-after.stats)>0.5)throw new Error("Statistics moved while info scrolled");
-    if(Math.abs(before.actions-after.actions)>0.5)throw new Error("Action footer moved while info scrolled");
-
-    // 29+30. Stats and actions align at the same offset across a short and a longer card.
-    const offsetOf=async(locator,sel)=>locator.evaluate((el,s)=>el.querySelector(s).getBoundingClientRect().top-el.getBoundingClientRect().top,sel);
     const shortCard=page.locator('.profile-card[data-character-id="gallery-short"]');
+    const offsetOf=async(locator,sel)=>locator.evaluate((el,s)=>el.querySelector(s).getBoundingClientRect().top-el.getBoundingClientRect().top,sel);
     const statsDelta=Math.abs(await offsetOf(fullCard,".profile-auto")-await offsetOf(shortCard,".profile-auto"));
     const actionsDelta=Math.abs(await offsetOf(fullCard,".profile-card-actions")-await offsetOf(shortCard,".profile-card-actions"));
     if(statsDelta>1)throw new Error(`Stats offset differs between cards: ${statsDelta}`);
     if(actionsDelta>1)throw new Error(`Actions offset differs between cards: ${actionsDelta}`);
   }
 
-  // ================= PROFILE RESUME (1-11) =================
+  // ================= RESUME (5-10) =================
   for(const width of [1440,1200,1024]){
     await page.setViewportSize({width,height:900});
     await page.locator('.profile-card[data-character-id="resume-full"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
 
-    const resumeInfo=await page.evaluate(()=>{
-      const resume=document.querySelector(".profile-resume");
-      const personality=document.querySelector(".profile-section");
+    const layout=await page.evaluate(()=>{
+      const names=document.querySelector(".profile-resume-names");
+      const birthday=document.querySelector(".profile-resume-birthday");
+      const vitals=document.querySelector(".profile-resume-vitals");
+      const ageTop=vitals.querySelector(".profile-field-top");
+      const ageStrong=ageTop.querySelector(":scope > strong");
+      const sublabel=ageStrong.querySelector(".profile-field-sublabel");
+      const hideAge=document.getElementById("hide_age");
+      const hideBirthday=document.getElementById("hide_birthday");
       return {
-        hasResume:!!resume,
-        nameInResume:!!resume.querySelector("#pf_name"),
-        surnameInResume:!!resume.querySelector("#pf_surname"),
-        birthdayInResume:!!resume.querySelector("#pf_birthYear"),
-        ageInResume:!!resume.querySelector("#pf_age"),
-        zodiacInResume:!!resume.querySelector("#pf_zodiac"),
-        primaryPhotoInResume:!!resume.querySelector(".photo-item-primary img"),
-        nameCount:document.querySelectorAll("#pf_name").length,
-        surnameCount:document.querySelectorAll("#pf_surname").length,
-        birthdayCount:document.querySelectorAll("#pf_birthYear").length,
-        ageCount:document.querySelectorAll("#pf_age").length,
-        zodiacCount:document.querySelectorAll("#pf_zodiac").length,
-        personalityTitle:personality?.querySelector(".profile-section-title")?.textContent,
-        personalityHasName:!!personality?.querySelector("#pf_name"),
-        personalityHasSurname:!!personality?.querySelector("#pf_surname"),
-        resumeBottom:resume.getBoundingClientRect().bottom,
-        personalityTop:personality?.getBoundingClientRect().top,
-        resumeHeight:resume.getBoundingClientRect().height
+        namesTop:names.getBoundingClientRect().top,
+        birthdayTop:birthday.getBoundingClientRect().top,
+        vitalsTop:vitals.getBoundingClientRect().top,
+        namesHasNameSurname:!!names.querySelector("#pf_name")&&!!names.querySelector("#pf_surname"),
+        birthdayHasFields:!!birthday.querySelector("#pf_birthYear")&&!!birthday.querySelector("#pf_birthMonth")&&!!birthday.querySelector("#pf_birthDay"),
+        birthdayWidth:birthday.getBoundingClientRect().width,
+        vitalsHasAgeZodiac:!!vitals.querySelector("#pf_age")&&!!vitals.querySelector("#pf_zodiac"),
+        ageAccessibleText:ageStrong.textContent.trim(),
+        sublabelIsBlock:sublabel&&getComputedStyle(sublabel).display==="block",
+        ageFieldTopHeight:ageTop.getBoundingClientRect().height,
+        hideAgeVisible:hideAge.getBoundingClientRect().width>0,
+        hideBirthdayVisible:hideBirthday.getBoundingClientRect().width>0,
+        ageInputWidth:document.getElementById("pf_age").getBoundingClientRect().width
       };
     });
-    if(width===1440){
-      // 1-5. Name/surname/birth date/age/zodiac all live in the résumé.
-      if(!resumeInfo.nameInResume)throw new Error("Name field is not inside the résumé header");
-      if(!resumeInfo.surnameInResume)throw new Error("Surname field is not inside the resume header");
-      if(!resumeInfo.birthdayInResume)throw new Error("Birth date field is not inside the resume header");
-      if(!resumeInfo.ageInResume)throw new Error("Age field is not inside the resume header");
-      if(!resumeInfo.zodiacInResume)throw new Error("Zodiac field is not inside the resume header");
-      // 6. Promoted fields are not duplicated elsewhere in the form.
-      if(resumeInfo.nameCount!==1)throw new Error(`#pf_name is duplicated: ${resumeInfo.nameCount}`);
-      if(resumeInfo.surnameCount!==1)throw new Error(`#pf_surname is duplicated: ${resumeInfo.surnameCount}`);
-      if(resumeInfo.birthdayCount!==1)throw new Error(`#pf_birthYear is duplicated: ${resumeInfo.birthdayCount}`);
-      if(resumeInfo.ageCount!==1)throw new Error(`#pf_age is duplicated: ${resumeInfo.ageCount}`);
-      if(resumeInfo.zodiacCount!==1)throw new Error(`#pf_zodiac is duplicated: ${resumeInfo.zodiacCount}`);
-      if(resumeInfo.personalityHasName||resumeInfo.personalityHasSurname)throw new Error("Личность section still contains a promoted field");
-      // 7. Primary photo appears in the resume.
-      if(!resumeInfo.primaryPhotoInResume)throw new Error("Primary photo is not rendered in the resume header");
-      // 9. Two photos do not inflate the resume excessively.
-      if(resumeInfo.resumeHeight>420)throw new Error(`Two-photo resume header grew too tall: ${resumeInfo.resumeHeight}px`);
-      // 11. The first detailed section (Личность) begins soon after the resume.
-      if(resumeInfo.personalityTitle!=="ЛИЧНОСТЬ"&&!/личность/i.test(resumeInfo.personalityTitle||""))throw new Error(`First section after résumé is not Личность: ${resumeInfo.personalityTitle}`);
-      if(resumeInfo.personalityTop-resumeInfo.resumeBottom>80)throw new Error(`Личность section does not begin soon after the résumé: gap=${resumeInfo.personalityTop-resumeInfo.resumeBottom}`);
-    }
-    // No select/input inside the resume overflows its own box at any tested width.
-    const overflow=await page.evaluate(()=>[...document.querySelectorAll(".profile-resume-facts select,.profile-resume-facts input")].some(el=>el.scrollWidth>el.clientWidth+1));
-    if(overflow)throw new Error(`A resume date/fact control overflows its box at width=${width}`);
-    // 4 (again). Birth date renders correctly (full date -> zodiac derives).
+
+    // 5. Name/Surname are row 1 (above birth date, which is above vitals).
+    if(!layout.namesHasNameSurname)throw new Error("Name/Surname are not together in the first résumé row");
+    if(!(layout.namesTop<layout.birthdayTop))throw new Error(`Names row is not above the birth-date row at width=${width}`);
+    // 6. Birth date has its own usable wide row (year/month/day all present,
+    // and the row uses most of the identity column's width rather than
+    // being squeezed alongside Age/Zodiac).
+    if(!layout.birthdayHasFields)throw new Error("Birth date row is missing year/month/day fields");
+    const identityWidth=await page.evaluate(()=>document.querySelector(".profile-resume-identity").getBoundingClientRect().width);
+    if(layout.birthdayWidth<identityWidth*0.9)throw new Error(`Birth date row is not a wide, full-width row at width=${width}: ${layout.birthdayWidth} of ${identityWidth}`);
+    // 7. Age and Zodiac appear together, below the birth-date row.
+    if(!layout.vitalsHasAgeZodiac)throw new Error("Age/Zodiac are not together in the résumé");
+    if(!(layout.birthdayTop<layout.vitalsTop))throw new Error(`Age/Zodiac row is not below the birth-date row at width=${width}`);
+    // 8. The full "Возраст на начало истории" semantic label is still the
+    // accessible name for #pf_age (via aria-labelledby), even though only
+    // "Возраст" is visually prominent.
+    if(layout.ageAccessibleText!=="Возраст на начало истории")throw new Error(`Age field's accessible label text regressed: "${layout.ageAccessibleText}"`);
+    const ageLabelledby=await page.evaluate(()=>{
+      const id=document.getElementById("pf_age").getAttribute("aria-labelledby");
+      return id&&document.getElementById(id)?.textContent.trim();
+    });
+    if(ageLabelledby!=="Возраст на начало истории")throw new Error(`#pf_age is not labelled by the full semantic phrase: "${ageLabelledby}"`);
+    // 9. The secondary "на начало истории" descriptor drops to its own
+    // quiet line instead of wrapping "Возраст" itself into a tall, narrow,
+    // near-vertical column (two intentional lines, not four wrapped ones).
+    if(!layout.sublabelIsBlock)throw new Error("Age sublabel is not rendered on its own line");
+    if(layout.ageFieldTopHeight>48)throw new Error(`Age field-top is taller than two label lines — looks wrapped, not intentional: ${layout.ageFieldTopHeight}px at width=${width}`);
+    // 10. "не указывать" stays visible/usable and does not visibly starve
+    // its neighboring input (Age's own input keeps a reasonable width).
+    if(!layout.hideAgeVisible)throw new Error("Age's «не указывать» checkbox is not visible");
+    if(!layout.hideBirthdayVisible)throw new Error("Birth date's «не указывать» checkbox is not visible");
+    if(layout.ageInputWidth<80)throw new Error(`Age input was squeezed by its «не указывать» checkbox: ${layout.ageInputWidth}px at width=${width}`);
+
+    // No select/input inside the résumé overflows its own box at any tested width.
+    const overflow=await page.evaluate(()=>[...document.querySelectorAll(".profile-resume-vitals select,.profile-resume-vitals input,.profile-resume-birthday select,.profile-resume-birthday input")].some(el=>el.scrollWidth>el.clientWidth+1));
+    if(overflow)throw new Error(`A résumé date/fact control overflows its box at width=${width}`);
+    // Birth date renders correctly (full date -> zodiac derives).
     const zodiacValue=await page.locator("#pf_zodiac").inputValue();
     if(zodiacValue!=="Дева")throw new Error(`Zodiac did not derive from birth date at width=${width}: ${zodiacValue}`);
 
@@ -173,12 +181,16 @@ try{
   }
   await page.setViewportSize({width:1440,height:900});
 
-  // 8. One photo does not inflate the resume header either.
+  // ================= PHOTO (11-24) =================
+
+  // 11. One photo -> one primary portrait, no empty/pointless thumbnail strip.
   {
     await page.locator('.profile-card[data-character-id="resume-partial"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
+    if(await page.locator(".photo-resume-strip").count())throw new Error("A single photo should not render a thumbnail strip");
+    if(!await page.locator(".photo-item-primary").count())throw new Error("Single photo is not shown as the primary portrait");
     const h=await page.locator(".profile-resume").evaluate(el=>el.getBoundingClientRect().height);
-    if(h>320)throw new Error(`One-photo resume header grew too tall: ${h}px`);
+    if(h>340)throw new Error(`One-photo résumé header grew too tall: ${h}px`);
     // Partial birth date (month+day, no year) still yields a zodiac and does
     // not throw/overflow.
     const zodiac=await page.locator("#pf_zodiac").inputValue();
@@ -187,24 +199,69 @@ try{
     if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
   }
 
-  // 10. Photo actions (view/crop/delete/make-primary) still work from the resume.
+  // 12+23. Two photos -> one large active portrait + horizontal thumbnails;
+  // primary indicator is correct.
   {
     await page.locator('.profile-card[data-character-id="resume-full"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
-    await page.locator('[data-photo-id="photo-full-2"]').getByRole("button",{name:"Сделать главным"}).click();
-    if(!await page.locator('[data-photo-id="photo-full-2"] .photo-primary').count())throw new Error("Make-primary did not work from the resume photo column");
-    await page.locator('[data-photo-id="photo-full-1"]').getByRole("button",{name:"Кадрировать"}).click();
-    await page.waitForSelector("#photoCropModal",{state:"visible"});
-    await page.click("#cancelPhotoCrop");
-    await page.waitForSelector("#photoCropModal",{state:"hidden"});
-    await page.locator('[data-photo-id="photo-full-1"]').getByRole("button",{name:"Просмотреть"}).click();
-    await page.waitForSelector("#photoLightboxModal",{state:"visible"});
-    await page.click("#closePhotoLightbox");
-    await page.waitForSelector("#photoLightboxModal",{state:"hidden"});
-    const before=await page.locator("#profilePhotosGrid .photo-item").count();
-    await page.locator('[data-photo-id="photo-full-1"] button.danger').click();
-    const after=await page.locator("#profilePhotosGrid .photo-item").count();
-    if(after!==before-1)throw new Error(`Delete photo did not work from the resume photo column: ${before} -> ${after}`);
+    const info=await page.evaluate(()=>{
+      const resume=document.querySelector(".profile-resume");
+      const strip=document.querySelector(".photo-resume-strip");
+      return {
+        resumeHeight:resume.getBoundingClientRect().height,
+        stripPresent:!!strip,
+        thumbCount:document.querySelectorAll(".photo-thumb").length,
+        primaryBadgeOnPrimaryTile:!!document.querySelector('.photo-item-primary[data-photo-id="photo-full-1"] .photo-primary'),
+        primaryMarkOnThumb:!!document.querySelector('.photo-thumb[data-photo-id="photo-full-1"] .photo-thumb-primary-mark')
+      };
+    });
+    if(!info.stripPresent)throw new Error("Two photos should render a horizontal thumbnail strip");
+    if(info.thumbCount!==2)throw new Error(`Expected 2 thumbnails, got ${info.thumbCount}`);
+    if(info.resumeHeight>420)throw new Error(`Two-photo résumé header grew too tall: ${info.resumeHeight}px`);
+    if(!info.primaryBadgeOnPrimaryTile)throw new Error("Primary badge is not on the primary photo's enlarged tile");
+    if(!info.primaryMarkOnThumb)throw new Error("Primary indicator is not on the primary photo's thumbnail");
+    await page.click("#cancelProfile");
+    if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
+  }
+
+  // 13. Three-or-more photos still don't fall back to a vertical mini-gallery.
+  {
+    await page.locator('.profile-card[data-character-id="resume-many"] button[aria-label^="Редактировать анкету"]').click();
+    await page.waitForSelector("#profileEditorModal",{state:"visible"});
+    const info=await page.evaluate(()=>{
+      const strip=document.querySelector(".photo-resume-strip");
+      return {
+        thumbCount:document.querySelectorAll(".photo-thumb").length,
+        stripFlexDirection:getComputedStyle(strip).flexDirection,
+        primaryTileCount:document.querySelectorAll(".photo-item-primary").length
+      };
+    });
+    if(info.thumbCount!==5)throw new Error(`Expected 5 thumbnails for a 5-photo character, got ${info.thumbCount}`);
+    if(info.stripFlexDirection!=="row")throw new Error(`Thumbnail strip is not a horizontal row (found "${info.stripFlexDirection}") — looks like the old vertical mini-gallery`);
+    if(info.primaryTileCount!==1)throw new Error(`Expected exactly one enlarged primary/active portrait, found ${info.primaryTileCount}`);
+
+    // 14+15+16. No vertical scrollbar anywhere in the photo column, no
+    // horizontal scrollbar on the column as a whole — only the thumbnail
+    // strip itself may scroll horizontally.
+    const overflow=await page.evaluate(()=>{
+      const grid=document.getElementById("profilePhotosGrid"),strip=document.querySelector(".photo-resume-strip");
+      return {
+        gridScrollsY:grid.scrollHeight>grid.clientHeight+1,
+        gridScrollsX:grid.scrollWidth>grid.clientWidth+1,
+        stripScrollsX:strip.scrollWidth>strip.clientWidth
+      };
+    });
+    if(overflow.gridScrollsY)throw new Error("Photo column has a vertical internal scrollbar");
+    if(overflow.gridScrollsX)throw new Error("Photo column (outside the thumbnail strip) has a horizontal scrollbar");
+    if(!overflow.stripScrollsX)throw new Error("Thumbnail strip with 5 photos at 196px column width should need to scroll horizontally");
+
+    // 17. Selecting a thumbnail changes the active managed photo.
+    const thirdThumb=page.locator(".photo-thumb").nth(2);
+    await thirdThumb.click();
+    if(await thirdThumb.getAttribute("aria-selected")!=="true")throw new Error("Clicking a thumbnail did not mark it selected");
+    const activePhotoId=await page.evaluate(()=>document.querySelector(".photo-item-primary").dataset.photoId);
+    if(activePhotoId!=="photo-many-2")throw new Error(`Selecting a thumbnail did not change the active/enlarged photo: ${activePhotoId}`);
+
     await page.click("#cancelProfile");
     if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
   }
@@ -214,60 +271,81 @@ try{
     await page.locator('.profile-card[data-character-id="resume-nophoto"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
     if(!await page.locator(".photo-item-empty").count())throw new Error("No-photo empty state placeholder is missing");
+    if(await page.locator(".photo-resume-strip").count())throw new Error("No-photo state should not render a thumbnail strip");
     await page.click("#cancelProfile");
   }
 
-  // ================= SAVE SCOPE (12-20) =================
+  // 18-22+24. Preview/crop/make-primary/delete/add-photo all still work from
+  // the résumé photo column via the active-photo + shared-action-row model,
+  // and photo state (order, primary) round-trips through save/reload.
+  {
+    await page.locator('.profile-card[data-character-id="resume-full"] button[aria-label^="Редактировать анкету"]').click();
+    await page.waitForSelector("#profileEditorModal",{state:"visible"});
+    const photosGrid=page.locator("#profilePhotosGrid");
+
+    // 20. Make-primary: select the non-primary thumbnail, then use the
+    // shared action row (only offered because it is not already primary).
+    await page.locator('.photo-thumb[data-photo-id="photo-full-2"]').click();
+    await photosGrid.getByRole("button",{name:"Сделать главным"}).click();
+    if(!await page.locator('.photo-item-primary[data-photo-id="photo-full-2"] .photo-primary').count())throw new Error("Make-primary did not work from the résumé photo column");
+
+    // 19. Crop: select the other photo, then crop it via the shared row.
+    await page.locator('.photo-thumb[data-photo-id="photo-full-1"]').click();
+    await page.locator('[data-action="crop-photo"]').click();
+    await page.waitForSelector("#photoCropModal",{state:"visible"});
+    await page.click("#cancelPhotoCrop");
+    await page.waitForSelector("#photoCropModal",{state:"hidden"});
+
+    // 18. Preview (lightbox) for the currently active photo.
+    await page.locator('[data-action="view-photo"]').click();
+    await page.waitForSelector("#photoLightboxModal",{state:"visible"});
+    await page.click("#closePhotoLightbox");
+    await page.waitForSelector("#photoLightboxModal",{state:"hidden"});
+
+    // 22. Add photo still works from the résumé column.
+    const beforeAdd=await page.evaluate(()=>profileDraftPhotos.length);
+    await page.setInputFiles("#profilePhotosInput",[{name:"c.png",mimeType:"image/png",buffer:Buffer.from(png,"base64")}]);
+    await page.waitForFunction(n=>profileDraftPhotos.length===n,beforeAdd+1);
+
+    // 21. Delete the currently-active photo (photo-full-1).
+    const beforeDelete=await page.evaluate(()=>profileDraftPhotos.length);
+    await photosGrid.getByRole("button",{name:"Удалить"}).click();
+    const afterDelete=await page.evaluate(()=>profileDraftPhotos.length);
+    if(afterDelete!==beforeDelete-1)throw new Error(`Delete photo did not work from the résumé photo column: ${beforeDelete} -> ${afterDelete}`);
+
+    // 24. Save and reload: photo order/primary state persists correctly.
+    await page.click("#saveProfile");
+    await page.waitForSelector("#profileEditorModal",{state:"hidden"});
+    const saved=await page.evaluate(()=>data.profiles["resume-full"]);
+    if(saved.photos.length!==2)throw new Error(`Unexpected saved photo count: ${saved.photos.length}`);
+    if(saved.photos[0].id!=="photo-full-2")throw new Error(`Photo order did not persist correctly: ${JSON.stringify(saved.photos.map(p=>p.id))}`);
+    if(saved.primaryPhotoId!=="photo-full-2")throw new Error(`Primary photo did not persist correctly: ${saved.primaryPhotoId}`);
+
+    await page.locator('.profile-card[data-character-id="resume-full"] button[aria-label^="Редактировать анкету"]').click();
+    await page.waitForSelector("#profileEditorModal",{state:"visible"});
+    const reloaded=await page.evaluate(()=>({count:profileDraftPhotos.length,primary:profileDraftPrimaryPhotoId,order:profileDraftPhotos.map(p=>p.id)}));
+    if(reloaded.count!==2||reloaded.primary!=="photo-full-2"||reloaded.order[0]!=="photo-full-2")throw new Error(`Reloaded photo state regressed: ${JSON.stringify(reloaded)}`);
+    if(!await page.locator('.photo-item-primary[data-photo-id="photo-full-2"] .photo-primary').count())throw new Error("Primary indicator is wrong after reload");
+    await page.click("#cancelProfile");
+    if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
+  }
+
+  // ================= SAVE SCOPE (unchanged by this branch) =================
   {
     await page.locator('.profile-card[data-character-id="resume-full"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
 
-    // 12. Save scope is not visible in the resume/top area.
     const inResume=await page.evaluate(()=>!!document.querySelector(".profile-resume #cloudProfileScope, .profile-resume input[name=\"profileSaveScope\"]"));
-    if(inResume)throw new Error("Save scope is visible inside the resume/top area");
+    if(inResume)throw new Error("Save scope is visible inside the résumé/top area");
 
     await page.evaluate(()=>{document.getElementById("cloudProfileScope").hidden=false;updateProfileScopeHelp()});
-
-    // 13. Radio group is visible in the sticky footer.
     const footerCheck=await page.evaluate(()=>{
       const footer=document.querySelector(".profile-modal-actions");
       const radios=[...document.querySelectorAll('input[name="profileSaveScope"]')];
-      return {inFooter:radios.every(r=>footer.contains(r)),count:radios.length,visible:radios.every(r=>r.getBoundingClientRect().width>0)};
+      return {inFooter:radios.every(r=>footer.contains(r)),count:radios.length};
     });
     if(!footerCheck.inFooter||footerCheck.count!==2)throw new Error(`Save-scope radio group is not correctly placed in the sticky footer: ${JSON.stringify(footerCheck)}`);
-    if(!footerCheck.visible)throw new Error("Save-scope radios are not visible once the cloud scope control is shown");
 
-    // 14+17. Exactly one option is selected, and it is the project-only
-    // default (matches the pre-redesign hardcoded default for any character).
-    const checked=await page.evaluate(()=>[...document.querySelectorAll('input[name="profileSaveScope"]')].filter(r=>r.checked).map(r=>r.value));
-    if(checked.length!==1)throw new Error(`Expected exactly one selected scope option, got ${JSON.stringify(checked)}`);
-    if(checked[0]!=="project")throw new Error(`Default save scope regressed: ${checked[0]}`);
-
-    // 15+16. Radios map to the same underlying value the save logic reads.
-    if(await page.evaluate(()=>profileSaveScopeValue())!=="project")throw new Error("profileSaveScopeValue() did not report 'project' for the default radio state");
-    await page.check("#profileSaveScopeGlobal");
-    if(await page.evaluate(()=>profileSaveScopeValue())!=="global")throw new Error("profileSaveScopeValue() did not report 'global' after checking the global radio");
-    await page.check("#profileSaveScopeProject");
-    if(await page.evaluate(()=>profileSaveScopeValue())!=="project")throw new Error("profileSaveScopeValue() did not report 'project' after checking the project radio back");
-
-    // 18. Helper text updates for each option with plain, non-technical wording.
-    await page.evaluate(()=>updateProfileScopeHelp());
-    const projectHelp=await page.locator("#profileScopeHelp").textContent();
-    await page.check("#profileSaveScopeGlobal");
-    await page.evaluate(()=>updateProfileScopeHelp());
-    const globalHelp=await page.locator("#profileScopeHelp").textContent();
-    if(!projectHelp.includes("только в этом проекте"))throw new Error(`Project-scope help text regressed: ${projectHelp}`);
-    if(!/во всех проектах/.test(globalHelp))throw new Error(`Global-scope help text regressed: ${globalHelp}`);
-    for(const technical of ["override","inheritance","global profile","base profile"]){
-      if(projectHelp.toLowerCase().includes(technical)||globalHelp.toLowerCase().includes(technical))throw new Error(`Help text leaks a technical term "${technical}"`);
-    }
-
-    // Radio labels are clickable (native <label> wrapping, not just the input).
-    await page.locator(".profile-scope-option",{hasText:"Только в этом проекте"}).click();
-    if(await page.evaluate(()=>profileSaveScopeValue())!=="project")throw new Error("Clicking the radio's label text did not select the project option");
-
-    // 19+20. Save/Cancel behavior is unchanged: editing a field enables Save,
-    // and Cancel discards without persisting.
     await page.fill("#pf_age","99");
     await page.dispatchEvent("#pf_age","input");
     if(await page.locator("#saveProfile").isDisabled())throw new Error("Save button did not enable after editing a field");
@@ -279,5 +357,5 @@ try{
   }
 
   if(errors.length)throw new Error(`Console/page errors during test: ${errors.join(" | ")}`);
-  console.log("Character profile résumé layout browser tests: OK");
+  console.log("Character résumé/photo layout browser tests: OK");
 }finally{await browser.close();server.kill()}

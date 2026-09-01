@@ -184,11 +184,15 @@ try{
       {name:"a.png",mimeType:"image/png",buffer:Buffer.from(pngBase64,"base64")},
       {name:"b.png",mimeType:"image/png",buffer:Buffer.from(pngBase64,"base64")}
     ]);
-    await page.waitForSelector('#profilePhotosGrid [data-photo-id]:nth-child(2)');
-    // 16. Two photo cards with different action-row heights (the primary one
-    // has one fewer button than the non-primary one) must each end at their
-    // own content height — no leftover differently-colored block.
-    const geometry=await page.evaluate(()=>[...document.querySelectorAll("#profilePhotosGrid .photo-item")].map(item=>{
+    await page.waitForSelector('.photo-resume-strip .photo-thumb:nth-child(2)');
+    // 16. The primary portrait tile ends at its own content height — no
+    // leftover space below the image + shared action row (superseded the
+    // old per-thumbnail geometry check — secondary tiles are now plain
+    // thumbnails with no action row of their own; see
+    // character-profile-resume-layout-browser.test.mjs for the dedicated
+    // photo-composition suite).
+    const primaryGeometry=await page.evaluate(()=>{
+      const item=document.querySelector(".photo-item-primary");
       const img=item.querySelector("img"),actions=item.querySelector(".photo-actions");
       const style=getComputedStyle(item);
       return {
@@ -196,11 +200,9 @@ try{
         contentHeight:img.getBoundingClientRect().height+actions.getBoundingClientRect().height,
         borderTop:parseFloat(style.borderTopWidth),borderBottom:parseFloat(style.borderBottomWidth)
       };
-    }));
-    for(const g of geometry){
-      const slack=g.itemHeight-(g.contentHeight+g.borderTop+g.borderBottom);
-      if(Math.abs(slack)>1.5)throw new Error(`Photo card has leftover space below its content: ${JSON.stringify(g)}`);
-    }
+    });
+    const primarySlack=primaryGeometry.itemHeight-(primaryGeometry.contentHeight+primaryGeometry.borderTop+primaryGeometry.borderBottom);
+    if(Math.abs(primarySlack)>1.5)throw new Error(`Primary photo tile has leftover space below its content: ${JSON.stringify(primaryGeometry)}`);
     // 5. App-styled upload trigger is present and the raw input, while
     // clipped off-screen, is still a real tab stop (kept keyboard-usable).
     const trigger=await page.evaluate(()=>{
@@ -219,7 +221,7 @@ try{
   {
     await page.locator('.profile-card[data-character-id="char-a"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
-    await page.locator('[data-photo-id]').first().getByRole("button",{name:"Кадрировать"}).click();
+    await page.locator('[data-action="crop-photo"]').click();
     await page.waitForSelector("#photoCropModal",{state:"visible"});
     // 17+19. The range slider uses the warm brand accent, not browser blue.
     const accent=await page.evaluate(()=>getComputedStyle(document.getElementById("photoCropZoom")).accentColor);

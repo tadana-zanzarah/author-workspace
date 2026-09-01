@@ -12,13 +12,19 @@
     display:flex;flex-direction:column;
     /* Viewport-aware cap so cards read as stable columns of roughly equal
        height instead of documents of arbitrary length — the budget leaves
-       room for the gallery modal's own header/description/actions chrome
-       above and below the grid. Content beyond the cap scrolls inside
-       .profile-card-scroll rather than growing the card. Raised again (from
-       640px) so cards read as substantial character dossiers and use more
-       of the available vertical space at common desktop viewports (e.g.
-       1440×900) instead of stopping short of it. */
-    max-height:min(760px,calc(100vh - 190px));
+       room for the gallery modal's own header/actions chrome above and
+       below the grid (the old stale-explanation paragraph between the
+       title and the grid is gone, so this budget shrank to match — a small,
+       deliberate height gain, not a redesign). Content beyond the cap
+       scrolls inside .profile-card-scroll rather than growing the card.
+       Kept below ~728px (the natural, uncapped height of an ordinary
+       fully-visible card — all facts shown, one structural-link line, no
+       giant description) at the common 900px-tall viewport: above that,
+       cards with real but modest content stop hitting the cap and render
+       at their own shorter natural height while heavier cards still clip
+       to the cap, breaking the equal-row-height read this budget exists
+       to protect. */
+    max-height:min(760px,calc(100vh - 176px));
     border:1px solid var(--border-subtle);
     border-radius:var(--radius-lg);
     overflow:hidden;
@@ -166,39 +172,69 @@
     display:flex;flex-wrap:wrap;gap:var(--space-5);align-items:flex-start;
     margin-bottom:var(--space-4);
   }
-  .profile-resume-photo{flex:0 0 auto;width:156px;max-width:100%}
+  /* Widened from the old 156px mini-column: with the primary-portrait +
+     thumbnail-strip model (see .profile-resume-photos below) the column
+     needs room to look intentional rather than the previous excessively
+     narrow multi-photo strip. Still a fixed compact width — the identity
+     column keeps the majority of the row. */
+  .profile-resume-photo{flex:0 0 auto;width:196px;max-width:100%}
   .profile-resume-identity{flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:var(--space-3)}
   .profile-resume-row{display:grid;gap:var(--space-4)}
   .profile-resume-names{grid-template-columns:1fr 1fr}
-  .profile-resume-facts{grid-template-columns:minmax(0,2.2fr) minmax(0,.6fr) minmax(0,.75fr)}
-  .profile-resume-facts .birthday-grid select{font-size:13px}
-  /* Portrait + thumbnail strip: the primary photo (.photo-item-primary,
-     always rendered first — see renderProfilePhotos) reads as a dossier
-     portrait; any other photos wrap below it as a small compact strip
-     instead of a uniform grid, so 1-2 photos don't inflate the résumé and
-     many photos scroll instead of growing it. */
-  .profile-resume-photos{
-    display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;
-    max-height:280px;overflow-y:auto;padding-right:2px;
-    scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent;
-  }
-  .profile-resume-photos::-webkit-scrollbar{width:8px}
-  .profile-resume-photos::-webkit-scrollbar-track{background:transparent}
-  .profile-resume-photos::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px}
-  .profile-resume-photos .photo-item{width:70px}
-  .profile-resume-photos .photo-item img{height:64px}
-  .profile-resume-photos .photo-item .photo-actions{padding:3px;gap:2px}
-  .profile-resume-photos .photo-item .photo-actions button{padding:2px 4px;font-size:10px;min-width:0}
-  .profile-resume-photos .photo-item-primary{width:156px}
-  .profile-resume-photos .photo-item-primary img{height:180px}
-  .profile-resume-photos .photo-item-primary .photo-actions{padding:5px;gap:4px}
-  .profile-resume-photos .photo-item-primary .photo-actions button{padding:4px 6px;font-size:11px}
+  /* Birth date is a full-width row of its own (year/month/day + "не
+     указывать" have room to breathe); Age and Zodiac get their own row
+     below as two equal columns instead of squeezing both alongside the
+     date in one crowded row — that grid used to wrap "Возраст на начало
+     истории" into a tall, near-vertical single-word column. */
+  .profile-resume-vitals{grid-template-columns:1fr 1fr}
+  .profile-resume-birthday .birthday-grid select{font-size:13px}
+  /* "Возраст" stays a normal field label; the "на начало истории"
+     qualifier drops to a quieter, smaller line beneath it instead of
+     fighting for width in the same line — the accessible name (wired via
+     aria-labelledby in app.js) still reads the full strong element, so the
+     complete semantic label ("Возраст на начало истории") is preserved for
+     assistive tech even though only "Возраст" is visually prominent. */
+  .profile-field-sublabel{display:block;font-weight:400;font-size:var(--text-2xs);color:var(--text-secondary);margin-top:1px}
+  /* Portrait + thumbnail strip: one dominant active/primary portrait
+     (.photo-item-primary, always the photo currently selected for
+     management — see renderProfilePhotos) plus, only when more than one
+     photo exists, a single low-height horizontal strip of thumbnails below
+     it. Replaces the old vertical mini-gallery (stacked cards with a
+     horizontal scrollbar inside the photo column) — nothing in this column
+     scrolls vertically or horizontally except the strip itself. */
+  .profile-resume-photos{display:flex;flex-direction:column;gap:8px}
+  .profile-resume-photos .photo-item-primary{width:100%}
+  .profile-resume-photos .photo-item-primary img{width:100%;height:196px}
   .photo-item-empty{
-    width:156px;height:180px;display:flex;align-items:center;justify-content:center;
+    width:100%;height:196px;display:flex;align-items:center;justify-content:center;
     border:1px dashed var(--border-subtle);border-radius:var(--radius-sm);
     background:var(--soft);color:var(--text-secondary);font-size:var(--text-sm);
   }
-  .profile-resume-photo .photo-upload-row{margin-top:8px}
+  .photo-resume-strip{
+    display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:2px 0 4px;
+    /* min-width:0 overrides the flex item default of min-width:auto (sized
+       to its unshrinkable content) — without it this row, nested inside the
+       .profile-resume-photos flex COLUMN, would refuse to shrink to the
+       column's own width and the horizontal scroll would leak out to the
+       whole photo column instead of staying contained in the strip. No
+       negative-margin bleed on the sides either — it would push this row's
+       border box wider than its parent, overflowing the photo column by
+       the same amount it was meant to fix. */
+    min-width:0;
+    scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent;
+  }
+  .photo-resume-strip::-webkit-scrollbar{height:7px}
+  .photo-resume-strip::-webkit-scrollbar-track{background:transparent}
+  .photo-resume-strip::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px}
+  .photo-thumb{
+    flex:0 0 auto;width:42px;height:42px;padding:0;position:relative;overflow:hidden;
+    border:2px solid transparent;border-radius:var(--radius-sm);background:var(--soft);cursor:pointer;
+  }
+  .photo-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .photo-thumb-active{border-color:var(--brand)}
+  .photo-thumb:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px}
+  .photo-thumb-primary-mark{position:absolute;top:1px;right:1px;font-size:9px;line-height:1;color:#fff;text-shadow:0 0 2px rgba(0,0,0,.85),0 0 2px rgba(0,0,0,.85)}
+  .profile-resume-photo .photo-upload-row{margin-top:2px}
   .profile-resume-photo .photo-upload-button{width:100%;justify-content:center}
   /* Save scope moved to the sticky footer (see .profile-modal-actions):
      radio choice reads as part of "what happens when I save", not
@@ -257,16 +293,6 @@
   .birthday-grid{
     display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;
   }
-  .photos-grid{
-    display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;
-    /* align-items:start (CSS Grid's default is stretch) — each photo card
-       sizes to its own content and ends there. Without this, a taller
-       sibling (e.g. a non-primary photo whose action row wraps to fit
-       "Сделать главным") stretched every card in the row to match, leaving
-       a visible --soft-colored gap below the shorter cards' own content. */
-    align-items:start;
-    margin-top:9px;
-  }
   .photo-item{
     position:relative;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden;
     background:var(--soft);
@@ -306,7 +332,7 @@
     .profile-field.full{grid-column:auto}
     .profile-resume-photo{width:100%}
     .profile-resume-names{grid-template-columns:1fr}
-    .profile-resume-facts{grid-template-columns:1fr}
+    .profile-resume-vitals{grid-template-columns:1fr}
     .profile-scope-footer{max-width:none;flex-basis:100%}
     .profile-modal-actions-buttons{margin-left:0;width:100%;justify-content:flex-end}
     .initial-relation-row{grid-template-columns:1fr}

@@ -274,7 +274,7 @@ function editProfileNow(characterId){
   const character=characterById(characterId)||profileDraftCharacter;if(!character||character.id!==characterId)return;
   const p=normalizeProfile(data.profiles?.[characterId],character);
   document.getElementById("cloudProfileScope").hidden=!isCloudWorkspace();document.getElementById("profileSaveScopeProject").checked=true;updateProfileScopeHelp();
-  profileDraftPhotoFiles=new Map();profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";profileDraftCharacterLinks=safeOwnCopy(data.characterLinks||[]);
+  profileDraftPhotoFiles=new Map();profileDraftPhotos=safeOwnCopy(p.photos||[]);profileDraftPrimaryPhotoId=p.primaryPhotoId||profileDraftPhotos[0]?.id||"";profileDraftActivePhotoId=profileDraftPrimaryPhotoId;profileDraftCharacterLinks=safeOwnCopy(data.characterLinks||[]);
   document.getElementById("profileEditorTitle").textContent=p.name||character.name?`Анкета: ${p.name||character.name}`:"Новый персонаж";
   const values={
     name:p.name||character.name,surname:p.surname,race:p.race,sex:p.sex,secondarySex:p.secondarySex,
@@ -316,34 +316,54 @@ function editProfileNow(characterId){
 }
 
 function renderProfilePhotos(){
-  // The resume portrait shows one dominant primary photo; any other photos
-  // render as a small compact strip (see .photo-item-primary /
-  // .profile-resume-photos in profiles.css) rather than a uniform grid, so
-  // 1-2 photos don't inflate the resume header. Photos keep their existing
-  // array order - whichever one is currently primary just renders larger -
-  // rather than being reordered to always lead, which would make the tile
-  // visually "jump" position whenever the user changes the primary photo.
-  document.getElementById("profilePhotosGrid").innerHTML=profileDraftPhotos.map((photo,i)=>{
-    const isPrimary=photo.id===profileDraftPrimaryPhotoId;
-    // Secondary thumbnails use short labels (full phrase kept in
-    // aria-label/title) so several fit in a compact strip; the primary tile
-    // keeps full-word buttons since it alone dominates the résumé photo
-    // column.
-    const viewLabel=isPrimary?"Просмотреть":"Вид";
-    const cropLabel=isPrimary?"Кадрировать":"Кадр";
-    const deleteLabel=isPrimary?"Удалить":"×";
-    return `
-    <div class="photo-item${isPrimary?" photo-item-primary":""}" data-photo-id="${esc(photo.id)}">
-      <img src="${esc(photo.source.value)}" alt="${esc(photo.alt||"")}" style="${cropImageStyle(photo.crop)}">
+  // The resume photo column shows one dominant active/primary portrait
+  // (.photo-item-primary) plus, only when more than one photo exists, a
+  // single low-height horizontal thumbnail strip below it (.photo-resume-
+  // strip) — replacing the old vertical mini-gallery of stacked photo
+  // cards with per-thumbnail action rows (nested vertical + horizontal
+  // scrolling, tiny abbreviated buttons). Clicking a thumbnail makes it the
+  // "active" photo; one shared action row underneath the portrait then
+  // operates on whichever photo is active, instead of rendering four
+  // controls under every thumbnail.
+  if(!profileDraftPhotos.some(photo=>photo.id===profileDraftActivePhotoId)){
+    profileDraftActivePhotoId=profileDraftPrimaryPhotoId||profileDraftPhotos[0]?.id||"";
+  }
+  const grid=document.getElementById("profilePhotosGrid");
+  const active=draftPhoto(profileDraftActivePhotoId);
+  if(!active){
+    grid.innerHTML='<div class="photo-item-empty">Нет фото</div>';
+    return;
+  }
+  const isPrimary=active.id===profileDraftPrimaryPhotoId;
+  const strip=profileDraftPhotos.length<2?"":`
+    <div class="photo-resume-strip" role="listbox" aria-label="Фотографии персонажа">
+      ${profileDraftPhotos.map((photo,i)=>{
+        const isActive=photo.id===profileDraftActivePhotoId;
+        const isPhotoPrimary=photo.id===profileDraftPrimaryPhotoId;
+        return `<button type="button" class="photo-thumb${isActive?" photo-thumb-active":""}" data-photo-id="${esc(photo.id)}" role="option" aria-selected="${isActive}" aria-label="Фотография ${i+1}${isPhotoPrimary?" (главная)":""}" onclick="setActivePhoto('${jsq(photo.id)}')">
+          <img src="${esc(photo.source.value)}" alt="" style="${cropImageStyle(photo.crop)}">
+          ${isPhotoPrimary?'<span class="photo-thumb-primary-mark" aria-hidden="true">★</span>':""}
+        </button>`;
+      }).join("")}
+    </div>`;
+  grid.innerHTML=`
+    <div class="photo-item photo-item-primary" data-photo-id="${esc(active.id)}">
+      <img src="${esc(active.source.value)}" alt="${esc(active.alt||"")}" style="${cropImageStyle(active.crop)}">
       ${isPrimary?'<span class="photo-primary">Главное</span>':""}
       <div class="photo-actions">
-        <button type="button" data-action="view-photo" aria-label="Просмотреть" title="Просмотреть" onclick="openPhotoLightbox('${jsq(photo.id)}')">${viewLabel}</button>
-        <button type="button" data-action="crop-photo" aria-label="Кадрировать" title="Кадрировать" onclick="openPhotoCrop('${jsq(photo.id)}')">${cropLabel}</button>
-        ${!isPrimary?`<button type="button" aria-label="Сделать главным" title="Сделать главным" onclick="setPrimaryPhoto('${jsq(photo.id)}')">★</button>`:""}
-        <button type="button" class="danger" aria-label="Удалить фотографию ${i+1}" title="Удалить" onclick="removeProfilePhoto(${i})">${deleteLabel}</button>
+        <button type="button" data-action="view-photo" aria-label="Просмотреть" title="Просмотреть" onclick="openPhotoLightbox('${jsq(active.id)}')">Просмотреть</button>
+        <button type="button" data-action="crop-photo" aria-label="Кадрировать" title="Кадрировать" onclick="openPhotoCrop('${jsq(active.id)}')">Кадрировать</button>
+        ${!isPrimary?`<button type="button" aria-label="Сделать главным" title="Сделать главным" onclick="setPrimaryPhoto('${jsq(active.id)}')">Сделать главным</button>`:""}
+        <button type="button" class="danger" aria-label="Удалить фотографию" title="Удалить" onclick="removeActiveProfilePhoto()">Удалить</button>
       </div>
-    </div>`;
-  }).join("")||'<div class="photo-item-empty">Нет фото</div>';
+    </div>
+    ${strip}`;
+}
+
+function setActivePhoto(id){
+  if(!profileDraftPhotos.some(photo=>photo.id===id))return;
+  profileDraftActivePhotoId=id;
+  renderProfilePhotos();
 }
 
 function removeProfilePhoto(index){
@@ -352,6 +372,11 @@ function removeProfilePhoto(index){
   if(!profileDraftPhotos.some(photo=>photo.id===profileDraftPrimaryPhotoId))profileDraftPrimaryPhotoId=profileDraftPhotos[0]?.id||"";
   renderProfilePhotos();
   syncBeforeUnload();
+}
+
+function removeActiveProfilePhoto(){
+  const index=profileDraftPhotos.findIndex(photo=>photo.id===profileDraftActivePhotoId);
+  if(index>=0)removeProfilePhoto(index);
 }
 
 async function readOriginalImage(file){
@@ -414,5 +439,5 @@ function birthdayDisplay(profile){
   return result||"Не указано";
 }
 
-Object.assign(globalThis,{characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,profileSaveScopeValue,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
-export {characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,profileSaveScopeValue,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,removeProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};
+Object.assign(globalThis,{characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,profileSaveScopeValue,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,setActivePhoto,removeProfilePhoto,removeActiveProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
+export {characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,profileSaveScopeValue,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,setActivePhoto,removeProfilePhoto,removeActiveProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};

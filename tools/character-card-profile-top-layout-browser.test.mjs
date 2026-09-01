@@ -194,10 +194,14 @@ try{
     const nameFieldTop=await page.locator("#pf_name").evaluate(el=>el.getBoundingClientRect().top);
     if(nameFieldTop>460)throw new Error(`First profile field (#pf_name) is not within the first viewport: top=${nameFieldTop}`);
 
-    // 16. Photo tiles (portrait + compact strip) end at their own content
-    // height: no leftover space below either the large primary tile or the
-    // small secondary tiles.
-    const photoGeometry=await page.evaluate(()=>[...document.querySelectorAll("#profilePhotosGrid .photo-item")].map(item=>{
+    // 16. The primary portrait tile ends at its own content height: no
+    // leftover space below the image + shared action row (superseded the
+    // old per-thumbnail geometry check — secondary tiles are now plain
+    // thumbnails with no action row of their own; see
+    // character-profile-resume-layout-browser.test.mjs for the dedicated
+    // photo-composition suite).
+    const primaryGeometry=await page.evaluate(()=>{
+      const item=document.querySelector(".photo-item-primary");
       const img=item.querySelector("img"),actions=item.querySelector(".photo-actions");
       const style=getComputedStyle(item);
       return {
@@ -205,29 +209,31 @@ try{
         contentHeight:img.getBoundingClientRect().height+actions.getBoundingClientRect().height,
         borderTop:parseFloat(style.borderTopWidth),borderBottom:parseFloat(style.borderBottomWidth)
       };
-    }));
-    for(const g of photoGeometry){
-      const slack=g.itemHeight-(g.contentHeight+g.borderTop+g.borderBottom);
-      if(Math.abs(slack)>1.5)throw new Error(`Photo tile has leftover space below its content: ${JSON.stringify(g)}`);
-    }
+    });
+    const primarySlack=primaryGeometry.itemHeight-(primaryGeometry.contentHeight+primaryGeometry.borderTop+primaryGeometry.borderBottom);
+    if(Math.abs(primarySlack)>1.5)throw new Error(`Primary photo tile has leftover space below its content: ${JSON.stringify(primaryGeometry)}`);
 
     // 17. Upload/preview/crop/make-primary/delete still work from the
-    // resume photo column (secondary tiles use abbreviated visible text but
-    // keep the original accessible name via aria-label/title).
-    await page.locator('[data-photo-id="photo-long-2"]').getByRole("button",{name:"Сделать главным"}).click();
-    if(!await page.locator('[data-photo-id="photo-long-2"] .photo-primary').count())throw new Error("Make-primary no longer works from the resume photo column");
-    await page.locator('[data-photo-id="photo-long-1"]').getByRole("button",{name:"Кадрировать"}).click();
+    // resume photo column: selecting a thumbnail makes it the active photo,
+    // then the single shared action row operates on it.
+    const photosGrid=page.locator("#profilePhotosGrid");
+    await page.locator('.photo-thumb[data-photo-id="photo-long-2"]').click();
+    await photosGrid.getByRole("button",{name:"Сделать главным"}).click();
+    if(!await page.locator('.photo-item-primary[data-photo-id="photo-long-2"] .photo-primary').count())throw new Error("Make-primary no longer works from the resume photo column");
+    await page.locator('.photo-thumb[data-photo-id="photo-long-1"]').click();
+    await page.locator('[data-action="crop-photo"]').click();
     await page.waitForSelector("#photoCropModal",{state:"visible"});
     await page.click("#cancelPhotoCrop");
     await page.waitForSelector("#photoCropModal",{state:"hidden"});
-    await page.locator('[data-photo-id="photo-long-1"]').getByRole("button",{name:"Просмотреть"}).click();
+    await page.locator('[data-action="view-photo"]').click();
     await page.waitForSelector("#photoLightboxModal",{state:"visible"});
     await page.click("#closePhotoLightbox");
     await page.waitForSelector("#photoLightboxModal",{state:"hidden"});
-    const beforeCount=await page.locator("#profilePhotosGrid .photo-item").count();
-    await page.locator('[data-photo-id="photo-long-2"] button.danger').click();
-    const afterCount=await page.locator("#profilePhotosGrid .photo-item").count();
+    const beforeCount=await page.evaluate(()=>profileDraftPhotos.length);
+    await photosGrid.getByRole("button",{name:"Удалить"}).click();
+    const afterCount=await page.evaluate(()=>profileDraftPhotos.length);
     if(afterCount!==beforeCount-1)throw new Error(`Delete photo did not work from the resume photo column: ${beforeCount} -> ${afterCount}`);
+    if(await page.locator(".photo-thumb").count()!==0)throw new Error("A single remaining photo should not still show a thumbnail strip");
 
     // 18. Save-scope behavior (help text swap) is unchanged, now driven by
     // the footer radio group instead of a <select>.
