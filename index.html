@@ -525,21 +525,23 @@
   <div class="modal" style="width:min(1050px,100%);max-height:94vh">
     <h2 id="profileEditorTitle">Анкета персонажа</h2>
 
-    <div id="cloudProfileScope" class="profile-field full profile-scope-field" hidden>
-      <label class="profile-scope-row">
-        <span>Изменения персонажа</span>
-        <select id="profileSaveScope"><option value="project">Только для этого проекта</option><option value="global">Для персонажа везде</option></select>
-      </label>
-      <p class="profile-note" id="profileScopeHelp"></p>
-    </div>
-
-    <div class="profile-field full">
-      <div class="profile-field-top"><strong>Фото и визуализации</strong></div>
-      <div class="photo-upload-row">
-        <input id="profilePhotosInput" type="file" accept="image/*" multiple class="visually-hidden-input">
-        <label for="profilePhotosInput" class="photo-upload-button">＋ Добавить фото</label>
+    <div class="profile-top-header">
+      <div class="profile-photo-compact">
+        <div class="profile-field-top"><strong>Фото и визуализации</strong></div>
+        <div class="photo-upload-row">
+          <input id="profilePhotosInput" type="file" accept="image/*" multiple class="visually-hidden-input">
+          <label for="profilePhotosInput" class="photo-upload-button">＋ Добавить фото</label>
+        </div>
+        <div id="profilePhotosGrid" class="photos-grid photos-grid-compact"></div>
       </div>
-      <div id="profilePhotosGrid" class="photos-grid"></div>
+
+      <div id="cloudProfileScope" class="profile-scope-compact" hidden>
+        <label class="profile-scope-row">
+          <span>Изменения персонажа</span>
+          <select id="profileSaveScope"><option value="project">Только для этого проекта</option><option value="global">Для персонажа везде</option></select>
+        </label>
+        <p class="profile-note" id="profileScopeHelp"></p>
+      </div>
     </div>
 
     <section class="profile-section">

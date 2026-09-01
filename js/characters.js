@@ -88,10 +88,10 @@ function renderProfiles(){
           <div class="profile-facts">${facts.map(([k,v])=>`<div class="profile-fact"><strong>${k}:</strong> ${esc(v)}</div>`).join("")}</div>
           ${!p.hidden?.description&&p.description?`<div class="profile-description">${esc(p.description)}</div>`:""}
           ${structural.length?`<div class="profile-structural-summary"><strong>Связи:</strong>${structural.map(link=>{const other=link.fromCharacterId===character.id?link.toCharacterId:link.fromCharacterId;return `<div>${esc(characterName(other))} — ${esc(characterLinkDisplayLabel(link,character.id))}</div>`}).join("")}</div>`:""}
-          ${renderProfileAutomaticSection(character.id)}
         </div>
+        ${renderProfileAutomaticSection(character.id)}
         <div class="profile-card-actions">
-          <button class="row-action-quiet" aria-label="Личная хронология: ${esc(character.name)}" title="Личная хронология" onclick="openCharacterTimeline('${jsq(character.id)}')">🕘</button>
+          <button class="row-action-quiet" aria-label="Личная хронология: ${esc(character.name)}" title="Личная хронология" onclick="openCharacterTimeline('${jsq(character.id)}')"><svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><circle cx="8.3" cy="8.7" r="5.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8.3 6v3l2.2 1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.6 2.6L3 2.4l.4 1.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <button aria-label="Переместить персонажа ${esc(character.name)} влево" onclick="moveProfile('${jsq(character.id)}',-1)">←</button>
           <button aria-label="Переместить персонажа ${esc(character.name)} вправо" onclick="moveProfile('${jsq(character.id)}',1)">→</button>
           <span class="profile-card-actions-spacer" aria-hidden="true"></span>

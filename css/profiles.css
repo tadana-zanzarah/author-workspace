@@ -14,8 +14,10 @@
        height instead of documents of arbitrary length — the budget leaves
        room for the gallery modal's own header/description/actions chrome
        above and below the grid. Content beyond the cap scrolls inside
-       .profile-card-scroll rather than growing the card. */
-    max-height:min(560px,calc(100vh - 260px));
+       .profile-card-scroll rather than growing the card. Raised from the
+       560px-based budget so the 1/3-photo / 2/3-info composition has room
+       to breathe instead of reading as a cramped photo tile with a footer. */
+    max-height:min(640px,calc(100vh - 230px));
     border:1px solid var(--border-subtle);
     border-radius:var(--radius-lg);
     overflow:hidden;
@@ -37,7 +39,11 @@
   .profile-drag-handle:active{cursor:grabbing}
   .profile-cover{
     flex:none;
-    height:200px;
+    /* ~1/3 of the card's total height budget (see .profile-card max-height)
+       so the photo reads as substantial without the text/info area — which
+       clearly owns the remaining ~2/3 — feeling like a cramped footer under
+       a photo tile. */
+    height:224px;
     background:var(--soft);
     display:flex;
     align-items:center;
@@ -70,6 +76,11 @@
   .profile-card-scroll::-webkit-scrollbar-track{background:transparent}
   .profile-card-scroll::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px}
   .profile-card-scroll::-webkit-scrollbar-thumb:hover{background:var(--text-secondary)}
+  /* Statistics sit outside .profile-card-scroll (see renderProfiles) so they
+     stay fixed at the same vertical position across cards in a row —
+     regardless of how much facts/structural-link text a given character has
+     — the same way .profile-card-actions already does. */
+  .profile-card .profile-auto{flex:none}
   .profile-facts{display:grid;gap:4px;font-size:var(--text-sm)}
   /* Label carries the stronger weight (bold, primary ink); the value stays
      regular weight in secondary ink — scannable without bolding the whole
@@ -143,17 +154,48 @@
     background:var(--paper);border:1px solid var(--border-faint);border-radius:var(--radius-md);
     padding:var(--space-4);
   }
-  /* Compact save-scope control — a single row, not a full bordered card like
-     the photo/links sections, since it's one decision rather than a data
-     group. Wording is deliberately plain-language (no "override"/
-     "inheritance"); the underlying scope contract is unchanged. */
-  #profileEditorModal .profile-field.profile-scope-field{padding:10px 14px}
+  /* Compact top header: photo strip + save-scope share one region instead of
+     two large stacked cards ("Фото и визуализации" / "Изменения персонажа"),
+     so the first actual profile fields ("Личность") land within the first
+     viewport. Each side keeps its own boxed surface sized to its own content
+     (flex:0 1 auto, not stretched) rather than one shared full-width box —
+     with #cloudProfileScope hidden (local/non-cloud workspace) that means the
+     photo box hugs its 1-2 thumbnails instead of stretching into a mostly
+     empty rectangle beside them. */
+  .profile-top-header{
+    display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-start;
+    margin-bottom:var(--space-3);
+  }
+  .profile-photo-compact{
+    flex:0 1 auto;min-width:0;max-width:100%;
+    background:var(--paper);border:1px solid var(--border-faint);border-radius:var(--radius-md);
+    padding:var(--space-3) var(--space-4);
+  }
+  .profile-scope-compact{
+    flex:0 1 260px;min-width:200px;max-width:300px;
+    background:var(--paper);border:1px solid var(--border-faint);border-radius:var(--radius-md);
+    padding:var(--space-3) var(--space-4);
+  }
   .profile-scope-row{
-    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    display:flex;flex-direction:column;align-items:flex-start;gap:6px;
     font-size:var(--text-sm);font-weight:600;color:var(--text-secondary);
   }
-  .profile-scope-row select{width:auto;min-width:230px;flex:none}
-  .profile-scope-field .profile-note{margin:6px 0 0}
+  .profile-scope-row select{width:100%;min-width:0}
+  .profile-scope-compact .profile-note{margin:6px 0 0}
+  /* Compact media strip: fixed-width tiles (not 1fr) so a single photo
+     doesn't stretch to fill the whole header width, and a capped scrollable
+     height so many photos wrap/scroll instead of growing the top area. */
+  .photos-grid-compact{
+    grid-template-columns:repeat(auto-fill,84px);gap:6px;
+    max-height:172px;overflow-y:auto;padding-right:2px;
+    scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent;
+  }
+  .photos-grid-compact::-webkit-scrollbar{width:8px}
+  .photos-grid-compact::-webkit-scrollbar-track{background:transparent}
+  .photos-grid-compact::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px}
+  .photos-grid-compact .photo-item img{height:70px}
+  .photos-grid-compact .photo-actions{padding:4px;gap:3px}
+  .photos-grid-compact .photo-actions button{padding:3px 5px;font-size:10px}
   .profile-field-top{
     display:flex;justify-content:space-between;gap:10px;align-items:center;
     margin-bottom:6px;
@@ -246,6 +288,7 @@
   @media(max-width:800px){
     .profile-editor-grid{grid-template-columns:minmax(0,1fr)}
     .profile-field.full{grid-column:auto}
+    .profile-scope-compact{max-width:none;flex-basis:100%}
     .initial-relation-row{grid-template-columns:1fr}
     .photo-crop-modal{padding:14px}.photo-crop-viewport{width:100%}.photo-actions button{flex:1 1 auto}
     .character-link-row{align-items:stretch;flex-direction:column}.character-link-actions button{flex:1}.character-link-editor-grid{grid-template-columns:1fr}.character-link-editor-grid .full{grid-column:auto}
