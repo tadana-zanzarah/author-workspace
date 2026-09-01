@@ -29,7 +29,8 @@ const project={
     {id:"resume-nophoto",name:"Без фото",sortOrder:3000},
     {id:"resume-many",name:"Полина",sortOrder:3500},
     {id:"resume-ten",name:"Декада",sortOrder:3700},
-    {id:"gallery-short",name:"Коротко",sortOrder:4000}
+    {id:"gallery-short",name:"Коротко",sortOrder:4000},
+    {id:"gallery-long",name:"Архивариус",sortOrder:4500}
   ],
   profiles:{
     "resume-full":{
@@ -57,9 +58,19 @@ const project={
       id:"resume-ten",characterId:"resume-ten",name:"Декада",photos:mkPhotos("photo-ten",10),
       primaryPhotoId:"photo-ten-0",hidden:{}
     },
-    "gallery-short":{id:"gallery-short",characterId:"gallery-short",name:"Коротко",race:"Человек",hidden:{}}
+    "gallery-short":{id:"gallery-short",characterId:"gallery-short",name:"Коротко",race:"Человек",hidden:{}},
+    "gallery-long":{
+      id:"gallery-long",characterId:"gallery-long",name:"Архивариус",surname:"Полнознающая",
+      race:"Эльф",sex:"Женский",secondarySex:"Небинарный",age:"128",
+      birthday:{year:"1896",month:"3",day:"2"},height:"172 см",build:"Атлетическое",
+      eyeColor:"Изумрудный",hairColor:"Серебристый",profession:"Архивариус",orientation:"Бисексуальность",
+      description:"Очень длинное описание персонажа для проверки прокрутки информационной области. ".repeat(30),
+      hidden:{}
+    }
   },
-  characterLinks:[],
+  characterLinks:[
+    {id:"link-gallery-long",fromCharacterId:"gallery-long",toCharacterId:"resume-full",category:"guardianship",type:"guardian",reverseType:"ward",structureKind:"guardianship"}
+  ],
   chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],
   locations:[],tags:[],future:{},scenes:[]
 };
@@ -74,7 +85,7 @@ try{
   await page.click("#projectMenu > summary");await page.click("#manageChars");
   await page.waitForSelector("#charsModal",{state:"visible"});
 
-  // ================= GALLERY (1-4) =================
+  // ================= GALLERY (1-20) =================
   {
     // 1. Stale explanatory paragraph is gone entirely (element and text).
     if(await page.locator("#charsModalDescription").count())throw new Error("Stale #charsModalDescription paragraph still present");
@@ -90,56 +101,167 @@ try{
     });
     if(gap>40)throw new Error(`Gallery grid does not start materially higher after removing the stale paragraph: gap=${gap}`);
 
-    // 3. Cards remain viewport-safe (the modal claims a fixed share of the
-    // viewport and scrolls internally rather than overflowing it), AND —
-    // the point of this branch — the row of cards stretches to use nearly
-    // all of that claimed height instead of sizing to a viewport-tuned
-    // max-height and leaving space unused beneath the grid.
+    // 3/16/17/18/20. Card height is a fixed, viewport-aware value — NOT the
+    // modal's available height divided by however many rows exist. With this
+    // fixture (7 characters, several rows at 1440px) each card individually
+    // claims most of the modal's vertical budget, so the grid now NEEDS to
+    // scroll to reach row 2+ (the opposite of the old "stretch rows to fill,
+    // never scroll" model this branch replaces) — that is the fix, not a
+    // regression. What must hold: every row shares exactly one card height
+    // (rows don't get squeezed relative to each other), and — the direct
+    // regression check for "row 2 shrinks row 1" — the first row's card
+    // height measured with only enough characters for one row must equal its
+    // height once more characters push a 2nd/3rd row into existence.
     const heightUse=await page.evaluate(()=>{
       const modal=document.querySelector("#charsModal .modal").getBoundingClientRect();
       const grid=document.getElementById("profilesGrid");
       const gridRect=grid.getBoundingClientRect();
       const cards=[...document.querySelectorAll(".profile-card")];
-      const lastBottom=Math.max(...cards.map(c=>c.getBoundingClientRect().bottom));
       return {
         modalFits:modal.bottom<=window.innerHeight,
-        gridScrolls:grid.scrollHeight>grid.clientHeight+1,
-        unusedBelowCards:gridRect.bottom-lastBottom,
+        gridScrollsX:grid.scrollWidth>grid.clientWidth+1,
         rowTops:[...new Set(cards.map(c=>Math.round(c.getBoundingClientRect().top)))].sort((a,b)=>a-b),
-        rowHeights:[...new Set(cards.map(c=>Math.round(c.getBoundingClientRect().height)))].sort((a,b)=>a-b)
+        rowHeights:[...new Set(cards.map(c=>Math.round(c.getBoundingClientRect().height)))].sort((a,b)=>a-b),
+        firstCardHeight:cards[0].getBoundingClientRect().height
       };
     });
     if(!heightUse.modalFits)throw new Error("Gallery modal overflows the viewport");
-    if(heightUse.gridScrolls)throw new Error("Gallery grid needed to scroll for a fixture that should fit in two height-stretched rows — cards are not using available height");
-    if(heightUse.unusedBelowCards>40)throw new Error(`Cards leave more than a small normal gap below them inside the modal: ${heightUse.unusedBelowCards}px`);
-    // Two rows exist (this fixture has 5 gallery characters at 1440px,
-    // wrapping past one row): cards start at 2 distinct Y offsets, but
-    // (the actual point of this branch) both rows are stretched to exactly
-    // the same height by the grid's own 1fr track sizing rather than each
-    // sizing to its own row's content — one shared height value even though
-    // there are 2 rows.
-    if(heightUse.rowTops.length!==2)throw new Error(`Expected cards to start at exactly 2 distinct row offsets (2 rows), got: ${JSON.stringify(heightUse.rowTops)}`);
-    if(heightUse.rowHeights.length!==1)throw new Error(`Expected both rows to share one stretched height, got distinct heights: ${JSON.stringify(heightUse.rowHeights)}`);
+    if(heightUse.gridScrollsX)throw new Error("Gallery grid overflows horizontally");
+    if(heightUse.rowTops.length<2)throw new Error(`Expected this fixture to wrap into at least 2 rows, got: ${JSON.stringify(heightUse.rowTops)}`);
+    if(heightUse.rowHeights.length!==1)throw new Error(`Expected every row to share one stable card height, got distinct heights: ${JSON.stringify(heightUse.rowHeights)}`);
+
+    // 16/17 direct check: shrink the fixture down to a single row's worth of
+    // characters, measure the (now sole) row's card height, then restore the
+    // full character list and confirm row 1's card height did not change —
+    // i.e. a 2nd/3rd row appearing never shrinks row 1.
+    const rowStability=await page.evaluate(()=>{
+      const full=data.characters.slice();
+      const single=full.slice(0,3);
+      data.characters=single;renderProfiles();
+      const oneRowCards=[...document.querySelectorAll(".profile-card")];
+      const oneRowTops=new Set(oneRowCards.map(c=>Math.round(c.getBoundingClientRect().top)));
+      const oneRowHeight=oneRowCards[0].getBoundingClientRect().height;
+      data.characters=full;renderProfiles();
+      const restoredHeight=document.querySelector(".profile-card").getBoundingClientRect().height;
+      return {oneRowCount:oneRowTops.size,oneRowHeight,restoredHeight};
+    });
+    if(rowStability.oneRowCount!==1)throw new Error(`Fixture slice expected to render a single row, got ${rowStability.oneRowCount} row offsets`);
+    if(Math.abs(rowStability.oneRowHeight-rowStability.restoredHeight)>2)throw new Error(`Card height changed once a 2nd/3rd row appeared: single-row=${rowStability.oneRowHeight} multi-row=${rowStability.restoredHeight}`);
+
+    // 18. The grid can actually be scrolled to reach a later row.
+    const scrollReach=await page.evaluate(()=>{
+      const grid=document.getElementById("profilesGrid");
+      const before=grid.scrollTop;
+      grid.scrollTop=grid.scrollHeight;
+      const after=grid.scrollTop;
+      const lastCard=[...document.querySelectorAll(".profile-card")].pop();
+      const reached=lastCard.getBoundingClientRect().bottom<=grid.getBoundingClientRect().bottom+1;
+      grid.scrollTop=before;
+      return {scrolled:after>before,reached};
+    });
+    if(!scrollReach.scrolled)throw new Error("Gallery grid did not actually scroll when scrollTop was advanced");
+    if(!scrollReach.reached)throw new Error("Scrolling the gallery grid to its end still does not bring the last row's card fully into view");
+
+    // 19. Modal footer (Закрыть / + Новый персонаж) stays visible/reachable.
+    const footerVisible=await page.evaluate(()=>{
+      const footer=document.querySelector("#charsModal .modal-actions");
+      const r=footer.getBoundingClientRect();
+      return r.top>=0&&r.bottom<=window.innerHeight&&r.height>0;
+    });
+    if(!footerVisible)throw new Error("Gallery modal footer is not reachable/visible");
 
     // Photo cover keeps roughly its established visual proportion (~1/3 of
-    // the card) at whatever height the row stretched the card to — a
-    // percentage-based cover, not a fixed px height that would go
-    // out-of-proportion once cards stretch taller than before.
+    // the card) — a percentage-based cover, not a fixed px height.
     const coverRatio=await page.evaluate(()=>{
       const card=document.querySelector(".profile-card");
       return card.querySelector(".profile-cover").getBoundingClientRect().height/card.getBoundingClientRect().height;
     });
     if(coverRatio<0.22||coverRatio>0.48)throw new Error(`Gallery cover/card ratio drifted from "roughly a third": ${coverRatio}`);
 
-    // 4. Stats and the action footer stay aligned at the same offset across
-    // a short and a longer card (unaffected by the new height mechanism).
+    // 15. No-image placeholder occupies the same cover geometry as a real photo.
+    const coverGeometry=await page.evaluate(()=>{
+      const withPhoto=document.querySelector('.profile-card[data-character-id="resume-full"] .profile-cover').getBoundingClientRect();
+      const noPhoto=document.querySelector('.profile-card[data-character-id="resume-nophoto"] .profile-cover').getBoundingClientRect();
+      return {withPhotoH:withPhoto.height,noPhotoH:noPhoto.height};
+    });
+    if(Math.abs(coverGeometry.withPhotoH-coverGeometry.noPhotoH)>2)throw new Error(`No-image placeholder cover height differs from a real photo's cover: ${JSON.stringify(coverGeometry)}`);
+
+    // 1/2/3/4/5. The critical assertion: a character with every fact filled
+    // in, a long description AND a structural link (gallery-long) actually
+    // shows those facts INSIDE the visible (unscrolled) information area —
+    // not just present somewhere in the DOM.
+    const factVisibility=await page.evaluate(()=>{
+      const card=document.querySelector('.profile-card[data-character-id="gallery-long"]');
+      const scroll=card.querySelector(".profile-card-scroll");
+      scroll.scrollTop=0;
+      const scrollRect=scroll.getBoundingClientRect();
+      const facts=[...card.querySelectorAll(".profile-fact")];
+      const factText=facts.map(f=>f.textContent);
+      const visibleCount=facts.filter(f=>{
+        const r=f.getBoundingClientRect();
+        return r.top>=scrollRect.top-0.5&&r.bottom<=scrollRect.bottom+0.5&&r.height>0;
+      }).length;
+      return {
+        clientHeight:scroll.clientHeight,
+        factCount:facts.length,
+        visibleCount,
+        factText,
+        hasEyeColor:factText.some(t=>t.includes("Цвет глаз")&&t.includes("Изумрудный")),
+        hasHairColor:factText.some(t=>t.includes("Цвет волос")&&t.includes("Серебристый")),
+        hasHeight:factText.some(t=>t.includes("Рост")&&t.includes("172")),
+        descriptionInScroll:!!scroll.querySelector(".profile-description"),
+        linksInScroll:!!scroll.querySelector(".profile-structural-summary"),
+        linkText:scroll.querySelector(".profile-structural-summary")?.textContent||""
+      };
+    });
+    if(factVisibility.clientHeight<80)throw new Error(`.profile-card-scroll has no meaningful usable height: ${factVisibility.clientHeight}px`);
+    if(!factVisibility.hasEyeColor)throw new Error(`Eye color fact not rendered/visible: ${JSON.stringify(factVisibility.factText)}`);
+    if(!factVisibility.hasHairColor)throw new Error(`Hair color fact not rendered/visible: ${JSON.stringify(factVisibility.factText)}`);
+    if(!factVisibility.hasHeight)throw new Error(`Height fact not rendered/visible: ${JSON.stringify(factVisibility.factText)}`);
+    if(factVisibility.visibleCount<3)throw new Error(`Fewer than 3 facts intersect the visible information area (DOM presence is not enough): visible=${factVisibility.visibleCount} of ${factVisibility.factCount}`);
+    if(!factVisibility.descriptionInScroll)throw new Error("Long description is not inside the scrolling information region");
+    if(!factVisibility.linksInScroll)throw new Error("Structural links summary is not inside the scrolling information region");
+    if(!factVisibility.linkText.includes("Рене"))throw new Error(`Structural link does not name the linked character: "${factVisibility.linkText}"`);
+
+    // 8/9. Long card scrolls internally; short card does not get an
+    // unnecessary internal scrollbar.
+    const scrollBehavior=await page.evaluate(()=>{
+      const longScroll=document.querySelector('.profile-card[data-character-id="gallery-long"] .profile-card-scroll');
+      const shortScroll=document.querySelector('.profile-card[data-character-id="gallery-short"] .profile-card-scroll');
+      return {
+        longOverflows:longScroll.scrollHeight>longScroll.clientHeight+1,
+        shortOverflows:shortScroll.scrollHeight>shortScroll.clientHeight+1
+      };
+    });
+    if(!scrollBehavior.longOverflows)throw new Error("Long-content card's information region does not need to scroll (scrollHeight <= clientHeight)");
+    if(scrollBehavior.shortOverflows)throw new Error("Short-content card shows an unnecessary internal scrollbar");
+
+    // 10/11. Scrolling the information region does not move stats or actions.
+    const scrollIsolation=await page.evaluate(()=>{
+      const card=document.querySelector('.profile-card[data-character-id="gallery-long"]');
+      const scroll=card.querySelector(".profile-card-scroll");
+      const stats=card.querySelector(".profile-auto");
+      const actions=card.querySelector(".profile-card-actions");
+      const before={stats:stats.getBoundingClientRect().top,actions:actions.getBoundingClientRect().top};
+      scroll.scrollTop=scroll.scrollHeight;
+      const after={stats:stats.getBoundingClientRect().top,actions:actions.getBoundingClientRect().top};
+      scroll.scrollTop=0;
+      return {statsDelta:Math.abs(after.stats-before.stats),actionsDelta:Math.abs(after.actions-before.actions)};
+    });
+    if(scrollIsolation.statsDelta>0.5)throw new Error(`Scrolling the info region moved the stats block: ${scrollIsolation.statsDelta}px`);
+    if(scrollIsolation.actionsDelta>0.5)throw new Error(`Scrolling the info region moved the action footer: ${scrollIsolation.actionsDelta}px`);
+
+    // 12/13. Stats and the action footer stay aligned at the same offset
+    // across a short and a long card (unaffected by content length).
     const fullCard=page.locator('.profile-card[data-character-id="resume-full"]');
     const shortCard=page.locator('.profile-card[data-character-id="gallery-short"]');
+    const longCard=page.locator('.profile-card[data-character-id="gallery-long"]');
     const offsetOf=async(locator,sel)=>locator.evaluate((el,s)=>el.querySelector(s).getBoundingClientRect().top-el.getBoundingClientRect().top,sel);
-    const statsDelta=Math.abs(await offsetOf(fullCard,".profile-auto")-await offsetOf(shortCard,".profile-auto"));
-    const actionsDelta=Math.abs(await offsetOf(fullCard,".profile-card-actions")-await offsetOf(shortCard,".profile-card-actions"));
-    if(statsDelta>1)throw new Error(`Stats offset differs between cards: ${statsDelta}`);
-    if(actionsDelta>1)throw new Error(`Actions offset differs between cards: ${actionsDelta}`);
+    const statsOffsets=[await offsetOf(fullCard,".profile-auto"),await offsetOf(shortCard,".profile-auto"),await offsetOf(longCard,".profile-auto")];
+    const actionsOffsets=[await offsetOf(fullCard,".profile-card-actions"),await offsetOf(shortCard,".profile-card-actions"),await offsetOf(longCard,".profile-card-actions")];
+    const spreadOf=arr=>Math.max(...arr)-Math.min(...arr);
+    if(spreadOf(statsOffsets)>1)throw new Error(`Stats offset differs between cards: ${JSON.stringify(statsOffsets)}`);
+    if(spreadOf(actionsOffsets)>1)throw new Error(`Actions offset differs between cards: ${JSON.stringify(actionsOffsets)}`);
   }
 
   // ================= RESUME (5-10) =================
@@ -371,14 +493,21 @@ try{
     for(const id of ["resume-partial","resume-full","resume-many","resume-ten"]){
       await page.locator(`.profile-card[data-character-id="${id}"] button[aria-label^="Редактировать анкету"]`).click();
       await page.waitForSelector("#profileEditorModal",{state:"visible"});
-      const geo=await page.evaluate(()=>({
-        resumeHeight:document.querySelector(".profile-resume").getBoundingClientRect().height,
-        photoColumnHeight:document.querySelector(".profile-resume-photo").getBoundingClientRect().height,
-        nameTop:document.getElementById("pf_name").getBoundingClientRect().top,
-        nameLeft:document.getElementById("pf_name").getBoundingClientRect().left,
-        birthdayTop:document.querySelector(".profile-resume-birthday").getBoundingClientRect().top,
-        personalityTop:document.querySelector(".profile-section-title").getBoundingClientRect().top
-      }));
+      const geo=await page.evaluate(()=>{
+        const rail=document.querySelector(".photo-rail");
+        const firstThumb=document.querySelector(".photo-thumb");
+        return {
+          resumeHeight:document.querySelector(".profile-resume").getBoundingClientRect().height,
+          photoColumnHeight:document.querySelector(".profile-resume-photo").getBoundingClientRect().height,
+          nameTop:document.getElementById("pf_name").getBoundingClientRect().top,
+          nameLeft:document.getElementById("pf_name").getBoundingClientRect().left,
+          birthdayTop:document.querySelector(".profile-resume-birthday").getBoundingClientRect().top,
+          personalityTop:document.querySelector(".profile-section-title").getBoundingClientRect().top,
+          railWidth:rail?rail.getBoundingClientRect().width:null,
+          railScrolls:rail?rail.scrollHeight>rail.clientHeight+1:null,
+          firstThumbLeft:firstThumb?firstThumb.getBoundingClientRect().left:null
+        };
+      });
       samples.push({id,...geo});
       await page.click("#cancelProfile");
       if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
@@ -390,6 +519,18 @@ try{
     if(spread("nameLeft")>1)throw new Error(`#pf_name X position shifts with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,left:s.nameLeft})))}`);
     if(spread("birthdayTop")>1)throw new Error(`Birth-date row Y position shifts with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,top:s.birthdayTop})))}`);
     if(spread("personalityTop")>6)throw new Error(`"Личность" section start shifts with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,top:s.personalityTop})))}`);
+
+    // 39/40/41/45/46. The exact 1/2/5/10-photo acceptance list: rail width
+    // and thumbnail X are stable whether or not the rail actually overflows
+    // (resume-ten's 10 photos is the only fixture that scrolls).
+    if(spread("railWidth")>1)throw new Error(`Photo rail width varies with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,w:s.railWidth})))}`);
+    const withThumbs=samples.filter(s=>s.firstThumbLeft!==null);
+    const thumbSpread=Math.max(...withThumbs.map(s=>s.firstThumbLeft))-Math.min(...withThumbs.map(s=>s.firstThumbLeft));
+    if(thumbSpread>1)throw new Error(`Thumbnail X position shifts once the rail overflows (scrollbar-gutter not reserved): ${JSON.stringify(withThumbs.map(s=>({id:s.id,left:s.firstThumbLeft})))}`);
+    const tenPhotoSample=samples.find(s=>s.id==="resume-ten");
+    if(!tenPhotoSample.railScrolls)throw new Error("10-photo rail should need to scroll vertically");
+    const onePhotoSample=samples.find(s=>s.id==="resume-partial");
+    if(onePhotoSample.railScrolls)throw new Error("1-photo rail unexpectedly needs to scroll");
   }
 
   // 18-22+24+F. Preview/crop/make-primary(star)/delete(trash)/add-photo all
@@ -400,6 +541,36 @@ try{
     await page.locator('.profile-card[data-character-id="resume-full"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
     const photosGrid=page.locator("#profilePhotosGrid");
+
+    // 26-34. View/Crop/Star/Trash are ALL icon-only buttons (no visible
+    // "Просмотреть"/"Кадрировать" text), sharing one button box size, laid
+    // out on a single horizontal row, with correct aria-label/title.
+    const actionRow=await page.evaluate(()=>{
+      const row=document.querySelector(".photo-actions");
+      const buttons=[...row.querySelectorAll("button")];
+      const rects=buttons.map(b=>b.getBoundingClientRect());
+      const heights=[...new Set(rects.map(r=>Math.round(r.height)))];
+      const widths=[...new Set(rects.map(r=>Math.round(r.width)))];
+      const oneRow=[...new Set(rects.map(r=>Math.round(r.top)))].length===1;
+      const view=row.querySelector('[data-action="view-photo"]');
+      const crop=row.querySelector('[data-action="crop-photo"]');
+      return {
+        count:buttons.length,heights,widths,oneRow,
+        view:{hasSvg:!!view.querySelector("svg"),text:view.textContent.trim(),ariaLabel:view.getAttribute("aria-label"),title:view.getAttribute("title")},
+        crop:{hasSvg:!!crop.querySelector("svg"),text:crop.textContent.trim(),ariaLabel:crop.getAttribute("aria-label"),title:crop.getAttribute("title")}
+      };
+    });
+    if(!actionRow.view.hasSvg)throw new Error("View action has no SVG icon");
+    if(actionRow.view.text)throw new Error(`View action should be icon-only (no visible "Просмотреть" text), found: "${actionRow.view.text}"`);
+    if(actionRow.view.ariaLabel!=="Просмотреть фотографию")throw new Error(`View aria-label regressed: ${actionRow.view.ariaLabel}`);
+    if(actionRow.view.title!=="Просмотреть фотографию")throw new Error(`View title regressed: ${actionRow.view.title}`);
+    if(!actionRow.crop.hasSvg)throw new Error("Crop action has no SVG icon");
+    if(actionRow.crop.text)throw new Error(`Crop action should be icon-only (no visible "Кадрировать" text), found: "${actionRow.crop.text}"`);
+    if(actionRow.crop.ariaLabel!=="Кадрировать фотографию")throw new Error(`Crop aria-label regressed: ${actionRow.crop.ariaLabel}`);
+    if(actionRow.crop.title!=="Кадрировать фотографию")throw new Error(`Crop title regressed: ${actionRow.crop.title}`);
+    if(actionRow.heights.length!==1)throw new Error(`Photo action buttons do not share one box height: ${JSON.stringify(actionRow.heights)}`);
+    if(actionRow.widths.length!==1)throw new Error(`Photo action buttons do not share one box width: ${JSON.stringify(actionRow.widths)}`);
+    if(!actionRow.oneRow)throw new Error("Photo action buttons are not all on one horizontal row");
 
     // F. Star/Trash are icon-only buttons (no visible text) carrying the
     // required accessible name/title, using the same inline-SVG icon

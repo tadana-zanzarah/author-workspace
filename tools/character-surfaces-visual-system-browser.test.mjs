@@ -216,7 +216,10 @@ try{
     // character-images-browser.test.mjs / character-image-crop-ux-browser.test.mjs).
     if(!await page.locator("#profilePhotosInput").count())throw new Error("Photo upload input missing");
     if(!await page.locator("#profilePhotosGrid .photo-item").count())throw new Error("Existing photo not rendered in editor");
-    if(!await page.locator("#profilePhotosGrid button",{hasText:"Кадрировать"}).count())throw new Error("Crop control missing");
+    // Crop control is now an icon-only button (see
+    // character-profile-resume-layout-browser.test.mjs for full icon-row
+    // coverage) — identified by its data-action, not by visible text.
+    if(!await page.locator('#profilePhotosGrid [data-action="crop-photo"]').count())throw new Error("Crop control missing");
 
     // 19. Relationships still render (initial relations list).
     if(!await page.locator("#profileInitialRelations .initial-relation-row").count())throw new Error("Initial relations rows missing");
