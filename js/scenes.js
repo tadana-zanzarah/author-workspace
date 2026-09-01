@@ -300,7 +300,7 @@ function renderPeopleBlocks(){
 
     return `<div class="person-block" data-participant-id="${esc(charId)}">
       <div class="person-block-header">
-        <h3>${esc(character?.name||"Неизвестный персонаж")}</h3>
+        <h3>${character?characterAvatarHtml(character):""}<span>${esc(character?.name||"Неизвестный персонаж")}</span></h3>
         <button type="button" class="danger" onclick="removeSceneParticipant('${jsq(charId)}')">Убрать из сцены</button>
       </div>
       <label>

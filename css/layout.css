@@ -336,9 +336,13 @@
   .writing-chip.final{background:#dcebd5;color:#41623a}
   .tag-editor{margin-top:8px}
   .tag-draft-list{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+  /* Warm chip matching the app's other removable-token control
+     (.multi-value-chip) instead of the leftover cool lavender tint. */
   .tag-draft-list button{
-    padding:3px 7px;border-radius:999px;font-size:11px;background:#e7e1f1;
+    padding:4px 10px;border-radius:999px;font-size:var(--text-xs);
+    background:var(--soft);color:var(--text-primary);border:1px solid var(--border-subtle);
   }
+  .tag-draft-list button:hover{background:var(--brand-tint);border-color:var(--brand)}
   .manager-list{display:grid;gap:8px}
   .manager-row{
     display:grid;grid-template-columns:1fr auto auto auto;gap:7px;align-items:center;

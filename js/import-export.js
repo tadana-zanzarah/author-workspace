@@ -12,7 +12,7 @@ function openAllScenesNow(){
   data.chapters.forEach(chapter=>{
     const items=includedScenes().filter(x=>x.scene.chapterId===chapter.id);
     if(!items.length)return;
-    html+=`<h2 style="margin:18px 0 8px">${esc(chapter.title)}</h2>`;
+    html+=`<h2 class="all-scene-chapter-title">${esc(chapter.title)}</h2>`;
     items.forEach(({scene,index})=>{
       order++;
       html+=`<section class="all-scene-block ${scene.status==="fixed"?"fixed":"floating"}">
