@@ -12,7 +12,7 @@ try{
   const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"}),page=await browser.newPage({viewport:{width:390,height:760}});page.setDefaultTimeout(7000);
   await page.addInitScript(value=>localStorage.setItem("novelTimelineV11",JSON.stringify(value)),project);
   for(let i=0;i<30;i++){try{await page.goto(`http://127.0.0.1:${port}/?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
-  await page.click("#projectMenu > summary");await page.click("#manageChars");await page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).click();
+  await page.click("#projectMenu > summary");await page.click("#manageChars");await page.locator('#profilesGrid button[aria-label^="Редактировать анкету"]').click();
   await page.waitForSelector('[data-photo-id]');
   await page.click('[data-action="crop-photo"]');await page.waitForSelector("#photoCropModal",{state:"visible"});
   const before=await page.evaluate(()=>JSON.stringify(profileDraftPhotos[0].crop));

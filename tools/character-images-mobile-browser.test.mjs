@@ -9,8 +9,13 @@ await page.evaluate(()=>editProfile("character-mobile"));await page.waitForSelec
 const portrait=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="480"><rect width="240" height="480" fill="tomato"/></svg>');
 const files=[{name:"portrait-one.svg",mimeType:"image/svg+xml",buffer:portrait},{name:"portrait-two.svg",mimeType:"image/svg+xml",buffer:portrait}];
 await page.setInputFiles("#profilePhotosInput",files);await page.waitForSelector('[data-photo-id]:nth-child(2)');
-const inputUsable=await page.locator("#profilePhotosInput").isVisible(),grid=page.locator("#profilePhotosGrid"),gridBox=await grid.boundingBox();
-if(!inputUsable||!gridBox||gridBox.x<0||gridBox.x+gridBox.width>390)throw new Error(`Mobile upload/preview layout overflow: ${JSON.stringify({inputUsable,gridBox,viewport:await page.evaluate(()=>{const input=document.getElementById("profilePhotosInput"),field=input.parentElement,modal=input.closest(".modal"),style=getComputedStyle(modal);return {client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,input:{width:input.getBoundingClientRect().width,min:getComputedStyle(input).minWidth},field:field.getBoundingClientRect().width,modal:{box:modal.getBoundingClientRect().width,width:style.width,min:style.minWidth,max:style.maxWidth}}})})}`);
+// The native <input type=file> is intentionally clipped off-screen now (an
+// app-styled "＋ Добавить фото" label triggers it instead) — it stays
+// keyboard-reachable (a real tab stop) but is not expected to be visible.
+// What must not overflow the mobile viewport is the visible trigger and the
+// photo grid.
+const triggerBox=await page.locator(".photo-upload-button").boundingBox(),grid=page.locator("#profilePhotosGrid"),gridBox=await grid.boundingBox();
+if(!triggerBox||triggerBox.x<0||triggerBox.x+triggerBox.width>390||!gridBox||gridBox.x<0||gridBox.x+gridBox.width>390)throw new Error(`Mobile upload/preview layout overflow: ${JSON.stringify({triggerBox,gridBox,viewport:await page.evaluate(()=>{const modal=document.getElementById("profilePhotosInput").closest(".modal"),style=getComputedStyle(modal);return {client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth,modal:{box:modal.getBoundingClientRect().width,width:style.width,min:style.minWidth,max:style.maxWidth}}})})}`);
 await page.locator('[data-photo-id]').first().getByRole("button",{name:"Кадрировать"}).click();await page.waitForSelector("#photoCropModal",{state:"visible"});
 await page.fill("#photoCropZoom","1.9");await page.dispatchEvent("#photoCropZoom","input");await page.evaluate(()=>nudgePhotoCrop(.1,-.1));
 const cropBox=await page.locator("#photoCropModal .modal").boundingBox();if(!cropBox||cropBox.x<0||cropBox.x+cropBox.width>390||cropBox.y<0)throw new Error("Crop modal exceeds mobile viewport");

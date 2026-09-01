@@ -164,7 +164,7 @@ if(!persisted) throw new Error("Сцена не сохранилась посл�
 await page.click("#projectMenu > summary");
 await page.click("#manageChars");
 await page.waitForSelector("#charsModal",{state:"visible"});
-await page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).first().click();
+await page.locator('#profilesGrid button[aria-label^="Редактировать анкету"]').first().click();
 await page.waitForSelector("#profileEditorModal",{state:"visible"});
 await page.click("#cancelProfile");
 await page.click("#closeChars");

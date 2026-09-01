@@ -65,7 +65,7 @@ await page.keyboard.press("Escape");await page.click("#discardChanges");
 if(await activeId()!==opener)throw new Error("Discard не вернул фокус к opener сцены");
 
 await page.click("#projectMenu > summary");await page.locator("#manageChars").focus();const charsOpener=await activeId();await page.keyboard.press("Enter");
-const profileOpener=page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).first();await profileOpener.focus();await page.keyboard.press("Enter");
+const profileOpener=page.locator('#profilesGrid button[aria-label^="Редактировать анкету"]').first();await profileOpener.focus();await page.keyboard.press("Enter");
 if(!await activeInside("profileEditorModal"))throw new Error("Фокус не перешёл в редактор анкеты");
 await page.click("#cancelProfile");if(!await activeInside("charsModal"))throw new Error("Закрытие анкеты не вернуло фокус в characters modal");
 await page.click("#closeChars");if(await activeId()!=="SUMMARY")throw new Error("Закрытие characters modal не вернуло фокус к Navigation summary");

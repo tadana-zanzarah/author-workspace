@@ -9,7 +9,7 @@ try{
   const page=await browser.newPage({viewport:{width:390,height:760}});page.setDefaultTimeout(6000);const errors=[];page.on("pageerror",error=>errors.push(error.message));
   await page.addInitScript(value=>{if(sessionStorage.getItem("multi-value-seeded"))return;sessionStorage.setItem("multi-value-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
   for(let i=0;i<30;i++){try{await page.goto(`http://127.0.0.1:${port}/?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(r=>setTimeout(r,100))}}
-  await page.click("#projectMenu > summary");await page.click("#manageChars");await page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).click();
+  await page.click("#projectMenu > summary");await page.click("#manageChars");await page.locator('#profilesGrid button[aria-label^="Редактировать анкету"]').click();
   const hobbies=page.locator("#pf_hobbies"),input=hobbies.locator("input");
   const initialHobbies=await hobbies.locator(".multi-value-chip").allTextContents();if(initialHobbies.length!==2)throw new Error(`Old hobbies string was not rendered as chips: ${JSON.stringify(initialHobbies)} errors=${errors.join(" | ")} html=${await hobbies.innerHTML()}`);
   await input.click();if(await input.getAttribute("aria-expanded")!=="true")throw new Error("Combobox did not open");
@@ -26,8 +26,8 @@ try{
   await page.click("#saveProfile");
   let saved=await page.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
   if(!Array.isArray(saved.profiles["character-a"].hobbies)||!saved.profiles["character-a"].hobbies.includes("Историческая реконструкция")||!saved.profiles["character-a"].favorites.includes("Матча")||!saved.profiles["character-a"].pluginField?.keep)throw new Error("Array persistence or unknown profile field failed");
-  await page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).click();if(!await hobbies.getByText("Историческая реконструкция",{exact:true}).count())throw new Error("Close/reopen lost chips");await page.click("#cancelProfile");
-  await page.reload({waitUntil:"networkidle"});await page.click("#projectMenu > summary");await page.click("#manageChars");await page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).click();if(!await page.locator("#pf_favorites").getByText("Матча",{exact:true}).count())throw new Error("Reload lost values");
+  await page.locator('#profilesGrid button[aria-label^="Редактировать анкету"]').click();if(!await hobbies.getByText("Историческая реконструкция",{exact:true}).count())throw new Error("Close/reopen lost chips");await page.click("#cancelProfile");
+  await page.reload({waitUntil:"networkidle"});await page.click("#projectMenu > summary");await page.click("#manageChars");await page.locator('#profilesGrid button[aria-label^="Редактировать анкету"]').click();if(!await page.locator("#pf_favorites").getByText("Матча",{exact:true}).count())throw new Error("Reload lost values");
   const reloadInput=page.locator("#pf_hobbies input");await reloadInput.fill("Черновое хобби");await reloadInput.press("Enter");
   await page.evaluate(()=>{window.__originalSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(){const error=new Error("quota");error.name="QuotaExceededError";throw error}});await page.click("#saveProfile");
   if(!await page.locator("#profileEditorModal").isVisible()||!await page.locator("#pf_hobbies").getByText("Черновое хобби",{exact:true}).count()||!await page.evaluate(()=>hasDirtyForms()))throw new Error("Save failure lost modal, chips, or dirty state");

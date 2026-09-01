@@ -3,7 +3,7 @@ import {spawn} from "node:child_process";
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright"),port=3031,server=spawn(process.execPath,["tools/server.mjs"],{stdio:"ignore",env:{...process.env,PORT:String(port)}});
 const project={version:11,characters:[{id:"character-a",name:"Анна"},{id:"character-b",name:"Борис"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"Анна",initialRelations:{}},"character-b":{id:"character-b",characterId:"character-b",name:"Борис",initialRelations:{}}},characterLinks:[],chapters:[{id:"chapter-unassigned",title:"Без главы"}],locations:[],tags:[],future:{},scenes:[]};
-const openProfile=async(page,name)=>{await page.locator("#profilesGrid .profile-card").filter({has:page.locator(".profile-name",{hasText:name})}).getByRole("button",{name:"Открыть анкету"}).click()};
+const openProfile=async(page,name)=>{await page.locator("#profilesGrid .profile-card").filter({has:page.locator(".profile-name",{hasText:name})}).locator('button[aria-label^="Редактировать анкету"]').click()};
 try{
   await new Promise(r=>setTimeout(r,500));const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
   const page=await browser.newPage({viewport:{width:390,height:760}});page.setDefaultTimeout(7000);await page.addInitScript(value=>{if(sessionStorage.getItem("character-links-seeded"))return;sessionStorage.setItem("character-links-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
@@ -27,7 +27,7 @@ try{
   if(!await page.locator("#profileEditorModal").isVisible()||await page.locator("#profileCharacterLinks .character-link-row").count()||!await page.evaluate(()=>hasDirtyForms()))throw new Error("save failure lost structural-link draft or dirty state");
   await page.evaluate(()=>{Storage.prototype.setItem=window.__linkSetItem});await page.click("#cancelProfile");await page.click("#discardChanges");
   await page.reload({waitUntil:"networkidle"});await page.click("#projectMenu > summary");await page.click("#manageChars");await openProfile(page,"Анна");if(!await page.locator("#profileCharacterLinks .character-link-row").count())throw new Error("reload lost structural link");await page.click("#cancelProfile");
-  page.once("dialog",dialog=>dialog.accept());await page.locator("#profilesGrid .profile-card").filter({has:page.locator(".profile-name",{hasText:"Борис"})}).getByRole("button",{name:"Удалить"}).click();
+  page.once("dialog",dialog=>dialog.accept());await page.locator("#profilesGrid .profile-card").filter({has:page.locator(".profile-name",{hasText:"Борис"})}).locator('button[aria-label^="Удалить персонажа"]').click();
   const stored=await page.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));if(stored.characterLinks.length)throw new Error("character deletion left dangling links");
   console.log("character links browser tests: OK");await browser.close();
 }finally{server.kill()}

@@ -89,7 +89,7 @@ try{
   // ================= GLOBAL CONTROLS =================
   {
     await page.click("#projectMenu > summary");await page.click("#manageChars");
-    await page.locator("#profilesGrid button").filter({hasText:"Открыть анкету"}).first().click();
+    await page.locator('#profilesGrid button[aria-label^="Редактировать анкету"]').first().click();
     if(!await page.locator("#profileEditorModal").isVisible())throw new Error("Profile editor did not open");
 
     // 3+5. Focus-visible ring on a real input must be present and warm, not blue.
@@ -132,8 +132,11 @@ try{
     // 8. Name/data/actions remain.
     if(!(await card.locator(".profile-name").textContent()||"").includes("Александра-Виктория"))throw new Error("Name missing from card");
     if(!await card.locator(".profile-fact").count())throw new Error("Facts missing from card");
-    for(const label of ["Личная хронология","Открыть анкету","Удалить"]){
-      if(!await card.locator("button",{hasText:label}).count())throw new Error(`Card action missing: ${label}`);
+    // Actions are now compact icon buttons (pencil edit, trash delete,
+    // demoted quiet clock for chronology) — identified by aria-label/title,
+    // not visible text (see AGENTS.md icon-only-button accessible-name rule).
+    for(const selector of ['button[aria-label^="Личная хронология"]','button[aria-label^="Редактировать анкету"]','button[aria-label^="Удалить персонажа"]']){
+      if(!await card.locator(selector).count())throw new Error(`Card action missing: ${selector}`);
     }
     // 12. Long name does not overflow/break the card.
     const overflow=await card.locator(".profile-name").evaluate(el=>el.scrollWidth>el.clientWidth+1);
@@ -148,23 +151,23 @@ try{
     if(JSON.stringify(orderBefore)===JSON.stringify(orderAfter))throw new Error("Reorder (move right) did not change character order");
 
     // 20. Personal chronology still opens.
-    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button',{hasText:"Личная хронология"}).click();
+    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button[aria-label^="Личная хронология"]').click();
     if(!await page.locator("#characterTimelineModal").isVisible())throw new Error("Character timeline modal did not open");
     await page.click("#closeCharacterTimeline");
 
     // 10. Open profile still works.
-    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button',{hasText:"Открыть анкету"}).click();
+    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button[aria-label^="Редактировать анкету"]').click();
     if(!await page.locator("#profileEditorModal").isVisible())throw new Error("Open profile from gallery card did not open the editor");
     await page.click("#cancelProfile");
 
     // 11. Delete path preserved (guarded by confirm()).
     page.once("dialog",dialog=>dialog.dismiss());
-    await page.locator('#profilesGrid .profile-card[data-character-id="char-third"] button',{hasText:"Удалить"}).click();
+    await page.locator('#profilesGrid .profile-card[data-character-id="char-third"] button[aria-label^="Удалить персонажа"]').click();
     await page.waitForTimeout(150);
     let stillThere=await page.evaluate(()=>data.characters.some(c=>c.id==="char-third"));
     if(!stillThere)throw new Error("Dismissing the delete confirmation should not delete the character");
     page.once("dialog",dialog=>dialog.accept());
-    await page.locator('#profilesGrid .profile-card[data-character-id="char-third"] button',{hasText:"Удалить"}).click();
+    await page.locator('#profilesGrid .profile-card[data-character-id="char-third"] button[aria-label^="Удалить персонажа"]').click();
     await page.waitForTimeout(150);
     stillThere=await page.evaluate(()=>data.characters.some(c=>c.id==="char-third"));
     if(stillThere)throw new Error("Confirming the delete confirmation should delete the character");
@@ -172,7 +175,7 @@ try{
 
   // ================= PROFILE =================
   {
-    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button',{hasText:"Открыть анкету"}).click();
+    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button[aria-label^="Редактировать анкету"]').click();
     if(!await page.locator("#profileEditorModal").isVisible())throw new Error("Profile editor did not reopen");
 
     // 13. All existing fields remain (id-addressed, restructuring must not have dropped any).
@@ -198,7 +201,7 @@ try{
     await page.click("#saveProfile");
     let saved=await page.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
     if(!saved.profiles["char-long"].hidden?.race)throw new Error("«не указывать» (hide_race) did not persist");
-    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button',{hasText:"Открыть анкету"}).click();
+    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button[aria-label^="Редактировать анкету"]').click();
     if(!await page.locator("#hide_race").isChecked())throw new Error("«не указывать» state did not reload correctly");
     await page.uncheck("#hide_race");
 
@@ -228,7 +231,7 @@ try{
 
     // 23. Modal keyboard/focus behavior (deep coverage in accessibility-browser.test.mjs
     // — light check: Escape closes the (now clean) characters modal and returns focus).
-    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button',{hasText:"Открыть анкету"}).click();
+    await page.locator('#profilesGrid .profile-card[data-character-id="char-long"] button[aria-label^="Редактировать анкету"]').click();
     await page.keyboard.press("Escape");
     if(await page.locator("#profileEditorModal").isVisible())throw new Error("Escape did not close the clean (non-dirty) profile editor");
   }

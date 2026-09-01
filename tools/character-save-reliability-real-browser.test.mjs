@@ -13,7 +13,7 @@ const browser=await chromium.launch({headless:true,executablePath:"C:/Program Fi
 const assert=(value,message)=>{if(!value)throw new Error(message)};
 let projectId=null,characterIds=[],context,page;
 async function openProfileByName(name){
-  await page.locator("#profilesGrid .profile-card").filter({has:page.locator(".profile-name",{hasText:name})}).getByRole("button",{name:"Открыть анкету"}).click();
+  await page.locator("#profilesGrid .profile-card").filter({has:page.locator(".profile-name",{hasText:name})}).locator('button[aria-label^="Редактировать анкету"]').click();
   await page.waitForSelector("#profileEditorModal");
 }
 async function listCharacters(){return page.evaluate(async()=>(await cloudState.characterApi.listCharacters()).data.map(c=>({id:c.id,name:c.name,age:c.base_profile?.age})))}
