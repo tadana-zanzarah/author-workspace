@@ -17,6 +17,7 @@
     "test:character-save-reliability-real": "node tools/character-save-reliability-real-browser.test.mjs",
     "test:manager-save-ux-real": "node tools/manager-save-ux-real-browser.test.mjs",
     "test:cloud-character-images-real": "node tools/cloud-character-images-real-browser.test.mjs",
+    "test:character-image-save-flow-real": "node tools/character-image-save-flow-real-browser.test.mjs",
     "test:cloud-character-images-security": "node tools/cloud-character-images-cross-user-security.test.mjs",
     "test:local-cloud-migration-real": "node tools/local-to-cloud-migration-real.test.mjs",
     "test:local-cloud-migration-wizard-real": "node tools/local-to-cloud-migration-wizard-real.test.mjs",
