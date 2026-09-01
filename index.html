@@ -540,102 +540,120 @@
       <div id="profilePhotosGrid" class="photos-grid"></div>
     </div>
 
-    <div class="profile-editor-grid" style="margin-top:12px">
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Имя</strong></div>
-        <input id="pf_name" data-initial-focus aria-label="Имя" placeholder="Имя">
-      </div>
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Фамилия</strong></div>
-        <input id="pf_surname" placeholder="Фамилия">
-      </div>
+    <section class="profile-section">
+      <h3 class="profile-section-title">Личность</h3>
+      <div class="profile-editor-grid">
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Имя</strong></div>
+          <input id="pf_name" data-initial-focus aria-label="Имя" placeholder="Имя">
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Фамилия</strong></div>
+          <input id="pf_surname" placeholder="Фамилия">
+        </div>
 
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Раса</strong><label class="hide-field"><input id="hide_race" type="checkbox"> не указывать</label></div>
-        <input id="pf_race" list="raceOptions" placeholder="Выберите или введите вручную">
-      </div>
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Пол</strong><label class="hide-field"><input id="hide_sex" type="checkbox"> не указывать</label></div>
-        <select id="pf_sex">
-          <option value="">Не указано</option><option>Мужской</option><option>Женский</option><option>Неизвестно</option><option>Другой</option>
-        </select>
-      </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Раса</strong><label class="hide-field"><input id="hide_race" type="checkbox"> не указывать</label></div>
+          <input id="pf_race" list="raceOptions" placeholder="Выберите или введите вручную">
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Пол</strong><label class="hide-field"><input id="hide_sex" type="checkbox"> не указывать</label></div>
+          <select id="pf_sex">
+            <option value="">Не указано</option><option>Мужской</option><option>Женский</option><option>Неизвестно</option><option>Другой</option>
+          </select>
+        </div>
 
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Вторичный пол</strong><label class="hide-field"><input id="hide_secondarySex" type="checkbox"> не указывать</label></div>
-        <input id="pf_secondarySex" list="secondarySexOptions" placeholder="Выберите или введите вручную">
-      </div>
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Возраст на начало истории</strong><label class="hide-field"><input id="hide_age" type="checkbox"> не указывать</label></div>
-        <input id="pf_age" type="number" min="0" step="1" placeholder="Не указано">
-      </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Вторичный пол</strong><label class="hide-field"><input id="hide_secondarySex" type="checkbox"> не указывать</label></div>
+          <input id="pf_secondarySex" list="secondarySexOptions" placeholder="Выберите или введите вручную">
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Возраст на начало истории</strong><label class="hide-field"><input id="hide_age" type="checkbox"> не указывать</label></div>
+          <input id="pf_age" type="number" min="0" step="1" placeholder="Не указано">
+        </div>
 
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Дата рождения</strong><label class="hide-field"><input id="hide_birthday" type="checkbox"> не указывать</label></div>
-        <div class="birthday-grid">
-          <input id="pf_birthYear" type="number" min="1" placeholder="Год необязателен">
-          <select id="pf_birthMonth"></select>
-          <select id="pf_birthDay"></select>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Дата рождения</strong><label class="hide-field"><input id="hide_birthday" type="checkbox"> не указывать</label></div>
+          <div class="birthday-grid">
+            <input id="pf_birthYear" type="number" min="1" placeholder="Год необязателен">
+            <select id="pf_birthMonth"></select>
+            <select id="pf_birthDay"></select>
+          </div>
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Знак зодиака</strong><label class="hide-field"><input id="hide_zodiac" type="checkbox"> не указывать</label></div>
+          <input id="pf_zodiac" readonly placeholder="Определится по дате рождения">
         </div>
       </div>
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Знак зодиака</strong><label class="hide-field"><input id="hide_zodiac" type="checkbox"> не указывать</label></div>
-        <input id="pf_zodiac" readonly placeholder="Определится по дате рождения">
-      </div>
+    </section>
 
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Рост</strong><label class="hide-field"><input id="hide_height" type="checkbox"> не указывать</label></div>
-        <input id="pf_height" placeholder="Например: 182 см">
-      </div>
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Телосложение</strong><label class="hide-field"><input id="hide_build" type="checkbox"> не указывать</label></div>
-        <input id="pf_build" list="buildOptions" placeholder="Выберите или введите вручную">
-      </div>
+    <section class="profile-section">
+      <h3 class="profile-section-title">Образ жизни</h3>
+      <div class="profile-editor-grid">
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Рост</strong><label class="hide-field"><input id="hide_height" type="checkbox"> не указывать</label></div>
+          <input id="pf_height" placeholder="Например: 182 см">
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Телосложение</strong><label class="hide-field"><input id="hide_build" type="checkbox"> не указывать</label></div>
+          <input id="pf_build" list="buildOptions" placeholder="Выберите или введите вручную">
+        </div>
 
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Профессия / сфера занятости</strong><label class="hide-field"><input id="hide_profession" type="checkbox"> не указывать</label></div>
-        <input id="pf_profession" list="professionOptions" placeholder="Выберите или введите вручную">
-      </div>
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Сексуальная ориентация</strong><label class="hide-field"><input id="hide_orientation" type="checkbox"> не указывать</label></div>
-        <input id="pf_orientation" list="orientationOptions" placeholder="Выберите или введите вручную">
-      </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Профессия / сфера занятости</strong><label class="hide-field"><input id="hide_profession" type="checkbox"> не указывать</label></div>
+          <input id="pf_profession" list="professionOptions" placeholder="Выберите или введите вручную">
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Сексуальная ориентация</strong><label class="hide-field"><input id="hide_orientation" type="checkbox"> не указывать</label></div>
+          <input id="pf_orientation" list="orientationOptions" placeholder="Выберите или введите вручную">
+        </div>
 
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Любимая еда и напитки</strong><label class="hide-field"><input id="hide_favorites" type="checkbox"> не указывать</label></div>
-        <div id="pf_favorites" class="multi-value-host"></div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Любимая еда и напитки</strong><label class="hide-field"><input id="hide_favorites" type="checkbox"> не указывать</label></div>
+          <div id="pf_favorites" class="multi-value-host"></div>
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Хобби / увлечения</strong><label class="hide-field"><input id="hide_hobbies" type="checkbox"> не указывать</label></div>
+          <div id="pf_hobbies" class="multi-value-host"></div>
+        </div>
       </div>
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Хобби / увлечения</strong><label class="hide-field"><input id="hide_hobbies" type="checkbox"> не указывать</label></div>
-        <div id="pf_hobbies" class="multi-value-host"></div>
-      </div>
+    </section>
 
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Характер</strong><label class="hide-field"><input id="hide_character" type="checkbox"> не указывать</label></div>
-        <textarea id="pf_character" list="characterOptions" style="min-height:90px" placeholder="Можно перечислить несколько черт"></textarea>
-      </div>
-      <div class="profile-field">
-        <div class="profile-field-top"><strong>Особенности</strong><label class="hide-field"><input id="hide_features" type="checkbox"> не указывать</label></div>
-        <textarea id="pf_features" style="min-height:90px" placeholder="Например: левша, гетерохромия, топографическая дезориентация"></textarea>
-      </div>
+    <section class="profile-section">
+      <h3 class="profile-section-title">Характер и описание</h3>
+      <div class="profile-editor-grid">
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Характер</strong><label class="hide-field"><input id="hide_character" type="checkbox"> не указывать</label></div>
+          <textarea id="pf_character" list="characterOptions" style="min-height:90px" placeholder="Можно перечислить несколько черт"></textarea>
+        </div>
+        <div class="profile-field">
+          <div class="profile-field-top"><strong>Особенности</strong><label class="hide-field"><input id="hide_features" type="checkbox"> не указывать</label></div>
+          <textarea id="pf_features" style="min-height:90px" placeholder="Например: левша, гетерохромия, топографическая дезориентация"></textarea>
+        </div>
 
-      <div class="profile-field full">
-        <div class="profile-field-top"><strong>Описание героя</strong><label class="hide-field"><input id="hide_description" type="checkbox"> не указывать</label></div>
-        <textarea id="pf_description" style="min-height:180px" placeholder="Свободное описание персонажа"></textarea>
+        <div class="profile-field full">
+          <div class="profile-field-top"><strong>Описание героя</strong><label class="hide-field"><input id="hide_description" type="checkbox"> не указывать</label></div>
+          <textarea id="pf_description" style="min-height:180px" placeholder="Свободное описание персонажа"></textarea>
+        </div>
       </div>
+    </section>
 
-      <div class="profile-field full">
-        <div class="profile-field-top"><strong>Отношения с другими персонажами на начало истории</strong></div>
-        <div id="profileInitialRelations" class="initial-relations"></div>
+    <section class="profile-section">
+      <h3 class="profile-section-title">Связи</h3>
+      <div class="profile-editor-grid">
+        <div class="profile-field full">
+          <div class="profile-field-top"><strong>Отношения с другими персонажами на начало истории</strong></div>
+          <div id="profileInitialRelations" class="initial-relations"></div>
+        </div>
+        <div class="profile-field full">
+          <div class="profile-field-top"><strong>Родственные и юридические связи</strong></div>
+          <div id="profileCharacterLinks" class="character-links"></div>
+          <button id="addCharacterLink" type="button">＋ Добавить связь</button>
+        </div>
       </div>
-      <div class="profile-field full">
-        <div class="profile-field-top"><strong>Родственные и юридические связи</strong></div>
-        <div id="profileCharacterLinks" class="character-links"></div>
-        <button id="addCharacterLink" type="button">＋ Добавить связь</button>
-      </div>
-    </div>
+    </section>
 
-    <div class="modal-actions">
+    <div class="modal-actions profile-modal-actions">
       <button id="cancelProfile">Отмена</button>
       <button class="primary" id="saveProfile">Сохранить анкету</button>
     </div>

@@ -1,90 +1,127 @@
 .profiles-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
-    gap:14px;
+    grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+    gap:var(--space-4);
   }
+  /* Warm neutral card, same family as the workspace's own surfaces/radii/
+     shadow tokens — no more flat #fbfaf8 + thin var(--line) box that read as
+     an older generation of the product. Photo stays the dominant visual
+     element (full-bleed cover); everything below it is compact/dense, not a
+     Dribbble-oversized card. */
   .profile-card{
-    border:1px solid var(--line);
-    border-radius:13px;
+    border:1px solid var(--border-subtle);
+    border-radius:var(--radius-lg);
     overflow:hidden;
-    background:#fbfaf8;
+    background:var(--surface-elevated);
+    box-shadow:var(--shadow-sm);
     position:relative;
+    transition:box-shadow var(--motion-base),border-color var(--motion-base);
   }
+  .profile-card:hover{box-shadow:var(--shadow-md);border-color:#cfc3b4}
   .profile-card.dragging{opacity:.45}
-  .profile-card.drop-before{box-shadow:inset 0 4px 0 var(--accent)}
-  .profile-card.drop-after{box-shadow:inset 0 -4px 0 var(--accent)}
+  .profile-card.drop-before{box-shadow:inset 0 4px 0 var(--brand)}
+  .profile-card.drop-after{box-shadow:inset 0 -4px 0 var(--brand)}
   .profile-drag-handle{
-    position:absolute;top:6px;left:6px;z-index:2;
+    position:absolute;top:7px;left:7px;z-index:2;
     width:26px;height:26px;display:flex;align-items:center;justify-content:center;
-    background:rgba(255,255,255,.85);border:1px solid var(--line);border-radius:7px;
-    cursor:grab;font-size:14px;line-height:1;
+    background:rgba(255,255,255,.9);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+    cursor:grab;font-size:14px;line-height:1;color:var(--text-secondary);
   }
   .profile-drag-handle:active{cursor:grabbing}
   .profile-cover{
-    height:210px;
-    background:#eee7df;
+    height:200px;
+    background:var(--soft);
     display:flex;
     align-items:center;
     justify-content:center;
     overflow:hidden;
-    color:var(--muted);
+    color:var(--text-secondary);
+    font-size:13px;
   }
   .profile-cover img{width:100%;height:100%;object-fit:cover}
   .profile-cover-button{width:100%;height:100%;padding:0;border:0;border-radius:0;overflow:hidden;background:transparent}
   .profile-cover-button img{transition:transform .15s ease}
-  .profile-body{padding:13px}
-  .profile-name{font-size:19px;font-weight:750;margin-bottom:8px}
-  .profile-facts{display:grid;gap:5px;font-size:13px}
-  .profile-fact strong{color:var(--muted);font-weight:650}
+  .profile-body{padding:var(--space-3) var(--space-4) var(--space-4)}
+  /* Name owns the top of the body, immediately under the photo — the
+     preferred hierarchy (photo → name → identity/context → metadata →
+     relationships → actions) reads top to bottom without extra chrome. */
+  .profile-name{font-size:17px;font-weight:750;line-height:1.25;margin-bottom:7px;color:var(--text-primary)}
+  .profile-facts{display:grid;gap:4px;font-size:var(--text-sm)}
+  .profile-fact{color:var(--text-primary)}
+  .profile-fact strong{color:var(--text-secondary);font-weight:600}
   .profile-description{
-    margin-top:10px;padding-top:10px;border-top:1px solid var(--line);
-    white-space:pre-wrap;line-height:1.4;font-size:13px;
+    margin-top:9px;padding-top:9px;border-top:1px solid var(--border-faint);
+    white-space:pre-wrap;line-height:1.4;font-size:var(--text-sm);color:var(--text-primary);
   }
-  .profile-structural-summary{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+  .profile-structural-summary{margin-top:9px;padding-top:9px;border-top:1px solid var(--border-faint);font-size:var(--text-sm);line-height:1.5;color:var(--text-primary)}
+  .profile-structural-summary strong{color:var(--text-secondary);font-weight:600}
   .character-links{display:grid;gap:8px;margin-bottom:9px}
-  .character-link-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .character-link-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--surface-elevated)}
   .character-link-actions{display:flex;gap:6px;flex-wrap:wrap}.character-link-actions button{min-height:36px}
-  .character-link-modal{width:min(700px,100%);max-height:94vh}.character-link-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.character-link-editor-grid label{display:grid;gap:5px}.character-link-editor-grid .full{grid-column:1/-1}.form-error{min-height:1.4em;color:var(--danger,#a22)}
+  .character-link-modal{width:min(700px,100%);max-height:94vh}.character-link-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.character-link-editor-grid label{display:grid;gap:5px}.character-link-editor-grid .full{grid-column:1/-1}.form-error{min-height:1.4em;color:var(--danger)}
   .profile-card-actions{
-    display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;
+    display:flex;gap:6px;flex-wrap:wrap;margin-top:11px;padding-top:11px;border-top:1px solid var(--border-faint);
   }
   .profile-card-actions button{padding:6px 8px;font-size:12px}
+
+  /* ---- Profile editor (character form) ------------------------------- */
+
+  /* Section grouping replaces the old frame-inside-frame look: a quiet
+     uppercase title + generous top margin instead of another bordered box
+     nested inside the modal's own border. Same grammar as .sidebar-title
+     (the workspace's own section-label pattern) so the form reads as part
+     of the same product instead of an older UI generation grafted on. */
+  .profile-section{margin-top:var(--space-6)}
+  .profile-section:first-of-type{margin-top:var(--space-4)}
+  .profile-section-title{
+    margin:0 0 var(--space-3);padding-bottom:var(--space-2);
+    font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;
+    color:var(--text-secondary);border-bottom:1px solid var(--border-faint);
+  }
   .profile-editor-grid{
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-    gap:12px;
+    gap:var(--space-4) var(--space-5);
   }
+  /* Plain field: label + control, no border/background box around it — the
+     section title above and the grid gap between fields are what separate
+     one field from the next now. */
   .profile-field{
-    border:1px solid var(--line);
-    border-radius:10px;
-    padding:10px;
-    background:#fbfaf8;
     min-width:0;
   }
   #profilePhotosInput{min-width:0;max-width:100%}
   .profile-field.full{grid-column:1/-1}
+  /* Structurally denser fields (photo grid, long-form description,
+     relationship/link lists, the cloud project-override scope picker) keep a
+     low-contrast surface — not a hard border — since they hold nested
+     content of their own and benefit from a visible boundary; plain
+     label+input fields don't need one. */
+  #profileEditorModal .profile-field.full{
+    background:var(--paper);border:1px solid var(--border-faint);border-radius:var(--radius-md);
+    padding:var(--space-4);
+  }
   .profile-field-top{
     display:flex;justify-content:space-between;gap:10px;align-items:center;
     margin-bottom:6px;
   }
-  .profile-field-top strong{font-size:13px}
+  .profile-field-top strong{font-size:var(--text-sm);font-weight:600;color:var(--text-secondary)}
   .hide-field{
     display:flex;align-items:center;gap:6px;
-    color:var(--muted);font-size:11px;white-space:nowrap;
+    color:var(--text-secondary);font-size:var(--text-2xs);white-space:nowrap;
   }
-  .hide-field input{width:auto}
+  .hide-field input{width:auto;margin:0;flex:none}
   .multi-value-host{position:relative;min-width:0}
   .multi-value-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
   .multi-value-chips:empty{display:none}
-  .multi-value-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 5px 3px 8px;border:1px solid var(--line);border-radius:999px;background:#f2eee9;font-size:12px}
+  .multi-value-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 5px 3px 8px;border:1px solid var(--border-subtle);border-radius:999px;background:var(--soft);font-size:12px;color:var(--text-primary)}
   .multi-value-chip span{overflow-wrap:anywhere}
   .multi-value-chip button{padding:0 4px;min-width:24px;border:0;background:transparent}
   .multi-value-control{display:flex;position:relative}
   .multi-value-control input{padding-right:34px}
-  .multi-value-toggle{position:absolute;right:2px;top:2px;bottom:2px;width:30px;padding:0;border:0;background:transparent}
-  .multi-value-list{position:absolute;z-index:20;left:0;right:0;top:100%;max-height:min(240px,40vh);overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:0 8px 20px rgba(0,0,0,.12)}
-  .multi-value-list [role=option]{padding:8px 10px;cursor:pointer;overflow-wrap:anywhere}
-  .multi-value-list [role=option]:hover,.multi-value-list [role=option].active{background:#f2eee9}
+  .multi-value-toggle{position:absolute;right:2px;top:2px;bottom:2px;width:30px;padding:0;border:0;background:transparent;color:var(--text-secondary)}
+  .multi-value-list{position:absolute;z-index:20;left:0;right:0;top:100%;max-height:min(240px,40vh);overflow:auto;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--surface-elevated);box-shadow:var(--shadow-md)}
+  .multi-value-list [role=option]{padding:8px 10px;cursor:pointer;overflow-wrap:anywhere;font-size:var(--text-sm)}
+  .multi-value-list [role=option]:hover,.multi-value-list [role=option].active{background:var(--soft)}
   .birthday-grid{
     display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;
   }
@@ -93,15 +130,15 @@
     margin-top:9px;
   }
   .photo-item{
-    position:relative;border:1px solid var(--line);border-radius:9px;overflow:hidden;
-    min-height:210px;background:#eee;
+    position:relative;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);overflow:hidden;
+    min-height:210px;background:var(--soft);
   }
   .photo-item img{width:100%;height:145px;object-fit:cover;display:block}
-  .photo-actions{display:flex;gap:5px;flex-wrap:wrap;padding:7px;background:#fbfaf8;position:relative}
+  .photo-actions{display:flex;gap:5px;flex-wrap:wrap;padding:7px;background:var(--surface-elevated);position:relative}
   .photo-actions button{padding:5px 7px;font-size:11px}
-  .photo-primary{position:absolute;left:6px;top:6px;z-index:2;padding:3px 6px;border-radius:999px;background:rgba(255,255,255,.92);font-size:11px;font-weight:700}
+  .photo-primary{position:absolute;left:6px;top:6px;z-index:2;padding:3px 6px;border-radius:999px;background:rgba(255,255,255,.92);font-size:11px;font-weight:700;color:var(--brand-strong)}
   .photo-crop-modal{width:min(680px,100%);max-height:94vh}
-  .photo-crop-viewport{width:min(100%,520px);aspect-ratio:260/210;margin:10px auto;overflow:hidden;border:2px solid var(--accent);border-radius:var(--radius);background:#222;touch-action:none;cursor:grab}
+  .photo-crop-viewport{width:min(100%,520px);aspect-ratio:260/210;margin:10px auto;overflow:hidden;border:2px solid var(--brand);border-radius:var(--radius-md);background:#222;touch-action:none;cursor:grab}
   .photo-crop-viewport img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;transform-origin:center}
   .photo-nudges{display:flex;justify-content:center;gap:7px;margin-top:8px}
   .photo-nudges button{min-width:42px}
@@ -114,7 +151,17 @@
     display:grid;grid-template-columns:180px 1fr;gap:8px;align-items:center;
   }
   .profile-note{
-    color:var(--muted);font-size:12px;line-height:1.4;
+    color:var(--text-secondary);font-size:12px;line-height:1.4;
+  }
+  /* Sticky footer: the profile form can run long, and scrolling the header
+     out of view along with everything else previously meant Save/Cancel
+     disappeared with it — the same sticky-footer technique the app already
+     uses for All Scenes (long modal, footer pinned inside it), applied here. */
+  .profile-modal-actions{
+    position:sticky;bottom:-18px;z-index:5;
+    margin-left:-18px;margin-right:-18px;margin-bottom:-18px;
+    padding:12px 18px;background:var(--surface-elevated);
+    border-top:1px solid var(--border-faint);
   }
   @media(max-width:800px){
     .profile-editor-grid{grid-template-columns:minmax(0,1fr)}

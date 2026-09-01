@@ -5,10 +5,15 @@
   }
   .modal{
     width:min(920px,100%);max-height:92vh;overflow:auto;
-    background:#fff;border-radius:14px;padding:18px;
-    box-shadow:0 20px 70px rgba(0,0,0,.25);
+    background:var(--surface-elevated);border-radius:var(--radius-lg);padding:18px;
+    box-shadow:var(--shadow-md);
     min-width:0;max-width:100%;
+    scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent;
   }
+  .modal::-webkit-scrollbar{width:11px}
+  .modal::-webkit-scrollbar-track{background:transparent}
+  .modal::-webkit-scrollbar-thumb{background:var(--border-subtle);border-radius:999px;border:3px solid var(--surface-elevated)}
+  .modal::-webkit-scrollbar-thumb:hover{background:var(--text-secondary)}
   .modal h2{margin-top:0}
   .modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .modal-actions{
