@@ -48,6 +48,7 @@
     "test:filter-insertion-local-review-browser": "node tools/filter-and-insertion-local-review.test.mjs",
     "test:core-final-visual-polish-browser": "node tools/core-final-visual-polish-browser.test.mjs",
     "test:review-badge-browser": "node tools/review-badge-browser.test.mjs",
+    "test:character-surfaces-visual-system-browser": "node tools/character-surfaces-visual-system-browser.test.mjs",
     "test": "npm run test:unit"
   },
   "devDependencies": {

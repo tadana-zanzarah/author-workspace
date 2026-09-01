@@ -26,7 +26,12 @@
 .recovery-toolbar{display:flex;gap:8px;margin:12px 0}
 .recovery-candidates{display:grid;gap:10px}
 .recovery-candidate{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:12px;border:1px solid var(--line);border-radius:10px}
-.recovery-candidate:has(input:checked){border-color:var(--accent);background:#f8f7ff}
+/* #f8f7ff (a faint cool/blue-white tint) was the only "selected control"
+   background in the app still reading as accidental blue rather than the
+   warm palette — swapped for the same brand-tint every other selected/active
+   control already uses (.filter-field.filter-active, .filter-option[aria-
+   selected]). */
+.recovery-candidate:has(input:checked){border-color:var(--brand);background:var(--brand-tint)}
 .recovery-preview{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px}
 .recovery-conflict{display:grid;gap:8px;padding:10px;background:#fff7ed;border-radius:8px}
 .recovery-conflict label{display:grid;gap:4px}
