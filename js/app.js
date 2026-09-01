@@ -48,9 +48,18 @@ document.getElementById("confirmActionModal").onclick=e=>{if(e.target.id==="conf
 document.querySelectorAll('input[name="profileSaveScope"]').forEach(radio=>radio.addEventListener("change",updateProfileScopeHelp));
 
 document.querySelectorAll("#profileEditorModal .profile-field").forEach((field,index)=>{
-  const heading=field.querySelector(".profile-field-top > strong");if(!heading)return;
+  const top=field.querySelector(".profile-field-top");
+  const heading=top?.querySelector(":scope > strong");if(!heading)return;
   if(!heading.id)heading.id=`profileFieldLabel${index+1}`;
-  field.querySelectorAll("input:not([type=checkbox]),select,textarea").forEach(control=>{if(!control.getAttribute("aria-label")&&!control.getAttribute("aria-labelledby"))control.setAttribute("aria-labelledby",heading.id)});
+  // A visible (non aria-hidden) sublabel sibling (see .profile-field-sublabel,
+  // e.g. "на начало истории" under "Возраст") is part of the field's real
+  // label, just laid out on its own grid row instead of nested inside
+  // <strong> — reference both ids so the accessible name still reads
+  // "Возраст на начало истории", matching the pre-restructure markup.
+  const sublabel=top.querySelector(":scope > .profile-field-sublabel:not([aria-hidden])");
+  if(sublabel&&!sublabel.id)sublabel.id=`profileFieldSublabel${index+1}`;
+  const labelledBy=sublabel?`${heading.id} ${sublabel.id}`:heading.id;
+  field.querySelectorAll("input:not([type=checkbox]),select,textarea").forEach(control=>{if(!control.getAttribute("aria-label")&&!control.getAttribute("aria-labelledby"))control.setAttribute("aria-labelledby",labelledBy)});
 });
 
 /* Состояние отношений вычисляется из порядка сцен, поэтому после вставки
@@ -553,9 +562,22 @@ function openCharactersManager(){
   const menu=document.getElementById("projectMenu");menu.open=false;menu.querySelector("summary")?.focus();
   renderProfiles();
   showModal("charsModal");
+  updateProfileGalleryCardHeight();
 }
 document.getElementById("manageChars").onclick=openCharactersManager;
 document.getElementById("sidebarManageChars").onclick=openCharactersManager;
+
+// Keeps --profile-card-h (see css/profiles.css) in sync with the gallery's
+// actual available height: on window resize, and via ResizeObserver for
+// anything that changes #profilesGrid's box without a window resize event
+// (opening the modal itself — 0 to real size — the sidebar collapsing, etc.).
+{
+  const profilesGrid=document.getElementById("profilesGrid");
+  if(profilesGrid){
+    window.addEventListener("resize",updateProfileGalleryCardHeight);
+    new ResizeObserver(updateProfileGalleryCardHeight).observe(profilesGrid);
+  }
+}
 // Bound to the panel node itself (captured once, before setupOverflowSafeMenu ever
 // reparents it) rather than to #projectMenu: while the menu is open, the panel is a
 // child of <body> (see setupOverflowSafeMenu above), so a listener on #projectMenu

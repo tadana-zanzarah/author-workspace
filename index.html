@@ -552,13 +552,18 @@
         <div class="profile-resume-row profile-resume-vitals">
           <div class="profile-field">
             <div class="profile-field-top">
-              <strong>Возраст <span class="profile-field-sublabel">на начало истории</span></strong>
+              <strong>Возраст</strong>
               <label class="hide-field"><input id="hide_age" type="checkbox"> не указывать</label>
+              <span class="profile-field-sublabel">на начало истории</span>
             </div>
             <input id="pf_age" type="number" min="0" step="1" placeholder="Не указано">
           </div>
           <div class="profile-field">
-            <div class="profile-field-top"><strong>Знак зодиака</strong><label class="hide-field"><input id="hide_zodiac" type="checkbox"> не указывать</label></div>
+            <div class="profile-field-top">
+              <strong>Знак зодиака</strong>
+              <label class="hide-field"><input id="hide_zodiac" type="checkbox"> не указывать</label>
+              <span class="profile-field-sublabel" aria-hidden="true">&nbsp;</span>
+            </div>
             <input id="pf_zodiac" readonly placeholder="Определится по дате рождения">
           </div>
         </div>

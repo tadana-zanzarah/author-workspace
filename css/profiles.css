@@ -36,18 +36,20 @@
      Dribbble-oversized card. */
   .profile-card{
     display:flex;flex-direction:column;
-    /* Explicit, viewport-aware height (not a max-height/shrink-to-fit) —
-       every card, in every row, is exactly this tall regardless of how much
-       a given character's content fills it. That's what keeps row 1 stable
-       once row 2 appears (see .profiles-grid) and what makes a sparse
-       character leave real blank space under its facts rather than the
-       card itself shrinking. 176px is the gallery modal's own chrome
-       (padding + title + sticky footer) so this scales with viewport
-       instead of being tuned to one screen size; 760px caps it on very
-       tall viewports so cards don't become absurdly long. Content beyond
-       this height scrolls inside .profile-card-scroll only — the card
-       itself never grows. */
-    height:min(760px,calc(100vh - 176px));
+    /* Explicit, DOM-measured height (not a max-height/shrink-to-fit, and not
+       a guessed "viewport minus N px" formula) — every card, in every row,
+       is exactly this tall regardless of how much a given character's
+       content fills it. That's what keeps row 1 stable once row 2 appears
+       (see .profiles-grid) and what makes a sparse character leave real
+       blank space under its facts rather than the card itself shrinking.
+       --profile-card-h is set in JS (see updateProfileGalleryCardHeight in
+       characters.js) from #profilesGrid's own clientHeight — the modal's
+       actual title/footer/padding chrome, measured, not assumed — minus a
+       small safe gap, capped at 760px so cards don't become absurdly long
+       on very tall viewports. The var()'s fallback only covers the instant
+       before that JS has run once. Content beyond this height scrolls
+       inside .profile-card-scroll only — the card itself never grows. */
+    height:var(--profile-card-h,min(760px,70vh));
     min-height:0;
     border:1px solid var(--border-subtle);
     border-radius:var(--radius-lg);
@@ -216,21 +218,29 @@
   /* "Возраст" stays a normal field label; the "на начало истории"
      qualifier drops to a quieter, smaller line beneath it instead of
      fighting for width in the same line — the accessible name (wired via
-     aria-labelledby in app.js) still reads the full strong element, so the
-     complete semantic label ("Возраст на начало истории") is preserved for
-     assistive tech even though only "Возраст" is visually prominent. */
+     aria-labelledby in app.js, now referencing this span directly as a
+     sibling rather than nested text) still reads label+sublabel together,
+     so the complete semantic label ("Возраст на начало истории") is
+     preserved for assistive tech even though only "Возраст" is visually
+     prominent. */
   .profile-field-sublabel{display:block;font-weight:400;font-size:var(--text-2xs);color:var(--text-secondary);margin-top:1px}
-  /* Age's label wraps to two lines ("Возраст" + the quiet "на начало
-     истории" hint); Zodiac's label is one line. Left alone, that makes
-     Zodiac's .profile-field-top shorter than Age's, so the #pf_zodiac
-     control below it starts higher than #pf_age — the two no longer read
-     as a matched pair. Reserving the same min-height on both columns'
-     field-top (sized for Age's two-line content, comfortably more than
-     Zodiac's one line) and pinning each label to the top of that box makes
-     both controls start on the same line regardless of label length. */
-  .profile-resume-vitals .profile-field-top{align-items:flex-start;min-height:2.9em}
-  .profile-resume-vitals .profile-field-top>strong{align-self:flex-start}
-  .profile-resume-vitals .profile-field-top .hide-field{align-self:center}
+  /* Age has a real sublabel ("на начало истории"); Zodiac has none. Left as
+     plain flex rows, that made Zodiac's .profile-field-top shorter than
+     Age's, so #pf_zodiac started higher than #pf_age — a pixel-guessed
+     min-height on the row tried to compensate and still didn't land exactly
+     on Age's real two-line text metrics. Instead both field-tops share one
+     2-row grid (label+checkbox row, then sublabel row) and Zodiac carries
+     an aria-hidden placeholder sublabel with the same markup/CSS as Age's
+     real one — same font-size/line-height, so its reserved row is
+     naturally exactly as tall as Age's, with no measured or guessed pixel
+     value anywhere. */
+  .profile-resume-vitals .profile-field-top{
+    display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;
+    column-gap:10px;row-gap:1px;align-items:start;
+  }
+  .profile-resume-vitals .profile-field-top>strong{grid-column:1;grid-row:1}
+  .profile-resume-vitals .profile-field-top>.hide-field{grid-column:2;grid-row:1;align-self:center}
+  .profile-resume-vitals .profile-field-top>.profile-field-sublabel{grid-column:1/-1;grid-row:2;margin-top:0}
   /* Portrait + vertical rail, side by side: one dominant active/primary
      portrait (.photo-item-primary, always the photo currently selected for
      management — see renderProfilePhotos) plus, immediately to its right,

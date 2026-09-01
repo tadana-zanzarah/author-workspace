@@ -274,11 +274,18 @@ try{
       const names=document.querySelector(".profile-resume-names");
       const birthday=document.querySelector(".profile-resume-birthday");
       const vitals=document.querySelector(".profile-resume-vitals");
-      const ageTop=vitals.querySelector(".profile-field-top");
+      const fieldTops=vitals.querySelectorAll(".profile-field-top");
+      const ageTop=fieldTops[0],zodiacTop=fieldTops[1];
       const ageStrong=ageTop.querySelector(":scope > strong");
-      const sublabel=ageStrong.querySelector(".profile-field-sublabel");
+      const zodiacStrong=zodiacTop.querySelector(":scope > strong");
+      // The sublabel ("на начало истории") is now a sibling of <strong> on
+      // its own grid row, not nested text inside it (see index.html/profiles.css) —
+      // the accessible name is reassembled from aria-labelledby instead.
+      const sublabel=ageTop.querySelector(":scope > .profile-field-sublabel");
       const hideAge=document.getElementById("hide_age");
+      const hideZodiac=document.getElementById("hide_zodiac");
       const hideBirthday=document.getElementById("hide_birthday");
+      const ageLabelledbyIds=(document.getElementById("pf_age").getAttribute("aria-labelledby")||"").split(" ").filter(Boolean);
       return {
         namesTop:names.getBoundingClientRect().top,
         birthdayTop:birthday.getBoundingClientRect().top,
@@ -287,14 +294,20 @@ try{
         birthdayHasFields:!!birthday.querySelector("#pf_birthYear")&&!!birthday.querySelector("#pf_birthMonth")&&!!birthday.querySelector("#pf_birthDay"),
         birthdayWidth:birthday.getBoundingClientRect().width,
         vitalsHasAgeZodiac:!!vitals.querySelector("#pf_age")&&!!vitals.querySelector("#pf_zodiac"),
-        ageAccessibleText:ageStrong.textContent.trim(),
+        ageAccessibleText:ageLabelledbyIds.map(id=>document.getElementById(id)?.textContent||"").join(" ").trim(),
         sublabelIsBlock:sublabel&&getComputedStyle(sublabel).display==="block",
         ageFieldTopHeight:ageTop.getBoundingClientRect().height,
         hideAgeVisible:hideAge.getBoundingClientRect().width>0,
         hideBirthdayVisible:hideBirthday.getBoundingClientRect().width>0,
         ageInputWidth:document.getElementById("pf_age").getBoundingClientRect().width,
         ageInputTop:document.getElementById("pf_age").getBoundingClientRect().top,
-        zodiacInputTop:document.getElementById("pf_zodiac").getBoundingClientRect().top
+        zodiacInputTop:document.getElementById("pf_zodiac").getBoundingClientRect().top,
+        ageLabelTop:ageStrong.getBoundingClientRect().top,
+        zodiacLabelTop:zodiacStrong.getBoundingClientRect().top,
+        hideAgeCheckboxTop:hideAge.getBoundingClientRect().top,
+        hideZodiacCheckboxTop:hideZodiac.getBoundingClientRect().top,
+        hideAgeTextTop:hideAge.closest(".hide-field").getBoundingClientRect().top,
+        hideZodiacTextTop:hideZodiac.closest(".hide-field").getBoundingClientRect().top
       };
     });
 
@@ -314,11 +327,6 @@ try{
     // accessible name for #pf_age (via aria-labelledby), even though only
     // "Возраст" is visually prominent.
     if(layout.ageAccessibleText!=="Возраст на начало истории")throw new Error(`Age field's accessible label text regressed: "${layout.ageAccessibleText}"`);
-    const ageLabelledby=await page.evaluate(()=>{
-      const id=document.getElementById("pf_age").getAttribute("aria-labelledby");
-      return id&&document.getElementById(id)?.textContent.trim();
-    });
-    if(ageLabelledby!=="Возраст на начало истории")throw new Error(`#pf_age is not labelled by the full semantic phrase: "${ageLabelledby}"`);
     // 9. The secondary "на начало истории" descriptor drops to its own
     // quiet line instead of wrapping "Возраст" itself into a tall, narrow,
     // near-vertical single column (two intentional lines, not four wrapped ones).
@@ -336,6 +344,18 @@ try{
     // label, pushing #pf_age's own control down below #pf_zodiac's.
     const controlTopDelta=Math.abs(layout.ageInputTop-layout.zodiacInputTop);
     if(controlTopDelta>1)throw new Error(`Age and Zodiac controls do not start on the same line at width=${width}: diff=${controlTopDelta}px`);
+
+    // C. Real visual alignment of the "не указывать" row itself, not just
+    // the input below it — the label text ("Возраст"/"Знак зодиака"), the
+    // checkbox INPUT, and the visible "не указывать" text must all start on
+    // the same line between the two columns (shared 2-row grid in
+    // .profile-resume-vitals .profile-field-top, see profiles.css).
+    const labelTopDelta=Math.abs(layout.ageLabelTop-layout.zodiacLabelTop);
+    if(labelTopDelta>1)throw new Error(`Age/Zodiac field labels do not start on the same line at width=${width}: diff=${labelTopDelta}px`);
+    const checkboxTopDelta=Math.abs(layout.hideAgeCheckboxTop-layout.hideZodiacCheckboxTop);
+    if(checkboxTopDelta>1)throw new Error(`Age/Zodiac «не указывать» checkbox inputs are not top-aligned at width=${width}: diff=${checkboxTopDelta}px`);
+    const checkboxTextTopDelta=Math.abs(layout.hideAgeTextTop-layout.hideZodiacTextTop);
+    if(checkboxTextTopDelta>1)throw new Error(`Age/Zodiac «не указывать» text is not aligned at width=${width}: diff=${checkboxTextTopDelta}px`);
 
     // No select/input inside the résumé overflows its own box at any tested width.
     const overflow=await page.evaluate(()=>[...document.querySelectorAll(".profile-resume-vitals select,.profile-resume-vitals input,.profile-resume-birthday select,.profile-resume-birthday input")].some(el=>el.scrollWidth>el.clientWidth+1));

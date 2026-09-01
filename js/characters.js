@@ -61,6 +61,20 @@ async function reorderCharacterTo(characterId,beforeCharacterId){
 
 function characterName(id){return characterById(id)?.name||"Неизвестный персонаж"}
 
+// #profilesGrid is flex:1 inside #charsModal's fixed-height flex column (see
+// css/profiles.css), so its own clientHeight IS the real available gallery
+// viewport — whatever the title/footer/padding chrome actually measures out
+// to, not a guessed "100vh minus N px" formula. Cards read this via the
+// --profile-card-h custom property instead of hardcoding a height.
+function updateProfileGalleryCardHeight(){
+  const grid=document.getElementById("profilesGrid");
+  if(!grid)return;
+  const available=grid.clientHeight;
+  if(available<=0)return;
+  const safeGap=16;
+  grid.style.setProperty("--profile-card-h",`${Math.min(760,Math.max(0,available-safeGap))}px`);
+}
+
 function renderProfiles(){
   data.profiles ||= {};
   data.characters.forEach(character=>{
@@ -441,5 +455,5 @@ function birthdayDisplay(profile){
   return result||"Не указано";
 }
 
-Object.assign(globalThis,{characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,profileSaveScopeValue,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,setActivePhoto,removeProfilePhoto,removeActiveProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
-export {characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,profileSaveScopeValue,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,setActivePhoto,removeProfilePhoto,removeActiveProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};
+Object.assign(globalThis,{characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,updateProfileGalleryCardHeight,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,profileSaveScopeValue,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,setActivePhoto,removeProfilePhoto,removeActiveProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay});
+export {characterById,cropImageStyle,characterName,nextCharacterSortOrder,computeInsertSortOrder,reorderCharacterTo,renderProfiles,updateProfileGalleryCardHeight,characterSceneEntries,characterLocations,characterTags,characterRelations,renderProfileAutomaticSection,filterCharacterLocations,filterCharacterTags,openCharacterTimeline,moveProfile,deleteProfile,setupBirthdaySelectors,zodiacFor,updateZodiac,profileSaveScopeValue,updateProfileScopeHelp,setupSingleValueCombobox,editProfile,renderProfilePhotos,setActivePhoto,removeProfilePhoto,removeActiveProfilePhoto,readOriginalImage,setPrimaryPhoto,openPhotoLightbox,openPhotoLightboxByCharacter,openPhotoCrop,nudgePhotoCrop,savePhotoCrop,cancelPhotoCrop,syncCropPreview,profileDisplayValue,birthdayDisplay};
