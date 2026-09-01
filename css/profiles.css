@@ -10,21 +10,21 @@
     display:grid;
     /* Inside #charsModal specifically (see above) this grid is the sole
        scrolling region: it flexes to fill the modal's remaining height and
-       scrolls internally instead of the whole modal doing it, which is what
-       lets a single row of cards stretch to use that full height rather
-       than sizing to its own content. */
+       scrolls internally instead of the whole modal doing it. */
     flex:1 1 auto;overflow:auto;
     grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
-    /* Rows stretch to fill whatever vertical space #charsModal .modal
-       actually has left after its title and sticky actions (see that rule):
-       a single row of cards claims nearly all of it instead of sitting
-       inside a fixed height guessed from one viewport's math. The 260px
-       floor is a real content minimum (cover + name + one fact line +
-       stats + actions), not a viewport-tuned number — it only matters once
-       enough rows exist that giving each an equal 1fr share would squeeze
-       them below what a card needs to stay legible; past that point rows
-       hold at the floor and the grid scrolls for the rest, same as before. */
-    grid-auto-rows:minmax(260px,1fr);
+    /* Rows size to their content (the card's own height — see
+       .profile-card) instead of dividing the grid's available height by
+       however many rows exist. That "divide by row count" model is what
+       previously collapsed cards to ~260px the moment a 2nd row appeared:
+       with grid-auto-rows using an `fr` track, the browser splits the
+       grid's own (flex-stretched) height evenly across every row, so one
+       row was tall but two rows were each squeezed to roughly half. Since
+       .profile-card now carries its own viewport-aware height directly,
+       max-content rows just wrap that height — a single row still claims
+       most of the modal's vertical space, and a 2nd/3rd row doesn't shrink
+       the 1st; the grid scrolls to reach them instead. */
+    grid-auto-rows:max-content;
     align-content:start;
     gap:var(--space-4);
     min-height:0;
@@ -36,11 +36,18 @@
      Dribbble-oversized card. */
   .profile-card{
     display:flex;flex-direction:column;
-    /* No max-height here: the card's actual height now comes from the grid
-       row it sits in (see .profiles-grid's grid-auto-rows) via the default
-       grid stretch, so it tracks real available space instead of a
-       hard-coded ceiling. Content beyond that height still scrolls inside
-       .profile-card-scroll rather than growing the card. */
+    /* Explicit, viewport-aware height (not a max-height/shrink-to-fit) —
+       every card, in every row, is exactly this tall regardless of how much
+       a given character's content fills it. That's what keeps row 1 stable
+       once row 2 appears (see .profiles-grid) and what makes a sparse
+       character leave real blank space under its facts rather than the
+       card itself shrinking. 176px is the gallery modal's own chrome
+       (padding + title + sticky footer) so this scales with viewport
+       instead of being tuned to one screen size; 760px caps it on very
+       tall viewports so cards don't become absurdly long. Content beyond
+       this height scrolls inside .profile-card-scroll only — the card
+       itself never grows. */
+    height:min(760px,calc(100vh - 176px));
     min-height:0;
     border:1px solid var(--border-subtle);
     border-radius:var(--radius-lg);
@@ -247,20 +254,31 @@
      renders with no thumbnail children at all (see renderProfilePhotos) —
      deliberately not a placeholder card, just reserved empty space, so
      nothing shifts when the 2nd photo arrives. max-height caps the rail at
-     the primary tile's own natural height (196px image + a two-line shared
-     action row, its worst-case wrap) instead of a flex stretch: a flex
-     item's own overflowing content still counts toward a stretched row's
-     cross size even with overflow:auto, so without this cap 5+ thumbnails
-     would inflate the primary tile (and so the whole résумé) right along
-     with the rail — exactly the height-grows-with-photo-count bug this
-     rail exists to fix. align-items:flex-start above keeps the two columns
+     the primary tile's own natural height (196px image + its one-row icon
+     action bar, 1px border each side: 196+38+2) instead of a flex stretch: a
+     flex item's own overflowing content still counts toward a stretched
+     row's cross size even with overflow:auto, so without this cap 5+
+     thumbnails would inflate the primary tile (and so the whole résюме)
+     right along with the rail — exactly the height-grows-with-photo-count
+     bug this rail exists to fix. Keep this in sync with the primary tile's
+     actual height (photo-actions row height + 198) if either ever changes —
+     a cap taller than the tile defeats the point once thumbnails are tall
+     enough to exceed it. align-items:flex-start above keeps the two columns
      independently sized instead of stretch forcing them to match. Content
      beyond the cap scrolls vertically inside the rail only — never
      horizontally, and never by growing the row itself. */
   .photo-rail{
-    flex:0 0 60px;width:60px;min-width:0;max-height:262px;
+    flex:0 0 60px;width:60px;min-width:0;max-height:236px;
     display:flex;flex-direction:column;align-items:center;gap:6px;
     overflow-y:auto;overflow-x:hidden;padding:1px;
+    /* Reserve the scrollbar's track unconditionally, whether or not the
+       rail actually has enough photos to overflow — without this, the
+       content-box narrows by the scrollbar's width only once a 6th+ photo
+       pushes it into overflow, and centered thumbnails (align-items:center)
+       visibly jump left at that moment. With the gutter always reserved,
+       few-photo and many-photo rails share the same content-box width, so
+       thumbnail X position never moves. */
+    scrollbar-gutter:stable;
     scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent;
   }
   .photo-rail::-webkit-scrollbar{width:6px}

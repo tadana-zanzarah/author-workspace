@@ -344,6 +344,8 @@ function renderProfilePhotos(){
       ${isPhotoPrimary?'<span class="photo-thumb-primary-mark" aria-hidden="true">★</span>':""}
     </button>`;
   }).join("");
+  const viewIcon='<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.1 10.1L13.8 13.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  const cropIcon='<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><path d="M4.5 1.3V11a1 1 0 001 1h9.2M1.3 4.5H11a1 1 0 011 1v9.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const starIcon='<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><path d="M8 2.3l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.9l-3.4 1.9.7-3.8-2.8-2.7 3.8-.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
   const trashIcon='<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><path d="M3.4 4.6h9.2M6.5 4.6V3.1a1 1 0 011-1h1a1 1 0 011 1v1.5M6.7 7.1v4.3M9.3 7.1v4.3M4.6 4.6l.6 7.8a1 1 0 001 .9h3.6a1 1 0 001-.9l.6-7.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   grid.innerHTML=`
@@ -351,8 +353,8 @@ function renderProfilePhotos(){
       <img src="${esc(active.source.value)}" alt="${esc(active.alt||"")}" style="${cropImageStyle(active.crop)}">
       ${isPrimary?'<span class="photo-primary">Главное</span>':""}
       <div class="photo-actions">
-        <button type="button" data-action="view-photo" aria-label="Просмотреть" title="Просмотреть" onclick="openPhotoLightbox('${jsq(active.id)}')">Просмотреть</button>
-        <button type="button" data-action="crop-photo" aria-label="Кадрировать" title="Кадрировать" onclick="openPhotoCrop('${jsq(active.id)}')">Кадрировать</button>
+        <button type="button" class="row-action-quiet photo-action-icon" data-action="view-photo" aria-label="Просмотреть фотографию" title="Просмотреть фотографию" onclick="openPhotoLightbox('${jsq(active.id)}')">${viewIcon}</button>
+        <button type="button" class="row-action-quiet photo-action-icon" data-action="crop-photo" aria-label="Кадрировать фотографию" title="Кадрировать фотографию" onclick="openPhotoCrop('${jsq(active.id)}')">${cropIcon}</button>
         ${!isPrimary?`<button type="button" class="row-action-quiet photo-action-icon" data-action="make-primary" aria-label="Сделать главным" title="Сделать главным" onclick="setPrimaryPhoto('${jsq(active.id)}')">${starIcon}</button>`:""}
         <button type="button" class="row-action-quiet danger-quiet photo-action-icon" data-action="delete-photo" aria-label="Удалить фотографию" title="Удалить фотографию" onclick="removeActiveProfilePhoto()">${trashIcon}</button>
       </div>
