@@ -28,7 +28,11 @@
     --warning:#8a5a1d;
     --warning-tint:#fbeed9;
     --danger-tint:#f8e6e3;
-    --focus-ring:#3a6ea8;
+    /* Warm/brand focus ring, not browser-default blue — see the global
+       :focus-visible rule below. Still a dark value against the light cream/
+       white surfaces the app uses everywhere, so contrast stays well above
+       the 3:1 non-text minimum a focus indicator needs. */
+    --focus-ring:var(--brand-strong);
 
     --space-1:4px;
     --space-2:8px;
@@ -168,6 +172,13 @@
     opacity:.55;cursor:not-allowed;background:var(--soft);color:var(--text-secondary);
   }
   input:disabled:hover,textarea:disabled:hover,select:disabled:hover{border-color:var(--border-subtle)}
+  /* Global native checkbox/radio accent — the app-wide "no accidental browser
+     blue" rule. .filter-option-check and .matrix-toggle-option input already
+     set this per-scope (kept as-is, same value, harmless overlap); this covers
+     every other checkbox/radio in the app (profile "не указывать", scene
+     included, migration wizard, recovery candidates, relation visibility)
+     that had no override and was still rendering the OS/browser default blue. */
+  input[type="checkbox"],input[type="radio"]{accent-color:var(--brand-strong)}
   :where(button,input,textarea,select,summary,a,[tabindex]):focus-visible{
     outline:3px solid var(--focus-ring);
     outline-offset:2px;

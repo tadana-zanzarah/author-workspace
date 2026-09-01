@@ -22,7 +22,14 @@
     transition:background var(--motion-fast),color var(--motion-fast),border-color var(--motion-fast);
   }
   .sidebar-collapse-btn:hover,.sidebar-collapse-btn:focus-visible{background:var(--soft);color:var(--text-primary)}
-  .sidebar-edge-toggle-icon{font-size:13px;line-height:1}
+  /* An SVG chevron, not a font glyph: ‹/› ink is not centered in its own em-box
+     in most fonts (glyph design bias, not a layout bug — the button/label BOXES
+     already share the same flex-computed vertical center), so no amount of
+     line-height/box tuning around a text character fully removes the optical
+     drift. A vector path is exactly symmetric around its own viewBox center,
+     which removes the bias at the source instead of compensating for it. */
+  .sidebar-edge-toggle-icon{display:inline-flex;align-items:center;justify-content:center;width:10px;height:10px}
+  .sidebar-edge-toggle-icon svg{display:block;width:100%;height:100%}
   .sidebar-reopen-tab{
     position:absolute;top:18px;left:6px;z-index:20;
     width:26px;height:26px;padding:0;border-radius:999px;
@@ -153,7 +160,16 @@
     background:var(--surface-elevated);color:var(--text-primary);font-size:var(--text-xs);
     display:flex;align-items:center;gap:6px;padding:0 8px;
   }
-  .filter-trigger{justify-content:space-between;cursor:pointer;text-align:left;font:inherit}
+  /* font-family only, not the `font` shorthand: this button is a native <button>
+     (unlike .filter-multi-control, a plain <div>), and UA stylesheets don't
+     inherit form-control fonts from the page by default, so this normalizes
+     the family to match the rest of the app. Resetting the full shorthand here
+     used to also reset font-size to "inherit" (→ the ancestor's 16px body
+     default), silently overriding the font-size:var(--text-xs) rule above via
+     later cascade order — the exact bug that made Chapter/Location/Status/
+     Placement render a size larger than the Character/Tag multi-trigger below,
+     which never had this problem since it isn't a native <button>. */
+  .filter-trigger{justify-content:space-between;cursor:pointer;text-align:left;font-family:inherit}
   .filter-trigger:hover,.filter-multi-control:hover{border-color:#cfc3b4}
   .filter-trigger-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .filter-trigger-caret{flex:none;font-size:9px;color:var(--text-secondary)}
@@ -173,17 +189,23 @@
   .filter-trigger-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .filter-trigger-chip-remove{
     flex:none;border:0;background:transparent;color:var(--brand-strong);opacity:.7;
-    width:16px;height:16px;border-radius:999px;padding:0;font-size:13px;line-height:1;cursor:pointer;
+    width:16px;height:16px;border-radius:999px;padding:0;font-size:13px;line-height:1;cursor:pointer;font-family:inherit;
   }
   .filter-trigger-chip-remove:hover{opacity:1;background:rgba(95,65,40,.14)}
   .filter-trigger-more{
     flex:none;border:0;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:600;
-    padding:2px 4px;cursor:pointer;border-radius:var(--radius-sm);
+    padding:2px 4px;cursor:pointer;border-radius:var(--radius-sm);font-family:inherit;
   }
   .filter-trigger-more:hover{background:var(--soft);color:var(--text-primary)}
+  /* Native <button>s created in filter-controls.js (unlike the plain
+     .filter-multi-control <div> host) don't inherit the page font-family from
+     the UA stylesheet by default — font-family:inherit here is what makes the
+     Character/Tag empty-state label (.filter-trigger-text inside this button)
+     match Chapter/Location/Status/Placement's Inter instead of the browser's
+     default system UI font. */
   .filter-multi-trigger{
     flex:none;margin-left:auto;border:0;background:transparent;color:var(--text-secondary);
-    display:flex;align-items:center;gap:5px;padding:3px 4px;cursor:pointer;font-size:9px;border-radius:var(--radius-sm);min-width:0;
+    display:flex;align-items:center;gap:5px;padding:3px 4px;cursor:pointer;font-size:9px;border-radius:var(--radius-sm);min-width:0;font-family:inherit;
   }
   .filter-multi-trigger .filter-trigger-text{color:var(--text-primary);font-size:var(--text-xs);font-weight:400}
   .filter-multi-trigger:hover{background:var(--soft)}
