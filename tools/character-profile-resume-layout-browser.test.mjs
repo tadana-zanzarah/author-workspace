@@ -1,15 +1,17 @@
-// Regression coverage for the fix/character-resume-photo-layout branch:
-// (1) removed the stale "Отношения, указанные в анкете..." explanatory
-// paragraph from the Character Gallery modal, letting cards use the small
-// amount of freed vertical space; (2) recomposed the Character Profile
-// résumé fact grid — birth date is now its own full-width row, Age/Zodiac
-// moved to a row of their own below it (the old cramped 3-column grid used
-// to wrap "Возраст на начало истории" into a tall, near-vertical column);
-// (3) replaced the résumé's multi-photo UI (a narrow vertical mini-gallery
-// with per-thumbnail action rows and nested scrollbars) with one dominant
-// active/primary portrait plus a single low-height horizontal thumbnail
-// strip and one shared action row. Checklist mirrors the task's acceptance
-// list (GALLERY 1-4, RESUME 5-10, PHOTO 11-24).
+// Regression coverage for the fix/character-photo-rail-gallery-height branch,
+// a refinement on top of the (mostly-accepted) character résumé layout:
+// (1) Character Gallery cards now stretch to use the modal's actual
+// available height (grid rows use minmax(floor,1fr) inside a fixed-height
+// modal) instead of a max-height guessed from one viewport's leftover space;
+// (2) the résumé's secondary-photo strip — previously a horizontal row BELOW
+// the primary portrait that pushed the whole identity column down as photos
+// were added — is now a vertical rail BESIDE the portrait, with its width
+// reserved unconditionally so the résumé's height/position never depends on
+// photo count; (3) the "Сделать главным"/"Удалить" text actions shrank to
+// compact star/trash icon buttons; (4) Age and Zodiac controls now start on
+// the same horizontal line regardless of Age's two-line label. Checklist
+// mirrors the task's acceptance list (GALLERY 1-4, RESUME 5-10, PHOTO 11-24)
+// plus the new geometry checks from this branch's own task (A-F).
 import {createRequire} from "node:module";
 import {spawn} from "node:child_process";
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
@@ -26,6 +28,7 @@ const project={
     {id:"resume-partial",name:"Марго",sortOrder:2000},
     {id:"resume-nophoto",name:"Без фото",sortOrder:3000},
     {id:"resume-many",name:"Полина",sortOrder:3500},
+    {id:"resume-ten",name:"Декада",sortOrder:3700},
     {id:"gallery-short",name:"Коротко",sortOrder:4000}
   ],
   profiles:{
@@ -49,6 +52,10 @@ const project={
     "resume-many":{
       id:"resume-many",characterId:"resume-many",name:"Полина",photos:mkPhotos("photo-many",5),
       primaryPhotoId:"photo-many-0",hidden:{}
+    },
+    "resume-ten":{
+      id:"resume-ten",characterId:"resume-ten",name:"Декада",photos:mkPhotos("photo-ten",10),
+      primaryPhotoId:"photo-ten-0",hidden:{}
     },
     "gallery-short":{id:"gallery-short",characterId:"gallery-short",name:"Коротко",race:"Человек",hidden:{}}
   },
@@ -83,19 +90,49 @@ try{
     });
     if(gap>40)throw new Error(`Gallery grid does not start materially higher after removing the stale paragraph: gap=${gap}`);
 
-    // 3. Cards remain viewport-safe: the modal itself never exceeds the
-    // viewport (it scrolls internally instead — this fixture's 5 characters
-    // wrap past one row at 1440px) and no single card exceeds the hard
-    // height ceiling.
-    const safe=await page.evaluate(()=>{
+    // 3. Cards remain viewport-safe (the modal claims a fixed share of the
+    // viewport and scrolls internally rather than overflowing it), AND —
+    // the point of this branch — the row of cards stretches to use nearly
+    // all of that claimed height instead of sizing to a viewport-tuned
+    // max-height and leaving space unused beneath the grid.
+    const heightUse=await page.evaluate(()=>{
       const modal=document.querySelector("#charsModal .modal").getBoundingClientRect();
-      return {modalFits:modal.bottom<=window.innerHeight,cardH:document.querySelector(".profile-card").getBoundingClientRect().height};
+      const grid=document.getElementById("profilesGrid");
+      const gridRect=grid.getBoundingClientRect();
+      const cards=[...document.querySelectorAll(".profile-card")];
+      const lastBottom=Math.max(...cards.map(c=>c.getBoundingClientRect().bottom));
+      return {
+        modalFits:modal.bottom<=window.innerHeight,
+        gridScrolls:grid.scrollHeight>grid.clientHeight+1,
+        unusedBelowCards:gridRect.bottom-lastBottom,
+        rowTops:[...new Set(cards.map(c=>Math.round(c.getBoundingClientRect().top)))].sort((a,b)=>a-b),
+        rowHeights:[...new Set(cards.map(c=>Math.round(c.getBoundingClientRect().height)))].sort((a,b)=>a-b)
+      };
     });
-    if(!safe.modalFits)throw new Error("Gallery modal overflows the viewport");
-    if(safe.cardH>760)throw new Error(`Gallery card exceeds the hard height ceiling: ${safe.cardH}px`);
+    if(!heightUse.modalFits)throw new Error("Gallery modal overflows the viewport");
+    if(heightUse.gridScrolls)throw new Error("Gallery grid needed to scroll for a fixture that should fit in two height-stretched rows — cards are not using available height");
+    if(heightUse.unusedBelowCards>40)throw new Error(`Cards leave more than a small normal gap below them inside the modal: ${heightUse.unusedBelowCards}px`);
+    // Two rows exist (this fixture has 5 gallery characters at 1440px,
+    // wrapping past one row): cards start at 2 distinct Y offsets, but
+    // (the actual point of this branch) both rows are stretched to exactly
+    // the same height by the grid's own 1fr track sizing rather than each
+    // sizing to its own row's content — one shared height value even though
+    // there are 2 rows.
+    if(heightUse.rowTops.length!==2)throw new Error(`Expected cards to start at exactly 2 distinct row offsets (2 rows), got: ${JSON.stringify(heightUse.rowTops)}`);
+    if(heightUse.rowHeights.length!==1)throw new Error(`Expected both rows to share one stretched height, got distinct heights: ${JSON.stringify(heightUse.rowHeights)}`);
+
+    // Photo cover keeps roughly its established visual proportion (~1/3 of
+    // the card) at whatever height the row stretched the card to — a
+    // percentage-based cover, not a fixed px height that would go
+    // out-of-proportion once cards stretch taller than before.
+    const coverRatio=await page.evaluate(()=>{
+      const card=document.querySelector(".profile-card");
+      return card.querySelector(".profile-cover").getBoundingClientRect().height/card.getBoundingClientRect().height;
+    });
+    if(coverRatio<0.22||coverRatio>0.48)throw new Error(`Gallery cover/card ratio drifted from "roughly a third": ${coverRatio}`);
 
     // 4. Stats and the action footer stay aligned at the same offset across
-    // a short and a longer card (unaffected by the paragraph removal).
+    // a short and a longer card (unaffected by the new height mechanism).
     const fullCard=page.locator('.profile-card[data-character-id="resume-full"]');
     const shortCard=page.locator('.profile-card[data-character-id="gallery-short"]');
     const offsetOf=async(locator,sel)=>locator.evaluate((el,s)=>el.querySelector(s).getBoundingClientRect().top-el.getBoundingClientRect().top,sel);
@@ -133,12 +170,14 @@ try{
         ageFieldTopHeight:ageTop.getBoundingClientRect().height,
         hideAgeVisible:hideAge.getBoundingClientRect().width>0,
         hideBirthdayVisible:hideBirthday.getBoundingClientRect().width>0,
-        ageInputWidth:document.getElementById("pf_age").getBoundingClientRect().width
+        ageInputWidth:document.getElementById("pf_age").getBoundingClientRect().width,
+        ageInputTop:document.getElementById("pf_age").getBoundingClientRect().top,
+        zodiacInputTop:document.getElementById("pf_zodiac").getBoundingClientRect().top
       };
     });
 
     // 5. Name/Surname are row 1 (above birth date, which is above vitals).
-    if(!layout.namesHasNameSurname)throw new Error("Name/Surname are not together in the first résumé row");
+    if(!layout.namesHasNameSurname)throw new Error("Name/Surname are not together in the first résумé row");
     if(!(layout.namesTop<layout.birthdayTop))throw new Error(`Names row is not above the birth-date row at width=${width}`);
     // 6. Birth date has its own usable wide row (year/month/day all present,
     // and the row uses most of the identity column's width rather than
@@ -160,7 +199,7 @@ try{
     if(ageLabelledby!=="Возраст на начало истории")throw new Error(`#pf_age is not labelled by the full semantic phrase: "${ageLabelledby}"`);
     // 9. The secondary "на начало истории" descriptor drops to its own
     // quiet line instead of wrapping "Возраст" itself into a tall, narrow,
-    // near-vertical column (two intentional lines, not four wrapped ones).
+    // near-vertical single column (two intentional lines, not four wrapped ones).
     if(!layout.sublabelIsBlock)throw new Error("Age sublabel is not rendered on its own line");
     if(layout.ageFieldTopHeight>48)throw new Error(`Age field-top is taller than two label lines — looks wrapped, not intentional: ${layout.ageFieldTopHeight}px at width=${width}`);
     // 10. "не указывать" stays visible/usable and does not visibly starve
@@ -168,6 +207,13 @@ try{
     if(!layout.hideAgeVisible)throw new Error("Age's «не указывать» checkbox is not visible");
     if(!layout.hideBirthdayVisible)throw new Error("Birth date's «не указывать» checkbox is not visible");
     if(layout.ageInputWidth<80)throw new Error(`Age input was squeezed by its «не указывать» checkbox: ${layout.ageInputWidth}px at width=${width}`);
+
+    // D. Age and Zodiac controls start on the same visual horizontal line —
+    // previously Age's two-line label ("Возраст" + the "на начало истории"
+    // hint) made its .profile-field-top taller than Zodiac's one-line
+    // label, pushing #pf_age's own control down below #pf_zodiac's.
+    const controlTopDelta=Math.abs(layout.ageInputTop-layout.zodiacInputTop);
+    if(controlTopDelta>1)throw new Error(`Age and Zodiac controls do not start on the same line at width=${width}: diff=${controlTopDelta}px`);
 
     // No select/input inside the résumé overflows its own box at any tested width.
     const overflow=await page.evaluate(()=>[...document.querySelectorAll(".profile-resume-vitals select,.profile-resume-vitals input,.profile-resume-birthday select,.profile-resume-birthday input")].some(el=>el.scrollWidth>el.clientWidth+1));
@@ -181,13 +227,21 @@ try{
   }
   await page.setViewportSize({width:1440,height:900});
 
-  // ================= PHOTO (11-24) =================
+  // ================= PHOTO RAIL (11-24) =================
 
-  // 11. One photo -> one primary portrait, no empty/pointless thumbnail strip.
+  // 11. One photo -> one primary portrait; the rail still renders (its width
+  // is always reserved) but with no thumbnail children — not omitted, and
+  // not a pointless placeholder card either.
   {
     await page.locator('.profile-card[data-character-id="resume-partial"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
-    if(await page.locator(".photo-resume-strip").count())throw new Error("A single photo should not render a thumbnail strip");
+    const railInfo=await page.evaluate(()=>{
+      const rail=document.querySelector(".photo-rail");
+      return {exists:!!rail,thumbCount:rail?rail.querySelectorAll(".photo-thumb").length:-1,width:rail?rail.getBoundingClientRect().width:0};
+    });
+    if(!railInfo.exists)throw new Error("Photo rail container is missing even though its width must always be reserved");
+    if(railInfo.thumbCount!==0)throw new Error("A single photo should not render any thumbnails in the rail");
+    if(railInfo.width<20)throw new Error(`Rail width is not reserved for a single-photo character: ${railInfo.width}px`);
     if(!await page.locator(".photo-item-primary").count())throw new Error("Single photo is not shown as the primary portrait");
     const h=await page.locator(".profile-resume").evaluate(el=>el.getBoundingClientRect().height);
     if(h>340)throw new Error(`One-photo résumé header grew too tall: ${h}px`);
@@ -199,24 +253,29 @@ try{
     if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
   }
 
-  // 12+23. Two photos -> one large active portrait + horizontal thumbnails;
-  // primary indicator is correct.
+  // 12+23. Two photos -> one large active portrait + a vertical rail of
+  // thumbnails BESIDE it (not below it); primary indicator is correct.
   {
     await page.locator('.profile-card[data-character-id="resume-full"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
     const info=await page.evaluate(()=>{
       const resume=document.querySelector(".profile-resume");
-      const strip=document.querySelector(".photo-resume-strip");
+      const rail=document.querySelector(".photo-rail");
+      const photosRow=document.getElementById("profilePhotosGrid");
       return {
         resumeHeight:resume.getBoundingClientRect().height,
-        stripPresent:!!strip,
+        railPresent:!!rail,
         thumbCount:document.querySelectorAll(".photo-thumb").length,
+        photosRowDirection:getComputedStyle(photosRow).flexDirection,
+        railBesidePortrait:document.querySelector(".photo-item-primary").getBoundingClientRect().right<=rail.getBoundingClientRect().left+1,
         primaryBadgeOnPrimaryTile:!!document.querySelector('.photo-item-primary[data-photo-id="photo-full-1"] .photo-primary'),
         primaryMarkOnThumb:!!document.querySelector('.photo-thumb[data-photo-id="photo-full-1"] .photo-thumb-primary-mark')
       };
     });
-    if(!info.stripPresent)throw new Error("Two photos should render a horizontal thumbnail strip");
+    if(!info.railPresent)throw new Error("Two photos should render the rail");
     if(info.thumbCount!==2)throw new Error(`Expected 2 thumbnails, got ${info.thumbCount}`);
+    if(info.photosRowDirection!=="row")throw new Error(`Portrait+rail are not laid out side by side (flex-direction=${info.photosRowDirection}) — looks like the old stacked/below-the-portrait strip`);
+    if(!info.railBesidePortrait)throw new Error("Rail does not sit beside (to the right of) the primary portrait");
     if(info.resumeHeight>420)throw new Error(`Two-photo résumé header grew too tall: ${info.resumeHeight}px`);
     if(!info.primaryBadgeOnPrimaryTile)throw new Error("Primary badge is not on the primary photo's enlarged tile");
     if(!info.primaryMarkOnThumb)throw new Error("Primary indicator is not on the primary photo's thumbnail");
@@ -224,36 +283,38 @@ try{
     if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
   }
 
-  // 13. Three-or-more photos still don't fall back to a vertical mini-gallery.
+  // 13+14+15+16. Five-or-more photos still don't fall back to a horizontal
+  // strip or a stacked-below-the-portrait mini-gallery: the rail stays
+  // vertical and any overflow scrolls inside it only.
   {
     await page.locator('.profile-card[data-character-id="resume-many"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
     const info=await page.evaluate(()=>{
-      const strip=document.querySelector(".photo-resume-strip");
+      const rail=document.querySelector(".photo-rail");
       return {
         thumbCount:document.querySelectorAll(".photo-thumb").length,
-        stripFlexDirection:getComputedStyle(strip).flexDirection,
+        railFlexDirection:getComputedStyle(rail).flexDirection,
         primaryTileCount:document.querySelectorAll(".photo-item-primary").length
       };
     });
     if(info.thumbCount!==5)throw new Error(`Expected 5 thumbnails for a 5-photo character, got ${info.thumbCount}`);
-    if(info.stripFlexDirection!=="row")throw new Error(`Thumbnail strip is not a horizontal row (found "${info.stripFlexDirection}") — looks like the old vertical mini-gallery`);
+    if(info.railFlexDirection!=="column")throw new Error(`Thumbnail rail is not a vertical column (found "${info.railFlexDirection}") — looks like the old horizontal strip`);
     if(info.primaryTileCount!==1)throw new Error(`Expected exactly one enlarged primary/active portrait, found ${info.primaryTileCount}`);
 
-    // 14+15+16. No vertical scrollbar anywhere in the photo column, no
-    // horizontal scrollbar on the column as a whole — only the thumbnail
-    // strip itself may scroll horizontally.
+    // No horizontal scrollbar anywhere in the photo column; the rail may
+    // only scroll vertically.
     const overflow=await page.evaluate(()=>{
-      const grid=document.getElementById("profilePhotosGrid"),strip=document.querySelector(".photo-resume-strip");
+      const row=document.getElementById("profilePhotosGrid"),rail=document.querySelector(".photo-rail");
       return {
-        gridScrollsY:grid.scrollHeight>grid.clientHeight+1,
-        gridScrollsX:grid.scrollWidth>grid.clientWidth+1,
-        stripScrollsX:strip.scrollWidth>strip.clientWidth
+        rowScrollsY:row.scrollHeight>row.clientHeight+1,
+        rowScrollsX:row.scrollWidth>row.clientWidth+1,
+        railScrollsX:rail.scrollWidth>rail.clientWidth+1,
+        railScrollsY:rail.scrollHeight>rail.clientHeight+1
       };
     });
-    if(overflow.gridScrollsY)throw new Error("Photo column has a vertical internal scrollbar");
-    if(overflow.gridScrollsX)throw new Error("Photo column (outside the thumbnail strip) has a horizontal scrollbar");
-    if(!overflow.stripScrollsX)throw new Error("Thumbnail strip with 5 photos at 196px column width should need to scroll horizontally");
+    if(overflow.rowScrollsY)throw new Error("Photo row has an unexpected vertical scrollbar");
+    if(overflow.rowScrollsX)throw new Error("Photo row (outside the rail) has a horizontal scrollbar");
+    if(overflow.railScrollsX)throw new Error("Thumbnail rail scrolls horizontally — it must only ever scroll vertically");
 
     // 17. Selecting a thumbnail changes the active managed photo.
     const thirdThumb=page.locator(".photo-thumb").nth(2);
@@ -266,28 +327,111 @@ try{
     if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
   }
 
+  // C. Ten photos overflow the rail's height (matched to the portrait) and
+  // must scroll vertically inside the rail only — never by growing the
+  // photo row or falling back to a horizontal scrollbar.
+  {
+    await page.locator('.profile-card[data-character-id="resume-ten"] button[aria-label^="Редактировать анкету"]').click();
+    await page.waitForSelector("#profileEditorModal",{state:"visible"});
+    const overflow=await page.evaluate(()=>{
+      const row=document.getElementById("profilePhotosGrid"),rail=document.querySelector(".photo-rail");
+      return {
+        thumbCount:document.querySelectorAll(".photo-thumb").length,
+        rowScrollsY:row.scrollHeight>row.clientHeight+1,
+        rowScrollsX:row.scrollWidth>row.clientWidth+1,
+        railScrollsX:rail.scrollWidth>rail.clientWidth+1,
+        railScrollsY:rail.scrollHeight>rail.clientHeight+1
+      };
+    });
+    if(overflow.thumbCount!==10)throw new Error(`Expected 10 thumbnails for a 10-photo character, got ${overflow.thumbCount}`);
+    if(overflow.rowScrollsY)throw new Error("Photo row has an unexpected vertical scrollbar for a 10-photo character");
+    if(overflow.rowScrollsX)throw new Error("Photo row (outside the rail) has a horizontal scrollbar for a 10-photo character");
+    if(overflow.railScrollsX)throw new Error("Thumbnail rail scrolls horizontally for a 10-photo character");
+    if(!overflow.railScrollsY)throw new Error("Rail with 10 photos should need to scroll vertically");
+    await page.click("#cancelProfile");
+    if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
+  }
+
   // No-photo empty state renders a placeholder, not a broken/empty grid.
   {
     await page.locator('.profile-card[data-character-id="resume-nophoto"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
     if(!await page.locator(".photo-item-empty").count())throw new Error("No-photo empty state placeholder is missing");
-    if(await page.locator(".photo-resume-strip").count())throw new Error("No-photo state should not render a thumbnail strip");
+    if(await page.locator(".photo-thumb").count())throw new Error("No-photo state should not render any rail thumbnails");
     await page.click("#cancelProfile");
   }
 
-  // 18-22+24. Preview/crop/make-primary/delete/add-photo all still work from
-  // the résumé photo column via the active-photo + shared-action-row model,
-  // and photo state (order, primary) round-trips through save/reload.
+  // ================= RÉSЮМЕ HEIGHT / IDENTITY STABILITY (A+B) =================
+  // 1, 2, 5 and 10 photos should produce practically the same résumé height
+  // and the same X/Y position for Name/Surname/Birthday — the whole point of
+  // moving the secondary photos into a reserved-width vertical rail instead
+  // of a strip that grew downward under the portrait.
+  {
+    const samples=[];
+    for(const id of ["resume-partial","resume-full","resume-many","resume-ten"]){
+      await page.locator(`.profile-card[data-character-id="${id}"] button[aria-label^="Редактировать анкету"]`).click();
+      await page.waitForSelector("#profileEditorModal",{state:"visible"});
+      const geo=await page.evaluate(()=>({
+        resumeHeight:document.querySelector(".profile-resume").getBoundingClientRect().height,
+        photoColumnHeight:document.querySelector(".profile-resume-photo").getBoundingClientRect().height,
+        nameTop:document.getElementById("pf_name").getBoundingClientRect().top,
+        nameLeft:document.getElementById("pf_name").getBoundingClientRect().left,
+        birthdayTop:document.querySelector(".profile-resume-birthday").getBoundingClientRect().top,
+        personalityTop:document.querySelector(".profile-section-title").getBoundingClientRect().top
+      }));
+      samples.push({id,...geo});
+      await page.click("#cancelProfile");
+      if(await page.locator("#discardChangesModal").isVisible())await page.click("#discardChanges");
+    }
+    const spread=key=>Math.max(...samples.map(s=>s[key]))-Math.min(...samples.map(s=>s[key]));
+    if(spread("resumeHeight")>6)throw new Error(`Résumé height varies with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,h:s.resumeHeight})))}`);
+    if(spread("photoColumnHeight")>6)throw new Error(`Photo column height varies with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,h:s.photoColumnHeight})))}`);
+    if(spread("nameTop")>1)throw new Error(`#pf_name Y position shifts with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,top:s.nameTop})))}`);
+    if(spread("nameLeft")>1)throw new Error(`#pf_name X position shifts with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,left:s.nameLeft})))}`);
+    if(spread("birthdayTop")>1)throw new Error(`Birth-date row Y position shifts with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,top:s.birthdayTop})))}`);
+    if(spread("personalityTop")>6)throw new Error(`"Личность" section start shifts with photo count: ${JSON.stringify(samples.map(s=>({id:s.id,top:s.personalityTop})))}`);
+  }
+
+  // 18-22+24+F. Preview/crop/make-primary(star)/delete(trash)/add-photo all
+  // still work from the résumé photo column via the active-photo + shared
+  // icon-action-row model, and photo state (order, primary) round-trips
+  // through save/reload.
   {
     await page.locator('.profile-card[data-character-id="resume-full"] button[aria-label^="Редактировать анкету"]').click();
     await page.waitForSelector("#profileEditorModal",{state:"visible"});
     const photosGrid=page.locator("#profilePhotosGrid");
 
-    // 20. Make-primary: select the non-primary thumbnail, then use the
-    // shared action row (only offered because it is not already primary).
+    // F. Star/Trash are icon-only buttons (no visible text) carrying the
+    // required accessible name/title, using the same inline-SVG icon
+    // grammar as other row actions in the app (not emoji).
     await page.locator('.photo-thumb[data-photo-id="photo-full-2"]').click();
+    const starInfo=await page.evaluate(()=>{
+      const btn=document.querySelector('[data-action="make-primary"]');
+      return btn&&{hasSvg:!!btn.querySelector("svg"),text:btn.textContent.trim(),ariaLabel:btn.getAttribute("aria-label"),title:btn.getAttribute("title")};
+    });
+    if(!starInfo)throw new Error("Make-primary (star) action button is missing");
+    if(!starInfo.hasSvg)throw new Error("Make-primary action has no SVG icon");
+    if(starInfo.text)throw new Error(`Make-primary action should be icon-only (no visible text), found: "${starInfo.text}"`);
+    if(starInfo.ariaLabel!=="Сделать главным")throw new Error(`Make-primary aria-label regressed: ${starInfo.ariaLabel}`);
+    if(starInfo.title!=="Сделать главным")throw new Error(`Make-primary title regressed: ${starInfo.title}`);
+
+    const trashInfoBefore=await page.evaluate(()=>{
+      const btn=document.querySelector('[data-action="delete-photo"]');
+      return {hasSvg:!!btn.querySelector("svg"),text:btn.textContent.trim(),ariaLabel:btn.getAttribute("aria-label"),title:btn.getAttribute("title")};
+    });
+    if(!trashInfoBefore.hasSvg)throw new Error("Delete-photo action has no SVG icon");
+    if(trashInfoBefore.text)throw new Error(`Delete-photo action should be icon-only (no visible text), found: "${trashInfoBefore.text}"`);
+    if(trashInfoBefore.ariaLabel!=="Удалить фотографию")throw new Error(`Delete-photo aria-label regressed: ${trashInfoBefore.ariaLabel}`);
+    if(trashInfoBefore.title!=="Удалить фотографию")throw new Error(`Delete-photo title regressed: ${trashInfoBefore.title}`);
+
+    // 20. Make-primary: select the non-primary thumbnail, then use the star
+    // icon button (aria-label is still the accessible name Playwright matches).
     await photosGrid.getByRole("button",{name:"Сделать главным"}).click();
     if(!await page.locator('.photo-item-primary[data-photo-id="photo-full-2"] .photo-primary').count())throw new Error("Make-primary did not work from the résumé photo column");
+    // When the active photo IS already primary, the star action is not
+    // offered at all (consistent with the pre-existing behavior for the
+    // text button it replaces).
+    if(await page.locator('[data-action="make-primary"]').count())throw new Error("Star (make-primary) action should not render for a photo that is already primary");
 
     // 19. Crop: select the other photo, then crop it via the shared row.
     await page.locator('.photo-thumb[data-photo-id="photo-full-1"]').click();
@@ -307,7 +451,7 @@ try{
     await page.setInputFiles("#profilePhotosInput",[{name:"c.png",mimeType:"image/png",buffer:Buffer.from(png,"base64")}]);
     await page.waitForFunction(n=>profileDraftPhotos.length===n,beforeAdd+1);
 
-    // 21. Delete the currently-active photo (photo-full-1).
+    // 21. Delete the currently-active photo (photo-full-1) via the trash icon.
     const beforeDelete=await page.evaluate(()=>profileDraftPhotos.length);
     await photosGrid.getByRole("button",{name:"Удалить"}).click();
     const afterDelete=await page.evaluate(()=>profileDraftPhotos.length);

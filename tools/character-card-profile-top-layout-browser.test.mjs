@@ -233,7 +233,7 @@ try{
     await photosGrid.getByRole("button",{name:"Удалить"}).click();
     const afterCount=await page.evaluate(()=>profileDraftPhotos.length);
     if(afterCount!==beforeCount-1)throw new Error(`Delete photo did not work from the resume photo column: ${beforeCount} -> ${afterCount}`);
-    if(await page.locator(".photo-thumb").count()!==0)throw new Error("A single remaining photo should not still show a thumbnail strip");
+    if(await page.locator(".photo-thumb").count()!==0)throw new Error("A single remaining photo should not still show rail thumbnails");
 
     // 18. Save-scope behavior (help text swap) is unchanged, now driven by
     // the footer radio group instead of a <select>.

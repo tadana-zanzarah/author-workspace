@@ -317,14 +317,15 @@ function editProfileNow(characterId){
 
 function renderProfilePhotos(){
   // The resume photo column shows one dominant active/primary portrait
-  // (.photo-item-primary) plus, only when more than one photo exists, a
-  // single low-height horizontal thumbnail strip below it (.photo-resume-
-  // strip) — replacing the old vertical mini-gallery of stacked photo
-  // cards with per-thumbnail action rows (nested vertical + horizontal
-  // scrolling, tiny abbreviated buttons). Clicking a thumbnail makes it the
-  // "active" photo; one shared action row underneath the portrait then
-  // operates on whichever photo is active, instead of rendering four
-  // controls under every thumbnail.
+  // (.photo-item-primary) plus a narrow vertical rail (.photo-rail) beside
+  // it — replacing the old vertical mini-gallery of stacked photo cards
+  // with per-thumbnail action rows (nested vertical + horizontal
+  // scrolling, tiny abbreviated buttons). The rail always renders (even
+  // with 0-1 photos, where it's simply empty) so its width is reserved and
+  // adding a 2nd photo never shifts anything beside it. Clicking a
+  // thumbnail makes it the "active" photo; one shared action row underneath
+  // the portrait then operates on whichever photo is active, instead of
+  // rendering four controls under every thumbnail.
   if(!profileDraftPhotos.some(photo=>photo.id===profileDraftActivePhotoId)){
     profileDraftActivePhotoId=profileDraftPrimaryPhotoId||profileDraftPhotos[0]?.id||"";
   }
@@ -335,17 +336,16 @@ function renderProfilePhotos(){
     return;
   }
   const isPrimary=active.id===profileDraftPrimaryPhotoId;
-  const strip=profileDraftPhotos.length<2?"":`
-    <div class="photo-resume-strip" role="listbox" aria-label="Фотографии персонажа">
-      ${profileDraftPhotos.map((photo,i)=>{
-        const isActive=photo.id===profileDraftActivePhotoId;
-        const isPhotoPrimary=photo.id===profileDraftPrimaryPhotoId;
-        return `<button type="button" class="photo-thumb${isActive?" photo-thumb-active":""}" data-photo-id="${esc(photo.id)}" role="option" aria-selected="${isActive}" aria-label="Фотография ${i+1}${isPhotoPrimary?" (главная)":""}" onclick="setActivePhoto('${jsq(photo.id)}')">
-          <img src="${esc(photo.source.value)}" alt="" style="${cropImageStyle(photo.crop)}">
-          ${isPhotoPrimary?'<span class="photo-thumb-primary-mark" aria-hidden="true">★</span>':""}
-        </button>`;
-      }).join("")}
-    </div>`;
+  const rail=profileDraftPhotos.length<2?"":profileDraftPhotos.map((photo,i)=>{
+    const isActive=photo.id===profileDraftActivePhotoId;
+    const isPhotoPrimary=photo.id===profileDraftPrimaryPhotoId;
+    return `<button type="button" class="photo-thumb${isActive?" photo-thumb-active":""}" data-photo-id="${esc(photo.id)}" role="option" aria-selected="${isActive}" aria-label="Фотография ${i+1}${isPhotoPrimary?" (главная)":""}" onclick="setActivePhoto('${jsq(photo.id)}')">
+      <img src="${esc(photo.source.value)}" alt="" style="${cropImageStyle(photo.crop)}">
+      ${isPhotoPrimary?'<span class="photo-thumb-primary-mark" aria-hidden="true">★</span>':""}
+    </button>`;
+  }).join("");
+  const starIcon='<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><path d="M8 2.3l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.9l-3.4 1.9.7-3.8-2.8-2.7 3.8-.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+  const trashIcon='<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true"><path d="M3.4 4.6h9.2M6.5 4.6V3.1a1 1 0 011-1h1a1 1 0 011 1v1.5M6.7 7.1v4.3M9.3 7.1v4.3M4.6 4.6l.6 7.8a1 1 0 001 .9h3.6a1 1 0 001-.9l.6-7.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   grid.innerHTML=`
     <div class="photo-item photo-item-primary" data-photo-id="${esc(active.id)}">
       <img src="${esc(active.source.value)}" alt="${esc(active.alt||"")}" style="${cropImageStyle(active.crop)}">
@@ -353,11 +353,11 @@ function renderProfilePhotos(){
       <div class="photo-actions">
         <button type="button" data-action="view-photo" aria-label="Просмотреть" title="Просмотреть" onclick="openPhotoLightbox('${jsq(active.id)}')">Просмотреть</button>
         <button type="button" data-action="crop-photo" aria-label="Кадрировать" title="Кадрировать" onclick="openPhotoCrop('${jsq(active.id)}')">Кадрировать</button>
-        ${!isPrimary?`<button type="button" aria-label="Сделать главным" title="Сделать главным" onclick="setPrimaryPhoto('${jsq(active.id)}')">Сделать главным</button>`:""}
-        <button type="button" class="danger" aria-label="Удалить фотографию" title="Удалить" onclick="removeActiveProfilePhoto()">Удалить</button>
+        ${!isPrimary?`<button type="button" class="row-action-quiet photo-action-icon" data-action="make-primary" aria-label="Сделать главным" title="Сделать главным" onclick="setPrimaryPhoto('${jsq(active.id)}')">${starIcon}</button>`:""}
+        <button type="button" class="row-action-quiet danger-quiet photo-action-icon" data-action="delete-photo" aria-label="Удалить фотографию" title="Удалить фотографию" onclick="removeActiveProfilePhoto()">${trashIcon}</button>
       </div>
     </div>
-    ${strip}`;
+    <div class="photo-rail" role="listbox" aria-label="Фотографии персонажа">${rail}</div>`;
 }
 
 function setActivePhoto(id){

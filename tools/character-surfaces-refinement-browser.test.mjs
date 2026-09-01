@@ -184,7 +184,7 @@ try{
       {name:"a.png",mimeType:"image/png",buffer:Buffer.from(pngBase64,"base64")},
       {name:"b.png",mimeType:"image/png",buffer:Buffer.from(pngBase64,"base64")}
     ]);
-    await page.waitForSelector('.photo-resume-strip .photo-thumb:nth-child(2)');
+    await page.waitForSelector('.photo-rail .photo-thumb:nth-child(2)');
     // 16. The primary portrait tile ends at its own content height — no
     // leftover space below the image + shared action row (superseded the
     // old per-thumbnail geometry check — secondary tiles are now plain
