@@ -57,7 +57,10 @@ try{
     if(!listed.ok)return {stage:"list_after_saves",listed};
 
     // CASE: delete probe on the same project-scoped image branch (shares the fixed functions).
-    const deleteProbe=await cloudState.imageApi.deleteImage(idB,listed.data.find(r=>r.id===idB).revision);
+    // Project-scoped images compare expected_revision against the PROJECT's revision (not the
+    // image row's own .revision column) -- case4b.revision is the project revision returned by
+    // the last successful project-scoped image mutation.
+    const deleteProbe=await cloudState.imageApi.deleteImage(idB,case4b.revision);
     if(!deleteProbe.ok)return {stage:"delete_probe",deleteProbe};
 
     return {stage:"done",owner,projectId:proj.id,characterId:character.id,projectCharacterId:pc.id,idA,idB,listedBeforeDelete:listed.data};
@@ -74,7 +77,7 @@ try{
 
   // CASE 5: reload persists primary + crop.
   await page.reload({waitUntil:"networkidle"});
-  await page.waitForSelector("#authScreen[hidden]");
+  await page.waitForSelector("#projectsScreen:not([hidden])");
   const reloaded=await page.evaluate(async s=>cloudState.imageApi.listImages(s.characterId,s.projectCharacterId),{characterId:result.characterId,projectCharacterId:result.projectCharacterId});
   assert(reloaded.ok&&reloaded.data.length===1,"expected exactly 1 remaining image row after reload (B was deleted)");
   const persistedA=reloaded.data[0];
