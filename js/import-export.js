@@ -17,13 +17,10 @@ function openAllScenesNow(){
       order++;
       html+=`<section class="all-scene-block ${scene.status==="fixed"?"fixed":"floating"}">
         <div class="all-scene-header">
-          <div>
-            <div class="all-scene-title">${esc(scene.title||"Без названия")}</div>
-            <div class="scene-text-meta" style="margin:4px 0 0">
-              ${esc(readableDate(scene)||"дата не указана")} · ${esc(locationById(scene.locationId)?.name||"локация не указана")} · ${esc(writingStatusById(scene.writingStatus).label)}
-            </div>
+          <div class="all-scene-title"><span class="all-scene-number">${order}.</span> ${esc(scene.title||"Без названия")}</div>
+          <div class="all-scene-meta">
+            ${esc(readableDate(scene)||"дата не указана")} · ${esc(locationById(scene.locationId)?.name||"локация не указана")} · ${esc(writingStatusById(scene.writingStatus).label)}
           </div>
-          <div class="all-scene-number">Сцена ${order}</div>
         </div>
         <textarea class="all-scene-text" data-scene-id="${esc(scene.id)}" placeholder="Текст сцены">${esc(scene.sceneText||"")}</textarea>
       </section>`;

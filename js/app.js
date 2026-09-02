@@ -313,6 +313,11 @@ document.getElementById("matrixShowRelations").onchange=event=>setMatrixContentM
 document.getElementById("addSceneTag").onclick=addTagToDraft;
 document.getElementById("sceneTagInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addTagToDraft()}};
 
+// Transient contextual feedback, not a persistent status: clears the moment
+// the author picks a different (or no) location themselves. Programmatic
+// assignment after a quick-create (below) does not fire "change", so this
+// only reacts to real user selection.
+document.getElementById("sceneLocation").onchange=()=>{document.getElementById("quickLocationConfirmed").textContent=""};
 let quickLocationInFlight=false;
 document.getElementById("quickAddLocation").onclick=()=>{
   const input=document.getElementById("quickLocationName"),createBtn=document.getElementById("quickLocationCreate");

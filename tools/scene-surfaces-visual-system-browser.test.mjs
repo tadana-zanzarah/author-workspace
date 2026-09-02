@@ -49,7 +49,13 @@ try{
   await page.click("#addFirst");
   if(!await page.locator("#sceneModal").isVisible())throw new Error("Create Scene modal did not open");
   const createSections=await sectionTitles();
-  if(JSON.stringify(createSections)!==JSON.stringify(["Время и хронология","Текст сцены","Персонажи"]))
+  // "Время и хронология" no longer has its own heading: this refinement pass
+  // folds date/time/writing-status/scene-status into one equal-height row at
+  // the very top of the primary (heading-less) section, ahead of the include
+  // toggle and chapter/location row, to cut the vertical space the old
+  // separate section spent on a heading + its own grid. See index.html
+  // #sceneModal and css/modals.css .modal-grid-4.
+  if(JSON.stringify(createSections)!==JSON.stringify(["Текст сцены","Персонажи"]))
     throw new Error(`Unexpected Create Scene section titles: ${JSON.stringify(createSections)}`);
   const missingCreate=await page.evaluate(ids=>ids.filter(id=>!document.getElementById(id)),fieldIds);
   if(missingCreate.length)throw new Error(`Scene fields missing in Create: ${missingCreate.join(", ")}`);

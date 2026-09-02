@@ -336,21 +336,35 @@
     <h2 id="sceneModalTitle">Новая сцена</h2>
 
     <section class="scene-section scene-section-primary">
-      <label class="scene-title-field">
-        <span class="field-caption">Название сцены</span>
-        <textarea id="sceneTitle" data-initial-focus class="scene-title-input" placeholder="Название сцены"></textarea>
+      <div class="modal-grid-4">
+        <label><span class="field-caption">Дата</span><input id="sceneDate" type="date"></label>
+        <label><span class="field-caption">Время</span><input id="sceneTime" type="time"></label>
+        <label><span class="field-caption">Статус написания</span><select id="sceneWritingStatus"></select></label>
+        <label><span class="field-caption">Статус сцены</span>
+          <select id="sceneStatus">
+            <option value="floating">Ещё нужно разместить</option>
+            <option value="fixed">Уже на своём месте</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="include-toggle">
+        <input id="sceneIncluded" type="checkbox" checked>
+        Включить сцену в общий текст и выгрузку
       </label>
+
       <div class="modal-grid">
         <label><span class="field-caption">Глава</span><select id="sceneChapter"></select></label>
-        <label><span class="field-caption">Статус написания</span><select id="sceneWritingStatus"></select></label>
-      </div>
-      <div class="modal-grid">
-        <label><span class="field-caption">Локация</span><select id="sceneLocation"></select></label>
-        <div class="field-inline-action">
-          <button type="button" id="quickAddLocation">＋ Новая локация</button>
-          <span id="quickLocationConfirmed" class="save-status success" role="status" aria-live="polite"></span>
+        <div class="scene-location-field">
+          <label for="sceneLocation" class="field-caption">Локация</label>
+          <div class="field-inline-action">
+            <select id="sceneLocation"></select>
+            <button type="button" id="quickAddLocation">＋ Новая локация</button>
+          </div>
         </div>
       </div>
+      <div id="quickLocationConfirmed" class="quick-location-feedback save-status success" role="status" aria-live="polite"></div>
+
       <div class="tag-editor">
         <span class="field-caption">Теги</span>
         <div class="field-inline-action">
@@ -359,23 +373,10 @@
         </div>
         <div id="sceneTagDraftList" class="tag-draft-list"></div>
       </div>
-    </section>
 
-    <section class="scene-section">
-      <h3 class="scene-section-title">Время и хронология</h3>
-      <div class="modal-grid-3">
-        <label><span class="field-caption">Дата</span><input id="sceneDate" type="date"></label>
-        <label><span class="field-caption">Время</span><input id="sceneTime" type="time"></label>
-        <label><span class="field-caption">Статус сцены</span>
-          <select id="sceneStatus">
-            <option value="floating">Ещё нужно разместить</option>
-            <option value="fixed">Уже на своём месте</option>
-          </select>
-        </label>
-      </div>
-      <label class="include-toggle">
-        <input id="sceneIncluded" type="checkbox" checked>
-        Включить сцену в общий текст и выгрузку
+      <label class="scene-title-field">
+        <span class="field-caption">Название сцены</span>
+        <input type="text" id="sceneTitle" data-initial-focus class="scene-title-input" placeholder="Название сцены">
       </label>
     </section>
 
@@ -386,9 +387,6 @@
 
     <section class="scene-section">
       <h3 class="scene-section-title">Персонажи</h3>
-      <p class="profile-note">
-        Незаполненный персонаж считается не участвующим. Отношения наследуются автоматически. Любое отношение, которое вы редактируете вручную, закрепляется за этой сценой; кнопка «Наследовать» снимает закрепление.
-      </p>
       <div class="scene-participant-selector">
         <label style="flex:1">
           <span class="field-caption">Добавить персонажа в сцену</span>

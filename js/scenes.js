@@ -153,6 +153,7 @@ function openNewSceneAtNow(beforeSceneId=null,chapterId=""){
   document.getElementById("sceneChapter").value=insertChapterId;
   document.getElementById("sceneLocation").value="";
   document.getElementById("sceneWritingStatus").value="idea";
+  document.getElementById("quickLocationConfirmed").textContent="";
   sceneTagDraft=[];
   sceneNewTagDraft={};
   renderSceneTagDraft();
@@ -190,6 +191,7 @@ function editSceneNow(sceneId){
   document.getElementById("sceneChapter").value=s.chapterId||"chapter-unassigned";
   document.getElementById("sceneLocation").value=s.locationId||"";
   document.getElementById("sceneWritingStatus").value=s.writingStatus||"idea";
+  document.getElementById("quickLocationConfirmed").textContent="";
   sceneTagDraft=[...(s.tags||[])];
   sceneNewTagDraft={};
   renderSceneTagDraft();
@@ -277,7 +279,7 @@ function renderPeopleBlocks(){
       return `<div class="relation-row ${hasChange?"explicit":""}" data-relation-row>
         <div class="relation-name">
           ${esc(target.name)}
-          <span class="changed-note relation-explicit-note" style="${hasChange?"":"display:none"}">задано здесь</span>
+          <span class="changed-note relation-explicit-note" style="visibility:${hasChange?"visible":"hidden"}">задано здесь</span>
         </div>
         <input class="rel-value"
           data-char-id="${esc(charId)}"
@@ -304,8 +306,7 @@ function renderPeopleBlocks(){
         <button type="button" class="danger" onclick="removeSceneParticipant('${jsq(charId)}')">Убрать из сцены</button>
       </div>
       <label>
-        <span class="field-caption">События сцены</span>
-        <textarea class="p-action action-input" data-char-id="${esc(charId)}" placeholder="Что делает персонаж">${esc(p.action||"")}</textarea>
+        <textarea class="p-action action-input" data-char-id="${esc(charId)}" aria-label="Что произошло с персонажем в сцене" placeholder="Что произошло с персонажем в сцене">${esc(p.action||"")}</textarea>
       </label>
       ${(p.legacyState||"").trim()?`
         <div class="legacy-note">
@@ -315,7 +316,10 @@ function renderPeopleBlocks(){
       <div class="relations-editor">
         <div class="relations-editor-title">
           <strong>Отношение к другим персонажам</strong>
-          <span>Введённое вручную значение закрепляется за этой сценой и не меняется при переносе</span>
+          <span class="info-tooltip">
+            <button type="button" class="info-tooltip-btn" aria-label="Как работает наследование отношений" aria-describedby="relInheritHelp-${esc(charId)}">?</button>
+            <span class="info-tooltip-panel" role="tooltip" id="relInheritHelp-${esc(charId)}">По умолчанию отношение переносится из предыдущей сцены с этими персонажами. Если изменить его вручную, значение закрепится за этой сценой. «Наследовать» вернёт автоматическое значение.</span>
+          </span>
         </div>
         ${rows}
       </div>
@@ -369,7 +373,7 @@ function markRelationExplicit(input,isExplicit){
   if(row){
     row.classList.toggle("explicit",isExplicit);
     const note=row.querySelector(".relation-explicit-note");
-    if(note)note.style.display=isExplicit?"inline-block":"none";
+    if(note)note.style.visibility=isExplicit?"visible":"hidden";
   }
 }
 
