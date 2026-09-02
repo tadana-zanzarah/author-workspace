@@ -35,6 +35,14 @@ name: Location Phase 2 Cutover CI
 #      (independent of any guardrail script in this repo) would try to re-apply those 10 already-
 #      -applied migrations. This determines whether a guardrail fix alone is sufficient, or
 #      whether the underlying apply mechanism itself is unsafe under this historical pattern.
+#      Finding: it refuses outright ("Remote migration versions not found in local migrations
+#      directory") -- safe (no re-apply, no duplicate rows) but blocks Phase 2 too.
+#   4. migration-history-repair-rehearsal: rehearses the officially-suggested fix (`supabase
+#      migration repair --status reverted/applied`) against the same disposable reproduction,
+#      proving the exact command form, that repair never executes migration SQL or changes
+#      application data (object-marker snapshot compared byte-for-byte before/after), and that
+#      `supabase migration up` afterward applies ONLY the genuinely new migration. This job never
+#      touches production either -- it is a rehearsal, not a proposal to auto-apply.
 
 on:
   push:
@@ -212,6 +220,135 @@ jobs:
             exit 0
           fi
           echo "::error title=BLOCKED: inconclusive/unexpected outcome::migration up exit=${{ steps.migration_up.outputs.exit_code }}, phase2_registered=${phase2_registered}, old_reattempted=${old_reattempted}. See the full log printed by the previous step. Treat as BLOCKED -- do not assume safety."
+          exit 1
+
+      - name: Stop disposable Supabase
+        if: always()
+        run: supabase stop --no-backup
+
+  migration-history-repair-rehearsal:
+    runs-on: ubuntu-latest
+    env:
+      LOCAL_PG_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      PHASE2_MIGRATION: supabase/migrations/20260903120000_location_phase2_cutover.sql
+      OLD_REMOTE_VERSIONS: 20260813140832 20260813141018 20260821134028 20260821134320 20260821161901 20260822061725 20260827122857 20260827122955 20260829052830 20260829053118
+      LOCAL_HISTORICAL_VERSIONS: 20260812193655 20260813144500 20260821133800 20260821134302 20260821161410 20260822120000 20260827122152 20260827122921 20260829045658 20260829053102
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Ensure psql is available
+        run: which psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: Discover official `supabase migration repair` semantics before using it
+        run: |
+          npx supabase migration repair --help > /tmp/repair-help.log 2>&1 || true
+          cat /tmp/repair-help.log
+          escaped=$(sed 's/%/%25/g; s/\r/%0D/g' /tmp/repair-help.log | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=supabase migration repair --help::${escaped}"
+
+      - name: Move the Phase 2 cutover migration out of the chain (14 migrations remain)
+        run: mv "$PHASE2_MIGRATION" /tmp/location_phase2_cutover.sql.pending
+
+      - name: Start disposable local Supabase (applies the remaining 14 migrations fresh)
+        run: supabase start
+
+      - name: Rewrite 10 rows to reproduce production's exact historical version-mismatch pattern
+        run: psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci/migration_history_mismatch_fixture.sql
+
+      - name: Restore the Phase 2 cutover migration (now the only local-only file, matching production)
+        run: mv /tmp/location_phase2_cutover.sql.pending "$PHASE2_MIGRATION"
+
+      - name: Pre-repair schema_migrations snapshot
+        run: psql "$LOCAL_PG_URL" -c "select version, name from supabase_migrations.schema_migrations order by version;"
+
+      - name: Object marker snapshot BEFORE repair (repair must never execute SQL / change data)
+        run: |
+          psql "$LOCAL_PG_URL" -c "select (select count(*) from public.characters) as characters_rows, (select count(*) from public.profiles) as profiles_rows, (select count(*) from information_schema.tables where table_schema='public') as public_table_count;" -A -t > /tmp/markers-before.txt
+          cat /tmp/markers-before.txt
+
+      - name: THE REHEARSAL step 1 -- revert the 10 old remote-tracked versions
+        id: repair_reverted
+        run: |
+          set +e
+          npx supabase migration repair --db-url "$LOCAL_PG_URL" --status reverted $OLD_REMOTE_VERSIONS > /tmp/repair-reverted.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat /tmp/repair-reverted.log
+          escaped=$(sed 's/%/%25/g; s/\r/%0D/g' /tmp/repair-reverted.log | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=repair --status reverted output::${escaped}"
+
+      - name: THE REHEARSAL step 2 -- mark the 10 corresponding local versions applied
+        id: repair_applied
+        run: |
+          set +e
+          npx supabase migration repair --db-url "$LOCAL_PG_URL" --status applied $LOCAL_HISTORICAL_VERSIONS > /tmp/repair-applied.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat /tmp/repair-applied.log
+          escaped=$(sed 's/%/%25/g; s/\r/%0D/g' /tmp/repair-applied.log | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=repair --status applied output::${escaped}"
+
+      - name: Post-repair schema_migrations snapshot
+        run: psql "$LOCAL_PG_URL" -c "select version, name from supabase_migrations.schema_migrations order by version;"
+
+      - name: Object marker snapshot AFTER repair (must be byte-for-byte identical to before)
+        run: |
+          psql "$LOCAL_PG_URL" -c "select (select count(*) from public.characters) as characters_rows, (select count(*) from public.profiles) as profiles_rows, (select count(*) from information_schema.tables where table_schema='public') as public_table_count;" -A -t > /tmp/markers-after.txt
+          cat /tmp/markers-after.txt
+          if ! diff -q /tmp/markers-before.txt /tmp/markers-after.txt > /dev/null; then
+            echo "::error title=UNSAFE: repair changed application data/schema::repair must only touch supabase_migrations.schema_migrations, but object markers differ before/after."
+            exit 1
+          fi
+
+      - name: Post-repair migration list (should show a clean single pending: Phase 2 only)
+        run: npx supabase migration list --db-url "$LOCAL_PG_URL" --output-format json | tee /tmp/list-after-repair.json
+
+      - name: THE CRITICAL TEST -- run supabase migration up after repair; only Phase 2 should execute
+        id: migration_up_after_repair
+        run: |
+          set +e
+          npx supabase migration up --db-url "$LOCAL_PG_URL" > /tmp/migration-up-after-repair.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat /tmp/migration-up-after-repair.log
+          escaped=$(sed 's/%/%25/g; s/\r/%0D/g' /tmp/migration-up-after-repair.log | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=migration up after repair -- raw output::${escaped}"
+
+      - name: Verdict
+        run: |
+          set -e
+          echo "repair reverted exit: ${{ steps.repair_reverted.outputs.exit_code }}"
+          echo "repair applied exit: ${{ steps.repair_applied.outputs.exit_code }}"
+          echo "migration up (post-repair) exit: ${{ steps.migration_up_after_repair.outputs.exit_code }}"
+          echo "---- schema_migrations final state ----"
+          psql "$LOCAL_PG_URL" -c "select version, name from supabase_migrations.schema_migrations order by version;"
+
+          total_rows=$(psql "$LOCAL_PG_URL" -t -A -c "select count(*) from supabase_migrations.schema_migrations;")
+          dup_names=$(psql "$LOCAL_PG_URL" -t -A -c "select name from supabase_migrations.schema_migrations group by name having count(*)>1;")
+          old_remote_still_present=$(psql "$LOCAL_PG_URL" -t -A -c "select exists(select 1 from supabase_migrations.schema_migrations where version in ('20260813140832','20260813141018','20260821134028','20260821134320','20260821161901','20260822061725','20260827122857','20260827122955','20260829052830','20260829053118'));")
+          all_local_historical_present=$(psql "$LOCAL_PG_URL" -t -A -c "select (select count(*) from supabase_migrations.schema_migrations where version in ('20260812193655','20260813144500','20260821133800','20260821134302','20260821161410','20260822120000','20260827122152','20260827122921','20260829045658','20260829053102'))=10;")
+          phase2_registered=$(psql "$LOCAL_PG_URL" -t -A -c "select exists(select 1 from supabase_migrations.schema_migrations where version='20260903120000');")
+
+          echo "total_rows=${total_rows} (expect 15)"
+          echo "duplicate_names=${dup_names:-none}"
+          echo "old_remote_versions_still_present=${old_remote_still_present} (expect f)"
+          echo "all_10_local_historical_versions_present=${all_local_historical_present} (expect t)"
+          echo "phase2_registered=${phase2_registered} (expect t)"
+
+          if [ "${dup_names}" != "" ]; then
+            echo "::error title=UNSAFE: duplicate migration name after repair+up::${dup_names}"
+            exit 1
+          fi
+          if [ "${old_remote_still_present}" != "f" ] || [ "${all_local_historical_present}" != "t" ] || [ "${total_rows}" != "15" ]; then
+            echo "::error title=REPAIR DID NOT FULLY RECONCILE HISTORY::old_remote_still_present=${old_remote_still_present} all_local_historical_present=${all_local_historical_present} total_rows=${total_rows}"
+            exit 1
+          fi
+          if [ "${phase2_registered}" = "t" ] && [ "${{ steps.migration_up_after_repair.outputs.exit_code }}" = "0" ]; then
+            echo "::notice title=SAFE: repair fully reconciled history and migration up applied ONLY Phase 2::15 total rows, no duplicates, no old-remote-version rows remain, all 10 local historical versions recognized applied, and supabase migration up succeeded applying only 20260903120000."
+            exit 0
+          fi
+          echo "::error title=BLOCKED: migration up after repair did not cleanly apply only Phase 2::exit=${{ steps.migration_up_after_repair.outputs.exit_code }}, phase2_registered=${phase2_registered}"
           exit 1
 
       - name: Stop disposable Supabase
