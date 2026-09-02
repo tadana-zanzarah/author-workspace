@@ -164,7 +164,7 @@ jobs:
         run: mv /tmp/location_phase2_cutover.sql.pending "$PHASE2_MIGRATION"
 
       - name: Diagnostic -- supabase migration list should show the same split shape as production
-        run: npx supabase migration list --db-url "$LOCAL_PG_URL" --output-format json | tee /tmp/migration-list-before.json
+        run: npx supabase migration list --output-format json | tee /tmp/migration-list-before.json
 
       - name: Diagnostic -- authoritative schema_migrations rows before the real apply attempt
         run: psql "$LOCAL_PG_URL" -c "select version, name from supabase_migrations.schema_migrations order by version;"
@@ -173,9 +173,16 @@ jobs:
         id: migration_up
         run: |
           set +e
-          npx supabase migration up --db-url "$LOCAL_PG_URL" > /tmp/migration-up.log 2>&1
+          # No --db-url here, matching the true-upgrade-path job's proven-working invocation:
+          # against a `supabase start`-launched local project, bare `migration up`/`migration
+          # list` use the local project context directly. `--db-url` is only for the real
+          # production tooling (production-db.mjs), which has no `supabase start` context to use
+          # instead.
+          npx supabase migration up > /tmp/migration-up.log 2>&1
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           cat /tmp/migration-up.log
+          escaped=$(sed 's/%/%25/g; s/\r/%0D/g' /tmp/migration-up.log | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=migration up raw output::${escaped}"
 
       - name: Verdict -- did the CLI try to re-apply any of the 10 already-applied migrations?
         run: |
