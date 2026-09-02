@@ -42,6 +42,17 @@ Supabase cloud backend). Never recreate, reinitialize, clone, or replace it.
 - Never alter real production user content during automated testing; use
   dedicated test fixtures/accounts and clean up only fixtures the test
   created.
+- Use the reusable workflow and tooling in
+  [docs/supabase-workflow.md](docs/supabase-workflow.md) for any production
+  database interaction (connection method, read-only pre/post-flight runner,
+  migration apply, migration-history verification) instead of ad hoc
+  connection strings or manual Supabase SQL Editor use.
+- **Approval contract:** a production migration apply is permitted only after,
+  in order: (1) disposable CI passes for that migration, (2) a read-only
+  production pre-flight passes, (3) the exact migration file/version is
+  identified, (4) the user explicitly approves applying *that* migration.
+  Approval for one migration never carries over to another, even later in the
+  same session.
 
 ## Protected material
 
