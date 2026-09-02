@@ -66,7 +66,12 @@ jobs:
           set -e
           for f in supabase/tests/*.sql; do
             echo "::group::psql -f $f"
-            psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f "$f"
+            if ! psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f "$f" 2> /tmp/psql-error.log; then
+              escaped=$(sed 's/%/%25/g; s/\r/%0D/g' /tmp/psql-error.log | awk 'BEGIN{ORS="%0A"}{print}')
+              echo "::error title=${f} failed::${escaped}"
+              cat /tmp/psql-error.log
+              exit 1
+            fi
             echo "::endgroup::"
           done
 
@@ -107,7 +112,13 @@ jobs:
         run: psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci/location_phase2_01_post_verify.sql
 
       - name: Fresh-model RPC contract, re-run against the post-migration schema
-        run: psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f supabase/tests/location_phase2_cutover.sql
+        run: |
+          if ! psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f supabase/tests/location_phase2_cutover.sql 2> /tmp/psql-error.log; then
+            escaped=$(sed 's/%/%25/g; s/\r/%0D/g' /tmp/psql-error.log | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::error title=location_phase2_cutover.sql failed::${escaped}"
+            cat /tmp/psql-error.log
+            exit 1
+          fi
 
       - name: Two-user security, re-run against the post-migration schema
         run: psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f supabase/tests/location_foundation_rls.sql
