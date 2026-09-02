@@ -70,7 +70,7 @@ function insertBar(position){
   const dropLabel=describeDropPosition(position);
   return `<div class="insert-row scene-position-row" data-position-kind="${esc(position.kind)}">
     <div class="insert-content">
-      <button type="button" class="scene-position-btn" data-action="insert-scene" data-before-scene-id="${esc(position.beforeSceneId||"")}" data-chapter-id="${esc(position.chapterId)}" aria-label="${esc(label)}">
+      <button type="button" class="scene-position-btn position-insert-btn" data-action="insert-scene" data-before-scene-id="${esc(position.beforeSceneId||"")}" data-chapter-id="${esc(position.chapterId)}" aria-label="${esc(label)}">
         <span class="position-plus" aria-hidden="true">＋</span>
         <span class="position-drop-label" aria-hidden="true">↓ ${esc(dropLabel)}</span>
       </button>
@@ -141,18 +141,27 @@ function openNewSceneAtNow(beforeSceneId=null,chapterId=""){
   editingSceneId=null;
   insertBeforeSceneId=beforeSceneId||null;
   const before=beforeSceneId?sceneById(beforeSceneId):null;
-  insertChapterId=chapterId||before?.chapterId||filters.chapter||data.chapters[0]?.id||"chapter-unassigned";
+  // Positional context is "known" only when the caller explicitly named a chapter
+  // or a neighboring scene — i.e. this open was triggered by a positional "+"
+  // (Matrix/Cards/Compact) or a per-chapter "+ сцена" button, which already know
+  // exactly where the new scene belongs. The header "+ Новая сцена" and the
+  // empty-project "Создать сцену" button call this with neither, and must NOT
+  // inherit the active filter's chapter or silently default to the first
+  // chapter/"already placed" — the scene is genuinely "in the air" until the
+  // user places it. See "chapter-unassigned" -> NULL chapter_id in AGENTS.md.
+  const positional=Boolean(chapterId||before);
+  insertChapterId=chapterId||before?.chapterId||"chapter-unassigned";
   document.getElementById("sceneModalTitle").textContent="Новая сцена";
   document.getElementById("sceneDate").value="";
   document.getElementById("sceneTime").value="";
   document.getElementById("sceneTitle").value="";
   document.getElementById("sceneText").value="";
-  document.getElementById("sceneStatus").value="floating";
+  document.getElementById("sceneStatus").value=positional?"fixed":"floating";
   document.getElementById("sceneIncluded").checked=true;
   populateSceneSelectors();
   document.getElementById("sceneChapter").value=insertChapterId;
   document.getElementById("sceneLocation").value="";
-  document.getElementById("sceneWritingStatus").value="idea";
+  document.getElementById("sceneWritingStatus").value="draft";
   sceneTagDraft=[];
   sceneNewTagDraft={};
   renderSceneTagDraft();

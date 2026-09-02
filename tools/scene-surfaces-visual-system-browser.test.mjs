@@ -57,7 +57,7 @@ try{
   // as one more section in the same hierarchy instead of a heading-less
   // outlier. See index.html #sceneModal and css/modals.css .modal-grid-4 /
   // .scene-section-primary.
-  if(JSON.stringify(createSections)!==JSON.stringify(["Основное","Текст сцены","Персонажи"]))
+  if(JSON.stringify(createSections)!==JSON.stringify(["Основное","Название сцены","Текст сцены","Персонажи"]))
     throw new Error(`Unexpected Create Scene section titles: ${JSON.stringify(createSections)}`);
   // Section headings share one class and must resolve to identical computed
   // styling (font-size/weight/letter-spacing/uppercase/divider) — not just

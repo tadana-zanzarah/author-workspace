@@ -228,11 +228,22 @@
      a stale CSS rule painting a solid pill at rest regardless of hover (fixed
      above, .insert-content no longer styles its button); with that gone,
      the extra JS state bought nothing and was removed. */
-  .scene-position-row:hover,.scene-position-row:focus-within{z-index:3}
-  .scene-position-row:hover .position-plus,.scene-position-row:focus-within .position-plus,
-  .scene-position-btn:focus-visible .position-plus{opacity:1;transform:scale(1)}
-  .scene-position-row:hover .insert-content::before,.scene-position-row:focus-within .insert-content::before{background:var(--border-subtle)}
+  /* :focus-within (not :focus-visible) used to drive this reveal, which also
+     matches focus RESTORED programmatically — e.g. the modal manager returning
+     focus to this button once a Create Scene modal opened from it is cancelled
+     (see AGENTS.md's opener-focus-restore rule). After a mouse-driven open+
+     cancel that left the "+" looking permanently "stuck open" until the user
+     clicked elsewhere, even though the pointer had long left the row.
+     :focus-visible only matches focus the browser judges as keyboard-driven, so
+     Tab navigation still reveals it (keyboard a11y preserved) while a mouse
+     click + programmatic restore does not. */
+  .scene-position-row:hover,.scene-position-row:has(.scene-position-btn:focus-visible){z-index:3}
+  .scene-position-row:hover .position-plus,.scene-position-row:has(.scene-position-btn:focus-visible) .position-plus{opacity:1;transform:scale(1)}
+  .scene-position-row:hover .insert-content::before,.scene-position-row:has(.scene-position-btn:focus-visible) .insert-content::before{background:var(--border-subtle)}
   .scene-position-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  /* Pressed feedback that cannot disturb the centering transform above: filter
+     only ever repaints, it never affects the box's position or hit-testing. */
+  .scene-position-btn:active .position-plus{filter:brightness(.92)}
   body.scene-drag-active .insert-content::before{background:var(--border-subtle)}
   body.scene-drag-active .position-plus{display:none}
   body.scene-drag-active .position-drop-label{display:block}

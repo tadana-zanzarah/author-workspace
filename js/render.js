@@ -194,7 +194,7 @@ function render(){
       <p>Создайте персонажей и первую сцену, чтобы начать строить историю. Сцену можно создать и без персонажей.</p>
       <div class="empty-state-actions">
         <button class="primary" onclick="renderProfiles();showModal('charsModal')">Создать персонажа</button>
-        <button onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button>
+        <button onclick="openNewSceneAt(null,null)">Создать сцену</button>
         <button onclick="openChaptersManager()">Создать главу</button>
       </div>
     </section>`;
@@ -435,7 +435,7 @@ function cardEdgeInsert(position,edge){
   const label=describeInsertionPosition(position);
   const dropLabel=describeDropPosition(position);
   const beforeAttr=position.beforeSceneId?`'${jsq(position.beforeSceneId)}'`:"null";
-  return `<button type="button" class="card-position-insert card-insert-edge card-insert-${edge}" data-action="insert-scene" data-before-scene-id="${esc(position.beforeSceneId||"")}" data-chapter-id="${esc(position.chapterId)}" aria-label="${esc(label)}"
+  return `<button type="button" class="card-position-insert card-insert-edge card-insert-${edge} position-insert-btn" data-action="insert-scene" data-before-scene-id="${esc(position.beforeSceneId||"")}" data-chapter-id="${esc(position.chapterId)}" aria-label="${esc(label)}"
     ondragover="compactDragOver(event)" ondragleave="compactDragLeave(event)" ondrop="compactDropScene(event,{chapterId:'${jsq(position.chapterId)}',beforeSceneId:${beforeAttr}})">
     <span class="position-plus" aria-hidden="true">＋</span>
     <span class="position-drop-label" aria-hidden="true">↓ ${esc(dropLabel)}</span>
@@ -516,7 +516,17 @@ function compactDropPosition(chapterId,beforeSceneId=null,empty=false,disabled=f
   const position=positions.find(p=>p.beforeSceneId===(beforeSceneId||null)&&(p.kind==="empty")===empty)||positions[positions.length-1];
   const insertLabel=describeInsertionPosition(position);
   const dropLabel=describeDropPosition(position);
-  const insertButton=disabled?"":`<button type="button" class="compact-position-insert ${empty?"compact-position-insert-empty":""}" data-action="insert-scene" data-before-scene-id="${esc(beforeSceneId||"")}" data-chapter-id="${esc(chapterId)}" aria-label="${esc(insertLabel)}" onclick="event.stopPropagation()">＋${empty?" Добавить сцену":""}</button>`;
+  // No onclick/stopPropagation here (there used to be one): the only click
+  // handler for [data-action="insert-scene"] is delegated on #board (see
+  // app.js), an ancestor of this button — stopping propagation on the button
+  // itself silently swallowed every real mouse click before it could ever
+  // reach that handler, so this control never actually opened Create Scene
+  // via click (only synthetic .click() calls in tests that bypassed real
+  // event dispatch looked like they worked). Nothing else here depends on
+  // the click not bubbling: the row/cell around it carry no click handler
+  // of their own, and the delegated handler already stops propagation once
+  // it runs.
+  const insertButton=disabled?"":`<button type="button" class="compact-position-insert ${empty?"compact-position-insert-empty":"position-insert-btn"}" data-action="insert-scene" data-before-scene-id="${esc(beforeSceneId||"")}" data-chapter-id="${esc(chapterId)}" aria-label="${esc(insertLabel)}">＋${empty?" Добавить сцену":""}</button>`;
   return `<tr class="compact-drop-position ${empty?"compact-empty-drop":""}" data-compact-drop-chapter-id="${esc(chapterId)}" data-before-scene-id="${esc(beforeSceneId||"")}" ondragover="compactDragOver(event)" ondragleave="compactDragLeave(event)" ondrop="compactDropScene(event,{chapterId:'${jsq(chapterId)}',beforeSceneId:${beforeSceneId?`'${jsq(beforeSceneId)}'`:"null"}})"><td colspan="6">${empty?'<span class="compact-empty-note">Сцен пока нет</span>':""}${insertButton}<span class="compact-position-drop-label" aria-hidden="true">↓ ${esc(dropLabel)}</span></td></tr>`;
 }
 
@@ -525,7 +535,7 @@ function compactFilteredEmptyRow(chapterId,totalCount){
 }
 
 function emptySearchMessage(){return `<div style="padding:44px;text-align:center;color:var(--muted);min-width:700px">Ничего не найдено по выбранным условиям.</div>`}
-function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,'chapter-unassigned')">Создать сцену</button></div>`}
+function emptySceneMessage(){return hasActiveFilters()?emptySearchMessage():`<div class="section-empty-state"><strong>Сцен пока нет</strong><p>Создайте первую сцену, когда будете готовы.</p><button class="primary" onclick="openNewSceneAt(null,null)">Создать сцену</button></div>`}
 
 Object.assign(globalThis,{projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter});
 export {projectReadiness,renderDashboard,clearSingleFilter,setMatrixContentMode,syncMatrixContentControls,renderActiveFilterChips,renderFilterSummary,renderSceneInfo,refreshControls,sidebarSectionHtml,toggleSidebarExpanded,renderSidebar,renderStats,render,scheduleRender,renderViewSwitch,characterInitials,characterAvatarHtml,renderTableView,renderChapterDivider,sceneMetadataHtml,renderMatrixCell,renderTableScene,renderCardsView,cardEdgeInsert,renderCompactCard,renderListView,compactDropPosition,compactFilteredEmptyRow,emptySearchMessage,emptySceneMessage,updateInsertionCenter};

@@ -539,7 +539,11 @@ document.getElementById("board").addEventListener("click",event=>{
   event.stopPropagation();
   openNewSceneAt(button.dataset.beforeSceneId||null,button.dataset.chapterId||"");
 });
-document.getElementById("addFirst").onclick=()=>openNewSceneAt(null,filters.chapter||data.chapters[0]?.id||"chapter-unassigned");
+// Deliberately no chapter argument: this button creates a scene "in the air" —
+// it must never inherit the active filter's chapter, the first chapter, or a
+// stale positional-insertion chapter left over from a cancelled Create Scene.
+// See the "positional" contract in openNewSceneAtNow (js/scenes.js).
+document.getElementById("addFirst").onclick=()=>openNewSceneAt(null,null);
 // A positional create ("insert before scene X" in chapter A) carries insertBeforeSceneId
 // that only makes sense in chapter A. If the user then changes the chapter dropdown to B,
 // reusing that stale id would save a scene in B with a position derived from A's neighbors

@@ -468,6 +468,9 @@
   }
   .card-insert-edge:hover .position-plus,.card-insert-edge:focus-visible .position-plus{opacity:1;transform:scale(1)}
   .card-insert-edge:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:999px}
+  /* Pressed feedback via filter only — never transform — so it can't disturb
+     hit-target position (see .position-insert-btn in css/base.css). */
+  .card-insert-edge:active .position-plus{filter:brightness(.92)}
   .card-insert-edge .position-drop-label{
     display:none;position:relative;z-index:1;font-size:11px;font-weight:700;color:#fff;background:var(--brand);border-radius:999px;padding:3px 10px;white-space:nowrap;
   }
@@ -516,9 +519,16 @@
     font-size:13px;line-height:1;color:var(--brand);background:var(--surface-elevated);
     border:1px solid var(--border-subtle);opacity:0;transition:opacity .12s ease,transform .12s ease;
   }
-  .compact-drop-position:hover .compact-position-insert,.compact-drop-position:focus-within .compact-position-insert{
+  /* :focus-visible (not :focus-within on the row) — see the matching comment
+     in css/timeline.css .scene-position-row: :focus-within also matches focus
+     RESTORED programmatically after closing a modal this control opened,
+     which left the "+" looking stuck revealed after a mouse-driven cancel. */
+  .compact-drop-position:hover .compact-position-insert,.compact-position-insert:focus-visible{
     opacity:1;transform:translate(-50%,-50%) scale(1);
   }
+  /* Pressed feedback via filter only — never transform — so it can't disturb
+     the centering transform above (see .position-insert-btn in css/base.css). */
+  .compact-position-insert:active{filter:brightness(.92)}
   .compact-position-drop-label{
     display:none;position:absolute;left:12px;top:-10px;padding:2px 7px;background:var(--accent);
     color:#fff;border-radius:10px;font-size:10px;z-index:2;white-space:nowrap;

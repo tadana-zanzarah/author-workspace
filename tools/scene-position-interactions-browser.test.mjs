@@ -104,11 +104,16 @@ try{
     if(sceneModalOpen)throw new Error("Scene modal must be closed after confirmed cancel");
   }
 
-  // ---- 8) Create modal receives the correct chapter automatically ----------------
+  // ---- 8) Create modal receives the correct chapter automatically, plus the -------
+  // ----    positional new-scene defaults (draft / already-placed). ----------------
   {
     await clickInsert("Вставить первую сцену главы «Пустая глава»");
     const chapterValue=await page.$eval("#sceneChapter",el=>el.value);
     if(chapterValue!=="chapter-empty")throw new Error(`Expected modal chapter to be chapter-empty, got ${chapterValue}`);
+    const writingValue=await page.$eval("#sceneWritingStatus",el=>el.value);
+    if(writingValue!=="draft")throw new Error(`Positional create must default writing status to "draft" (Черновик), got ${writingValue}`);
+    const placementValue=await page.$eval("#sceneStatus",el=>el.value);
+    if(placementValue!=="fixed")throw new Error(`Positional create must default placement to "fixed" (Уже на своём месте), got ${placementValue}`);
     await page.click("#cancelScene"); // nothing typed yet -> not dirty, closes immediately
     await page.waitForTimeout(100);
   }
@@ -135,19 +140,83 @@ try{
     if(lastChapterOrder.includes("Remapped after chapter change"))throw new Error("Scene leaked into the stale chapter");
   }
 
-  // ---- 10) Global "+ Новая сцена" keeps its existing append semantics ------------
+  // ---- 10) Global "+ Новая сцена" is context-less: unassigned chapter, draft, ----
+  // ----     not-yet-placed — regardless of the active chapter filter, and it -----
+  // ----     must NOT inherit the first chapter either. ----------------------------
   {
     await page.click("#filterChapter");
     await page.waitForSelector("#filterChapterPopover:not([hidden])");
     await page.click('#filterChapterList [role="option"][data-value="chapter-empty"]');
-    await page.click("#clearFilters");
     await page.click("#addFirst");
     const chapterValue=await page.$eval("#sceneChapter",el=>el.value);
+    if(chapterValue!=="chapter-unassigned")
+      throw new Error(`Header "+ Новая сцена" must default to "Без главы", not the active filter's chapter or the first chapter — got ${chapterValue}`);
+    const writingValue=await page.$eval("#sceneWritingStatus",el=>el.value);
+    if(writingValue!=="draft")throw new Error(`Header create must default writing status to "draft" (Черновик), got ${writingValue}`);
+    const placementValue=await page.$eval("#sceneStatus",el=>el.value);
+    if(placementValue!=="floating")throw new Error(`Header create must default placement to "floating" (Ещё нужно разместить), not "fixed" — got ${placementValue}`);
     await page.fill("#sceneTitle","Глобальное создание");
     await page.click("#saveScene");
     await page.waitForTimeout(150);
     const saved=await page.evaluate(()=>data.scenes.find(s=>s.title==="Глобальное создание"));
-    if(!saved||saved.chapterId!==chapterValue)throw new Error("Global create must save into the chapter shown in the modal");
+    if(!saved||saved.chapterId!=="chapter-unassigned")throw new Error(`Global create must save into "Без главы" when the user didn't change it, got ${JSON.stringify(saved)}`);
+    if(saved.writingStatus!=="draft"||saved.status!=="floating")throw new Error(`Global create defaults were not persisted as shown: ${JSON.stringify(saved)}`);
+    await page.click("#clearFilters");
+  }
+
+  // ---- E) Stale insertion context must never leak between the two entry points ---
+  {
+    // positional (Глава "Три сцены") -> cancel -> header must NOT inherit it.
+    const labels=await insertLabels();
+    const positionalLabel=labels.find(l=>l.endsWith("«В»"));
+    if(!positionalLabel)throw new Error(`Could not find a positional insert control among: ${JSON.stringify(labels)}`);
+    await clickInsert(positionalLabel);
+    const positionalChapter=await page.$eval("#sceneChapter",el=>el.value);
+    if(positionalChapter!=="chapter-three")throw new Error(`Positional open should target chapter-three, got ${positionalChapter}`);
+    await page.click("#cancelScene"); // nothing typed -> closes immediately, no dirty guard
+    await page.waitForTimeout(100);
+    await page.click("#addFirst");
+    const afterPositionalCancel=await page.evaluate(()=>({
+      chapter:document.getElementById("sceneChapter").value,
+      writing:document.getElementById("sceneWritingStatus").value,
+      status:document.getElementById("sceneStatus").value,
+      insertBeforeSceneId,insertChapterId
+    }));
+    if(afterPositionalCancel.chapter!=="chapter-unassigned"||afterPositionalCancel.status!=="floating")
+      throw new Error(`Header create leaked the cancelled positional context: ${JSON.stringify(afterPositionalCancel)}`);
+    if(afterPositionalCancel.insertBeforeSceneId!==null)
+      throw new Error(`Header create must reset insertBeforeSceneId, got ${JSON.stringify(afterPositionalCancel)}`);
+    await page.click("#cancelScene");
+    await page.waitForTimeout(100);
+
+    // header -> cancel -> positional must still get its own real chapter/position.
+    const labels2=await insertLabels();
+    const positionalLabel2=labels2.find(l=>l.endsWith("«В»"));
+    await clickInsert(positionalLabel2);
+    const afterHeaderCancel=await page.evaluate(()=>({
+      chapter:document.getElementById("sceneChapter").value,
+      status:document.getElementById("sceneStatus").value
+    }));
+    if(afterHeaderCancel.chapter!=="chapter-three"||afterHeaderCancel.status!=="fixed")
+      throw new Error(`Positional open after a cancelled header create did not get its own context: ${JSON.stringify(afterHeaderCancel)}`);
+    await page.click("#cancelScene");
+    await page.waitForTimeout(100);
+  }
+
+  // ---- F) Editing an EXISTING scene must preserve its own saved statuses, --------
+  // ----    never overwritten by the new-scene defaults introduced above. ----------
+  {
+    await page.evaluate(()=>{
+      commitDataChange(next=>{const s=next.scenes.find(x=>x.id==="solo");s.writingStatus="idea";s.status="floating"});
+      render();
+    });
+    await page.evaluate(()=>editScene("solo"));
+    await page.waitForSelector("#sceneModal .modal");
+    const loaded=await page.evaluate(()=>({writing:document.getElementById("sceneWritingStatus").value,status:document.getElementById("sceneStatus").value}));
+    if(loaded.writing!=="idea"||loaded.status!=="floating")
+      throw new Error(`Editing an existing scene must reload its own saved statuses, not the new-scene defaults: ${JSON.stringify(loaded)}`);
+    await page.click("#cancelScene");
+    await page.waitForTimeout(100);
   }
 
   // ---- 16/17/18) Filtered mode: positional insertion hidden, DnD disabled, -------
