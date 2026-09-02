@@ -26,6 +26,15 @@ name: Location Phase 2 Cutover CI
 #      already-published baseline), seeds two same-named legacy Locations + Scenes through the
 #      unmodified pre-Phase-2 production RPC, applies ONLY the Phase 2 migration on top, and
 #      verifies the backfill/cutover invariants against that real pre-existing data.
+#   3. migration-apply-semantics-check: audits what the REAL `supabase migration up` command
+#      does when production's exact historical migration-history mismatch pattern is present
+#      (10 migrations applied under a different version timestamp than their local file, matched
+#      only by name -- see supabase/tests/ci/migration_history_mismatch_fixture.sql). This never
+#      touches production; it reproduces the pattern in a disposable database and actually runs
+#      `supabase migration up` against it to observe whether the CLI's own pending-detection
+#      (independent of any guardrail script in this repo) would try to re-apply those 10 already-
+#      -applied migrations. This determines whether a guardrail fix alone is sufficient, or
+#      whether the underlying apply mechanism itself is unsafe under this historical pattern.
 
 on:
   push:
@@ -122,6 +131,81 @@ jobs:
 
       - name: Two-user security, re-run against the post-migration schema
         run: psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f supabase/tests/location_foundation_rls.sql
+
+      - name: Stop disposable Supabase
+        if: always()
+        run: supabase stop --no-backup
+
+  migration-apply-semantics-check:
+    runs-on: ubuntu-latest
+    env:
+      LOCAL_PG_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      PHASE2_MIGRATION: supabase/migrations/20260903120000_location_phase2_cutover.sql
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Ensure psql is available
+        run: which psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: Move the Phase 2 cutover migration out of the chain (14 migrations remain)
+        run: mv "$PHASE2_MIGRATION" /tmp/location_phase2_cutover.sql.pending
+
+      - name: Start disposable local Supabase (applies the remaining 14 migrations fresh)
+        run: supabase start
+
+      - name: Rewrite 10 rows to reproduce production's exact historical version-mismatch pattern
+        run: psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci/migration_history_mismatch_fixture.sql
+
+      - name: Restore the Phase 2 cutover migration (now the only local-only file, matching production)
+        run: mv /tmp/location_phase2_cutover.sql.pending "$PHASE2_MIGRATION"
+
+      - name: Diagnostic -- supabase migration list should show the same split shape as production
+        run: npx supabase migration list --db-url "$LOCAL_PG_URL" --output-format json | tee /tmp/migration-list-before.json
+
+      - name: Diagnostic -- authoritative schema_migrations rows before the real apply attempt
+        run: psql "$LOCAL_PG_URL" -c "select version, name from supabase_migrations.schema_migrations order by version;"
+
+      - name: THE CRITICAL TEST -- run the real supabase migration up against the mismatched history
+        id: migration_up
+        run: |
+          set +e
+          npx supabase migration up --db-url "$LOCAL_PG_URL" > /tmp/migration-up.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat /tmp/migration-up.log
+
+      - name: Verdict -- did the CLI try to re-apply any of the 10 already-applied migrations?
+        run: |
+          set -e
+          echo "migration up exit code: ${{ steps.migration_up.outputs.exit_code }}"
+          echo "---- schema_migrations after the attempt ----"
+          psql "$LOCAL_PG_URL" -c "select version, name from supabase_migrations.schema_migrations order by version;"
+          echo "---- names with more than one version row (would mean a re-apply created a duplicate) ----"
+          psql "$LOCAL_PG_URL" -t -A -c "select name, count(*), array_agg(version order by version) from supabase_migrations.schema_migrations group by name having count(*) > 1;" > /tmp/dupes.txt
+          cat /tmp/dupes.txt
+          phase2_registered=$(psql "$LOCAL_PG_URL" -t -A -c "select exists(select 1 from supabase_migrations.schema_migrations where version='20260903120000');")
+          old_reattempted=$(psql "$LOCAL_PG_URL" -t -A -c "select exists(select 1 from supabase_migrations.schema_migrations where version in ('20260812193655','20260813144500','20260821133800','20260821134302','20260821161410','20260822120000','20260827122152','20260827122921','20260829045658','20260829053102'));")
+          dupe_names=$(cat /tmp/dupes.txt | tr -d '[:space:]')
+          echo "phase2_registered=${phase2_registered}"
+          echo "old_migration_reattempted_under_local_version=${old_reattempted}"
+          echo "duplicate_name_rows=${dupe_names:-none}"
+          if [ "${dupe_names}" != "" ]; then
+            echo "::error title=UNSAFE: migration up duplicated a migration name::supabase migration up produced more than one schema_migrations row for the same migration name -- ${dupe_names}. A guardrail-only fix is NOT sufficient; this is a real apply-mechanism danger."
+            exit 1
+          fi
+          if [ "${old_reattempted}" = "t" ]; then
+            echo "::error title=UNSAFE: migration up re-registered an old migration under its local version::supabase migration up wrote a schema_migrations row under one of the 10 old local versions, meaning it attempted to re-apply already-applied SQL. A guardrail-only fix is NOT sufficient."
+            exit 1
+          fi
+          if [ "${phase2_registered}" = "t" ] && [ "${{ steps.migration_up.outputs.exit_code }}" = "0" ]; then
+            echo "::notice title=SAFE: only 20260903120000 was applied::supabase migration up succeeded, registered only 20260903120000, and did not touch or duplicate any of the 10 historically mismatched migrations."
+            exit 0
+          fi
+          echo "::error title=BLOCKED: inconclusive/unexpected outcome::migration up exit=${{ steps.migration_up.outputs.exit_code }}, phase2_registered=${phase2_registered}, old_reattempted=${old_reattempted}. See the full log printed by the previous step. Treat as BLOCKED -- do not assume safety."
+          exit 1
 
       - name: Stop disposable Supabase
         if: always()
