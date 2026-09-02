@@ -97,7 +97,7 @@ end $$;
 -- Cross-owner reads/mutations are indistinguishable from missing resources.
 do $$ declare r jsonb; begin
   r:=public.update_character('b3000000-0000-4000-8000-000000000001',0,'Attack','','{}'); if r->>'code'<>'NOT_FOUND' then raise exception 'foreign update %',r; end if;
-  r:=public.attach_project_character('a2000000-0000-4000-8000-000000000001','b3000000-0000-4000-8000-000000000001',7,null,0,'{}'); if r->>'code'<>'NOT_FOUND' then raise exception 'foreign attach %',r; end if;
+  r:=public.attach_project_character('a2000000-0000-4000-8000-000000000001','b3000000-0000-4000-8000-000000000001',9,null,0,'{}'); if r->>'code'<>'NOT_FOUND' then raise exception 'foreign attach %',r; end if;
 end $$;
 
 reset role; set local role anon;
