@@ -75,6 +75,13 @@ end $$;
 -- `materialized`, Postgres 12+ may inline this CTE into each reference and generate a
 -- different UUID per reference, breaking the id mapping.
 -- ---------------------------------------------------------------------------
+-- The primary INSERT below explicitly JOINs `ins_locations` (not just `loc_source`) so it has a
+-- real data dependency on the locations backfill -- Postgres does NOT guarantee execution order
+-- between sibling data-modifying WITH statements that aren't otherwise linked ("the order in
+-- which the specified updates actually happen is unpredictable"), and project_locations' own
+-- BEFORE INSERT owner-guard trigger requires the matching `locations` row to already exist.
+-- Without this join, the trigger can spuriously fail with "project and location owners must
+-- match" if the canonical row hasn't been inserted yet when the participation row is checked.
 with loc_source as materialized (
   select
     l.id as legacy_id,
@@ -96,8 +103,9 @@ with loc_source as materialized (
   returning id
 )
 insert into public.project_locations(id,project_id,location_id,overrides,metadata,created_at,updated_at,removed_at)
-select legacy_id, project_id, canonical_id, '{}'::jsonb, metadata, created_at, updated_at, deleted_at
-from loc_source;
+select ls.legacy_id, ls.project_id, il.id, '{}'::jsonb, ls.metadata, ls.created_at, ls.updated_at, ls.deleted_at
+from loc_source ls
+join ins_locations il on il.id=ls.canonical_id;
 
 -- ---------------------------------------------------------------------------
 -- Step 3: internal verification before anything downstream (the FK cutover) depends on the
@@ -441,6 +449,9 @@ begin
 
   insert into public.chapters(id,project_id,title,position,metadata) select x.id,target_project_id,x.title,x.position,coalesce(x.metadata,'{}') from jsonb_to_recordset(import_payload->'chapters') as x(id uuid,title text,position numeric,metadata jsonb);
 
+  -- See the analogous backfill comment in Step 2 above: the primary INSERT must JOIN
+  -- `ins_locations`, not just select from `loc_source`, or the project_locations owner-guard
+  -- trigger can spuriously fail on an unlucky execution order.
   with loc_source as materialized (
     select x.id as legacy_id, gen_random_uuid() as canonical_id, x.name, x.description, coalesce(x.metadata,'{}'::jsonb) as metadata
     from jsonb_to_recordset(import_payload->'locations') as x(id uuid,name text,description text,metadata jsonb)
@@ -451,8 +462,9 @@ begin
     returning id
   )
   insert into public.project_locations(id,project_id,location_id,overrides,metadata)
-  select legacy_id, target_project_id, canonical_id, '{}'::jsonb, metadata
-  from loc_source;
+  select ls.legacy_id, target_project_id, il.id, '{}'::jsonb, ls.metadata
+  from loc_source ls
+  join ins_locations il on il.id=ls.canonical_id;
 
   insert into public.tags(id,project_id,name,normalized_name) select x.id,target_project_id,x.name,x.normalized_name from jsonb_to_recordset(import_payload->'tags') as x(id uuid,name text,normalized_name text);
   insert into public.scenes(id,project_id,chapter_id,location_id,title,scene_text,scene_date,scene_time,placement_status,writing_status,included,date_review,position,metadata)
