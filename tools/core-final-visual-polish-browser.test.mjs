@@ -201,12 +201,33 @@ try{
     const restoredOpacity=await page.evaluate(sel=>getComputedStyle(document.querySelector(sel).querySelector(".position-plus")).opacity,target);
     if(restoredOpacity!=="0")throw new Error(`Insertion affordance stayed visible after the pointer moved away: ${restoredOpacity}`);
 
-    // Keyboard focus reveals identically (same selectors, no delay either way).
-    await page.focus(target);
+    // Keyboard focus reveals identically — via real Tab navigation, not a
+    // scripted page.focus() call. Since 0d28b30 the reveal is driven by
+    // :focus-visible rather than :focus-within (css/timeline.css), precisely
+    // so that focus RESTORED programmatically (e.g. by the modal manager
+    // after a mouse-driven Cancel) does not leave the "+" looking stuck open.
+    // A scripted .focus() is exactly that kind of programmatic focus and is
+    // not guaranteed to satisfy :focus-visible — only genuine keyboard input
+    // reliably does. See tools/scene-position-plus-interaction-browser.test.mjs
+    // for the fuller contract (this same reveal check plus the mouse-driven
+    // Cancel case) across Matrix/Cards/Compact.
+    await page.evaluate(()=>document.activeElement?.blur?.());
+    let tabbedToTarget=false;
+    for(let i=0;i<400;i++){
+      await page.keyboard.press("Tab");
+      const matched=await page.evaluate(sel=>document.activeElement?.matches?.(sel)||false,target);
+      if(matched){tabbedToTarget=true;break}
+    }
+    if(!tabbedToTarget)throw new Error("Could not reach the insertion control via real Tab navigation");
     await page.waitForTimeout(220);
     const focusRevealed=await page.evaluate(sel=>getComputedStyle(document.querySelector(sel).parentElement.querySelector(".position-plus")).opacity,target);
     if(focusRevealed!=="1")throw new Error("Keyboard focus did not reveal the insertion affordance");
+    // ...and it's genuinely operable via the keyboard, not just visually revealed.
+    await page.keyboard.press("Enter");
+    if(!await page.locator("#sceneModal").isVisible())throw new Error("Enter on the Tab-focused insertion control did not open Create Scene");
     await page.keyboard.press("Escape");
+    await page.waitForTimeout(80);
+    if(await page.locator("#discardChangesModal").isVisible()){await page.click("#discardChanges");await page.waitForTimeout(80)}
 
     const labels=await page.evaluate(()=>[...document.querySelectorAll('[data-action="insert-scene"][data-chapter-id="chapter-a"]')].map(b=>b.getAttribute("aria-label")));
     if(labels.length!==17)throw new Error(`Expected N+1=17 insertion positions for 16 chapter-a scenes, got ${labels.length}`);
