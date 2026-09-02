@@ -89,11 +89,19 @@ begin
   end if;
 
   -- 8. Foundation index list (Architecture V2 §N) -- exactly these, nothing speculative.
-  select array_agg(indexname order by indexname) into actual from pg_indexes where schemaname='public' and tablename='locations' and indexname not like '%_pkey';
+  -- Excludes PK/UNIQUE-constraint-backing indexes (checked separately in §4/§5 above) via
+  -- pg_index/pg_constraint, not a '%_pkey' name-pattern match: the legacy table already holds
+  -- the constraint name `locations_pkey`, so the new table's own PK index gets
+  -- auto-disambiguated to `locations_pkey1`, which a suffix-based name filter would miss.
+  select array_agg(ic.relname order by ic.relname) into actual
+  from pg_index i join pg_class ic on ic.oid=i.indexrelid join pg_class t on t.oid=i.indrelid join pg_namespace ns on ns.oid=t.relnamespace
+  where ns.nspname='public' and t.relname='locations' and not i.indisprimary and not exists (select 1 from pg_constraint con where con.conindid=i.indexrelid);
   if actual is distinct from array['locations_owner_idx','locations_owner_name_idx','locations_owner_type_idx','locations_parent_idx'] then
     raise exception 'locations indexes = %', actual;
   end if;
-  select array_agg(indexname order by indexname) into actual from pg_indexes where schemaname='public' and tablename='project_locations' and indexname not like '%_pkey';
+  select array_agg(ic.relname order by ic.relname) into actual
+  from pg_index i join pg_class ic on ic.oid=i.indexrelid join pg_class t on t.oid=i.indrelid join pg_namespace ns on ns.oid=t.relnamespace
+  where ns.nspname='public' and t.relname='project_locations' and not i.indisprimary and not exists (select 1 from pg_constraint con where con.conindid=i.indexrelid);
   if actual is distinct from array['project_locations_location_idx','project_locations_project_sort_idx'] then
     raise exception 'project_locations indexes = %', actual;
   end if;
