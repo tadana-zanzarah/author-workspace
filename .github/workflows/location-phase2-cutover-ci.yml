@@ -302,7 +302,7 @@ jobs:
             exit 1
           fi
 
-      - name: Post-repair migration list (should show a clean single pending: Phase 2 only)
+      - name: Post-repair migration list -- should show a clean single pending, Phase 2 only
         run: npx supabase migration list --db-url "$LOCAL_PG_URL" --output-format json | tee /tmp/list-after-repair.json
 
       - name: THE CRITICAL TEST -- run supabase migration up after repair; only Phase 2 should execute
