@@ -2,10 +2,22 @@
 // Command-line entry point for the production Supabase workflow.
 //
 // Subcommands:
-//   readonly <sql-file>          Run a SQL file against production inside a forced
-//                                 read-only transaction (pre-flight / post-flight / regression).
-//   migration-list                Show local vs. remote migration status (read-only, informational).
-//   migration-apply --version V   Apply exactly one named, already-approved migration.
+//   readonly <sql-file>                    Run a SQL file against production inside a forced
+//                                           read-only transaction (pre-flight / post-flight / regression).
+//   migration-list                          Show local vs. remote migration status (read-only, informational).
+//   migration-apply --version V             Apply exactly one named, already-approved migration.
+//   migration-repair --status S V [V...]    Mark one or more already-approved migration-history
+//                                           table rows as `applied` or `reverted`, via the
+//                                           official `supabase migration repair` (bookkeeping
+//                                           only -- never executes migration SQL). For
+//                                           reconciling a version-mismatched-but-name-matched
+//                                           historical migration; see
+//                                           docs/supabase-workflow.md's migration-history
+//                                           contract. Every version is passed through verbatim
+//                                           to the CLI -- this deliberately does not maintain its
+//                                           own list of "known" versions; the caller (a human
+//                                           approval, each time) is the source of truth for
+//                                           which versions are in scope.
 //
 // See docs/supabase-workflow.md for the full operational contract (CI -> pre-flight ->
 // approval -> apply -> post-flight -> regression -> report). This file intentionally
@@ -140,6 +152,40 @@ async function cmdMigrationApply(version) {
   );
 }
 
+async function cmdMigrationRepair(status, versions) {
+  const password = require_password();
+  if (status !== "applied" && status !== "reverted") {
+    fail('migration-repair requires --status <applied|reverted>.');
+    return;
+  }
+  const versionList = versions || [];
+  if (versionList.length === 0) {
+    fail("migration-repair requires at least one 14-digit migration version to repair.");
+    return;
+  }
+  const malformed = versionList.filter((v) => !/^\d{14}$/.test(v));
+  if (malformed.length > 0) {
+    fail(`migration-repair received non-14-digit version(s): ${malformed.join(", ")}. Refusing to proceed.`);
+    return;
+  }
+
+  const dbUrl = buildCliDbUrl();
+  console.log(`Repairing migration history: [${versionList.join(" ")}] => ${status}`);
+  const repairResult = await runSupabaseCli(
+    ["migration", "repair", "--db-url", dbUrl, "--status", status, ...versionList],
+    { password },
+  );
+  if (repairResult.stdout) console.log(repairResult.stdout.trim());
+  if (repairResult.stderr) console.error(repairResult.stderr.trim());
+  if (repairResult.code !== 0) {
+    process.exitCode = repairResult.code;
+    return;
+  }
+  console.log(
+    "Repair finished. Run `npm run db:production:migration-list` to confirm the updated history.",
+  );
+}
+
 function require_password() {
   // buildConnectionConfig() already fails closed on a missing password; reuse it
   // purely for that side effect, then read the password back out for redaction.
@@ -158,12 +204,18 @@ async function main() {
     const versionFlagIndex = rest.indexOf("--version");
     const version = versionFlagIndex >= 0 ? rest[versionFlagIndex + 1] : undefined;
     await cmdMigrationApply(version);
+  } else if (subcommand === "migration-repair") {
+    const statusFlagIndex = rest.indexOf("--status");
+    const status = statusFlagIndex >= 0 ? rest[statusFlagIndex + 1] : undefined;
+    const versions = rest.filter((arg, i) => i !== statusFlagIndex && i !== statusFlagIndex + 1 && /^\d+$/.test(arg));
+    await cmdMigrationRepair(status, versions);
   } else {
     fail(
       "unknown or missing subcommand. Usage:\n" +
         "  node supabase/scripts/production-db.mjs readonly <sql-file>\n" +
         "  node supabase/scripts/production-db.mjs migration-list\n" +
-        "  node supabase/scripts/production-db.mjs migration-apply --version <version>",
+        "  node supabase/scripts/production-db.mjs migration-apply --version <version>\n" +
+        "  node supabase/scripts/production-db.mjs migration-repair --status <applied|reverted> <version...>",
     );
   }
 }

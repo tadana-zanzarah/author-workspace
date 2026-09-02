@@ -57,7 +57,8 @@
     "test": "npm run test:unit",
     "db:production:readonly": "node supabase/scripts/production-db.mjs readonly",
     "db:production:migration-list": "node supabase/scripts/production-db.mjs migration-list",
-    "db:production:migration-apply": "node supabase/scripts/production-db.mjs migration-apply"
+    "db:production:migration-apply": "node supabase/scripts/production-db.mjs migration-apply",
+    "db:production:migration-repair": "node supabase/scripts/production-db.mjs migration-repair"
   },
   "devDependencies": {
     "@supabase/supabase-js": "2.112.3",
