@@ -188,7 +188,7 @@ async function deleteLocationDraft(draftId){
   syncLocationDraftFromDom();
   const row=locationDraft.find(l=>l.draftId===draftId);if(!row)return;
   if(row.id){
-    const confirmed=await showConfirmAction({title:"Удалить локацию?",description:`Локация «${row.name||"без названия"}» будет удалена при сохранении. В сценах она станет не указанной.`});
+    const confirmed=await showConfirmAction({title:"Удалить локацию?",description:isCloudWorkspace()?`Локация «${row.name||"без названия"}» будет удалена из проекта при сохранении. Если она ещё используется в сценах, удаление будет отклонено — сначала уберите её из этих сцен.`:`Локация «${row.name||"без названия"}» будет удалена при сохранении. В сценах она станет не указанной.`});
     if(!confirmed)return;
   }
   locationDraft=locationDraft.filter(l=>l.draftId!==draftId);

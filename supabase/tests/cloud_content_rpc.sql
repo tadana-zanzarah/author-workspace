@@ -71,20 +71,29 @@ begin
   r:=public.get_project_content('c2000000-0000-4000-8000-000000000001');
   if (r->>'revision')::bigint<>12 or jsonb_array_length(r#>'{data,scenes}')<>2 or jsonb_array_length(r#>'{data,scene_tags}')<>2 then raise exception 'snapshot contract %',r; end if;
 
-  -- Chapter/location/tag deletion exercises SET NULL/cascade with one bump each.
+  -- Chapter deletion exercises SET NULL/cascade with one bump.
   r:=public.delete_chapter('c2000000-0000-4000-8000-000000000001',chapter_id,12);
   if (r->>'revision')::bigint<>13 or exists(select 1 from public.scenes s where s.project_id='c2000000-0000-4000-8000-000000000001' and s.chapter_id is not null) then raise exception 'chapter delete contract %',r; end if;
+
+  -- Architecture V2 Phase 2: location "delete" is project-participation removal and refuses
+  -- with a domain error (no silent null) while an active Scene in this project still
+  -- references it -- see supabase/migrations/20260903120000_location_phase2_cutover.sql and
+  -- supabase/tests/location_phase2_cutover.sql for the full contract.
   r:=public.delete_location('c2000000-0000-4000-8000-000000000001',location_id,13);
-  if (r->>'revision')::bigint<>14 or exists(select 1 from public.scenes s where s.project_id='c2000000-0000-4000-8000-000000000001' and s.location_id is not null) then raise exception 'location delete contract %',r; end if;
-  r:=public.delete_tag('c2000000-0000-4000-8000-000000000001',tag_one,14);
-  if (r->>'revision')::bigint<>15 or exists(select 1 from public.scene_tags where tag_id=tag_one) then raise exception 'tag delete contract %',r; end if;
+  if coalesce((r->>'ok')::boolean,false) or r->>'code'<>'DEPENDENCIES_EXIST' or (select revision from public.projects where id='c2000000-0000-4000-8000-000000000001')<>13 then raise exception 'location delete-while-referenced contract %',r; end if;
+  r:=public.update_scene('c2000000-0000-4000-8000-000000000001',scene_a,13,null,null,'A','text','2026-02-03','10:15','placed','draft',true,false);
+  if (r->>'revision')::bigint<>14 then raise exception 'clearing scene location %',r; end if;
+  r:=public.delete_location('c2000000-0000-4000-8000-000000000001',location_id,14);
+  if (r->>'revision')::bigint<>15 or exists(select 1 from public.scenes s where s.project_id='c2000000-0000-4000-8000-000000000001' and s.location_id is not null) then raise exception 'location delete contract %',r; end if;
+  r:=public.delete_tag('c2000000-0000-4000-8000-000000000001',tag_one,15);
+  if (r->>'revision')::bigint<>16 or exists(select 1 from public.scene_tags where tag_id=tag_one) then raise exception 'tag delete contract %',r; end if;
 
   -- A representable gap exhausted at scale 10 is normalized inside the move,
   -- while the logical operation still consumes only one revision.
-  r:=public.create_scene('c2000000-0000-4000-8000-000000000001',15,null,null,'D','',null,null,'unplaced','draft',true,false,4000); scene_b:=(r#>>'{data,id}')::uuid;
+  r:=public.create_scene('c2000000-0000-4000-8000-000000000001',16,null,null,'D','',null,null,'unplaced','draft',true,false,4000); scene_b:=(r#>>'{data,id}')::uuid;
   update public.scenes set position=case id when scene_a then 1 when scene_c then 1.0000000001 else 3 end where project_id='c2000000-0000-4000-8000-000000000001' and deleted_at is null;
-  r:=public.move_scene('c2000000-0000-4000-8000-000000000001',scene_b,16,null,scene_c);
-  if (r->>'revision')::bigint<>17 or not (r->>'normalized')::boolean then raise exception 'near-exhaustion normalization %',r; end if;
+  r:=public.move_scene('c2000000-0000-4000-8000-000000000001',scene_b,17,null,scene_c);
+  if (r->>'revision')::bigint<>18 or not (r->>'normalized')::boolean then raise exception 'near-exhaustion normalization %',r; end if;
   if (select count(distinct position) from public.scenes where project_id='c2000000-0000-4000-8000-000000000001' and deleted_at is null)<>(select count(*) from public.scenes where project_id='c2000000-0000-4000-8000-000000000001' and deleted_at is null) then raise exception 'normalization produced duplicate positions'; end if;
 end $$;
 

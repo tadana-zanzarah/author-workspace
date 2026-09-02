@@ -16,6 +16,13 @@ assert.equal(hydrated.profiles["character-1"].photos[0].id,"photo-1");assert.equ
 assert.equal(hydrated.profiles["character-1"].age,"27");assert.deepEqual(hydrated.profiles["character-1"].favorites,["чай"]);assert.deepEqual(hydrated.profiles["character-1"].unknown,{keep:true});
 assert.equal(hydrated.characters[0].sortOrder,0,"project_characters.sort_order is exposed on the hydrated character entry");
 
+// Location Architecture V2 Phase 2: `id` stays the project_locations participation id (what
+// scene.locationId keys off), and a new `locationId` field exposes the canonical global
+// identity without changing the existing flat {id,name,description} shape other code depends on.
+assert.deepEqual(hydrated.locations[0],{id:"location-1",name:"Дом",description:"",locationId:"location-1"},"without a server location_id, locationId falls back to the participation id");
+const withCanonicalId=hydrateProjectFromCloudSnapshot({...snapshot,locations:[{id:"location-1",name:"Дом",description:"",location_id:"canonical-9"}]},local);
+assert.equal(withCanonicalId.locations[0].id,"location-1");assert.equal(withCanonicalId.locations[0].locationId,"canonical-9");
+
 // Character order: the JS layer trusts and preserves the RPC's `order by sort_order,id`
 // row order rather than re-deriving it from name or insertion order of the payload.
 const orderSnapshot={...snapshot,characters:[...snapshot.characters,{id:"character-2",name:"Б",surname:"",revision:0,base_profile:{}}],

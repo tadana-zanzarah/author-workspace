@@ -122,17 +122,25 @@ begin
     raise exception 'locations_touch trigger missing on legacy table after rename';
   end if;
 
-  -- 10. THE critical guarantee: scenes.location_id FK still targets the renamed legacy table,
-  --     resolved by OID (pg_constraint.confrelid), not by the new empty `locations` table that
-  --     now happens to hold the old name. No FK cutover has happened in this phase.
+  -- 10. FK target, resolved by OID (pg_constraint.confrelid), not by name. Historically (Phase
+  --     1 alone) this asserted the legacy table, since no FK cutover had happened yet. This
+  --     suite runs against the FULL migration chain, which by definition includes every later
+  --     phase too -- Architecture V2 Phase 2 (20260903120000_location_phase2_cutover.sql)
+  --     deliberately flips this FK to public.project_locations as part of the real cutover, so
+  --     the up-to-date expectation here is `project_locations`, not the pre-Phase-2 legacy
+  --     table. See supabase/tests/location_phase2_cutover.sql and
+  --     supabase/tests/ci/location_phase2_00/01 for the dedicated Phase 2 backfill/cutover
+  --     coverage.
   select c2.relname into fk_target
   from pg_constraint con join pg_class c1 on c1.oid=con.conrelid join pg_class c2 on c2.oid=con.confrelid
   where c1.relname='scenes' and con.conname='scenes_project_location_fkey';
-  if fk_target is distinct from 'location_projects_legacy_v1' then
-    raise exception 'scenes_project_location_fkey now targets % (expected location_projects_legacy_v1 -- FK cutover must not happen in Phase 1)', fk_target;
+  if fk_target is distinct from 'project_locations' then
+    raise exception 'scenes_project_location_fkey targets % (expected project_locations against the full migration chain)', fk_target;
   end if;
 
-  -- 11. New tables are empty -- no backfill happened in this phase.
-  select count(*) into n from public.locations; if n<>0 then raise exception 'new locations table is not empty (backfill must not happen in Phase 1), count=%', n; end if;
-  select count(*) into n from public.project_locations; if n<>0 then raise exception 'new project_locations table is not empty (backfill must not happen in Phase 1), count=%', n; end if;
+  -- 11. New tables are empty at this point in a fresh run -- a from-scratch database has no
+  --     legacy rows for the Phase 2 backfill to migrate, so this remains true against the full
+  --     chain (it is not, on its own, still proof that Phase 1 alone did no backfill).
+  select count(*) into n from public.locations; if n<>0 then raise exception 'new locations table is not empty on a fresh database, count=%', n; end if;
+  select count(*) into n from public.project_locations; if n<>0 then raise exception 'new project_locations table is not empty on a fresh database, count=%', n; end if;
 end $$;

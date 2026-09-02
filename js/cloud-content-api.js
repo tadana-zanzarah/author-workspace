@@ -1,5 +1,5 @@
 const CONTENT_ERROR_CODES=new Set([
-  "REVISION_CONFLICT","NOT_FOUND","FORBIDDEN","VALIDATION_ERROR","DUPLICATE","POSITION_ERROR","UNKNOWN"
+  "REVISION_CONFLICT","NOT_FOUND","FORBIDDEN","VALIDATION_ERROR","DUPLICATE","POSITION_ERROR","DEPENDENCIES_EXIST","UNKNOWN"
 ]);
 
 const SAFE_MESSAGES={
@@ -9,6 +9,7 @@ const SAFE_MESSAGES={
   VALIDATION_ERROR:"Проверьте введённые данные.",
   DUPLICATE:"Такой объект уже существует.",
   POSITION_ERROR:"Не удалось безопасно определить позицию.",
+  DEPENDENCIES_EXIST:"Локация используется в сценах этого проекта. Сначала уберите её из этих сцен.",
   UNKNOWN:"Не удалось выполнить облачную операцию."
 };
 

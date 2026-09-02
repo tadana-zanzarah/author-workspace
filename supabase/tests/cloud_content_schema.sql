@@ -37,9 +37,16 @@ insert into public.project_characters(id,project_id,character_id,overrides) valu
 insert into public.chapters(id,project_id,title,position) values
 ('a5000000-0000-4000-8000-000000000001','a2000000-0000-4000-8000-000000000001','A',1024),
 ('b5000000-0000-4000-8000-000000000001','b2000000-0000-4000-8000-000000000001','B',1024);
-insert into public.location_projects_legacy_v1(id,project_id,name) values
-('a6000000-0000-4000-8000-000000000001','a2000000-0000-4000-8000-000000000001','A'),
-('b6000000-0000-4000-8000-000000000001','b2000000-0000-4000-8000-000000000001','B');
+-- Architecture V2 Phase 2: scenes.location_id now targets project_locations(project_id,id),
+-- not the legacy table -- seed a canonical global location plus its project participation row,
+-- keeping the participation id ('a6000000.../b6000000...') so every downstream reference below
+-- (scenes, the cross-project FK check, the ON DELETE SET NULL check) is unchanged.
+insert into public.locations(id,owner_id,name) values
+('a6100000-0000-4000-8000-000000000001','a1000000-0000-4000-8000-000000000001','A'),
+('b6100000-0000-4000-8000-000000000001','b1000000-0000-4000-8000-000000000001','B');
+insert into public.project_locations(id,project_id,location_id) values
+('a6000000-0000-4000-8000-000000000001','a2000000-0000-4000-8000-000000000001','a6100000-0000-4000-8000-000000000001'),
+('b6000000-0000-4000-8000-000000000001','b2000000-0000-4000-8000-000000000001','b6100000-0000-4000-8000-000000000001');
 insert into public.tags(id,project_id,name,normalized_name) values
 ('a7000000-0000-4000-8000-000000000001','a2000000-0000-4000-8000-000000000001','A','a'),
 ('b7000000-0000-4000-8000-000000000001','b2000000-0000-4000-8000-000000000001','B','b');
@@ -70,7 +77,7 @@ begin
 end $$;
 
 delete from public.chapters where id='a5000000-0000-4000-8000-000000000001';
-delete from public.location_projects_legacy_v1 where id='a6000000-0000-4000-8000-000000000001';
+delete from public.project_locations where id='a6000000-0000-4000-8000-000000000001';
 do $$ begin if (select chapter_id is not null or location_id is not null from public.scenes where id='a8000000-0000-4000-8000-000000000001') then raise exception 'SET NULL delete contract failed'; end if; end $$;
 
 rollback;

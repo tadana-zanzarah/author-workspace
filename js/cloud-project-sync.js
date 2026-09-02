@@ -82,7 +82,7 @@ function hydrateProjectFromCloudSnapshot(snapshot,localProject={}){
       notes:row.notes||"",structureKind:row.metadata?.uiStructureKind||row.structure_kind||"other",metadata:row.metadata||{},scope:row.project_id?"project":"global",revision:Number(row.revision)})),
     future:localProject.future||{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},
     chapters:[...cloudChapters,{id:UNASSIGNED_CHAPTER_ID,title:"Без главы",collapsed:false}],
-    locations:(payload.locations||[]).map(row=>({id:row.id,name:row.name,description:row.description||""})),
+    locations:(payload.locations||[]).map(row=>({id:row.id,name:row.name,description:row.description||"",locationId:row.location_id||row.id})),
     tags:(payload.tags||[]).map(row=>({id:row.id,name:row.name})),scenes
   };
 }
