@@ -153,7 +153,6 @@ function openNewSceneAtNow(beforeSceneId=null,chapterId=""){
   document.getElementById("sceneChapter").value=insertChapterId;
   document.getElementById("sceneLocation").value="";
   document.getElementById("sceneWritingStatus").value="idea";
-  document.getElementById("quickLocationConfirmed").textContent="";
   sceneTagDraft=[];
   sceneNewTagDraft={};
   renderSceneTagDraft();
@@ -191,7 +190,6 @@ function editSceneNow(sceneId){
   document.getElementById("sceneChapter").value=s.chapterId||"chapter-unassigned";
   document.getElementById("sceneLocation").value=s.locationId||"";
   document.getElementById("sceneWritingStatus").value=s.writingStatus||"idea";
-  document.getElementById("quickLocationConfirmed").textContent="";
   sceneTagDraft=[...(s.tags||[])];
   sceneNewTagDraft={};
   renderSceneTagDraft();

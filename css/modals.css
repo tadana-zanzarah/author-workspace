@@ -50,6 +50,10 @@
     color:var(--text-secondary);border-bottom:1px solid var(--border-faint);
   }
   .scene-section-primary{display:grid;gap:var(--space-3)}
+  /* Inside the grid, row spacing already comes from the container's own gap;
+     the title's own margin-bottom would stack on top of that gap and leave
+     a bigger gap under "ОСНОВНОЕ" than between any other two rows. */
+  .scene-section-primary .scene-section-title{margin-bottom:0}
   /* Plain single-line title now — no min-height override; a textarea's
      tall-block footprint doesn't apply to an <input type="text">. */
   .scene-modal-text{
@@ -61,20 +65,15 @@
      desktop, degrading to 2x2 then a single column before anything can
      overflow horizontally (see the max-width:800px / 480px steps below). */
   .modal-grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-3)}
-  /* Reused by both the Chapter/Location row and the tag input row — always a
-     flex row now (not just "align to bottom"), so a <select> and its adjacent
-     button/status stretch to the exact same height instead of only sharing a
-     bottom edge. */
+  /* Reused by the Chapter/Location row, the tag input row and the participant
+     row — always a flex row (not just "align to bottom"), so a <select>/
+     <input> and its adjacent button stretch to the exact same height instead
+     of only sharing a bottom edge. One shared rule instead of a height fixed
+     on any single button, so every row using it moves together. */
   .field-inline-action{display:flex;align-items:stretch;gap:var(--space-2)}
   .field-inline-action select,.field-inline-action input{flex:1;min-width:0}
   .field-inline-action button{flex:none}
   .scene-location-field{display:flex;flex-direction:column;min-width:0}
-  /* Reserved feedback line under the Chapter/Location row: always present in
-     the DOM with a fixed min-height, so the quick-create-location confirmation
-     text appearing/disappearing never shifts the fields below it. */
-  .quick-location-feedback{
-    display:block;min-height:18px;margin:2px 0 0;font-size:12px;
-  }
   /* Full-bleed sticky footer for long scene-family modals (Create/Edit Scene,
      All Scenes) — same technique as the accepted Character Profile
      .profile-modal-actions: negative margins matching the modal's own 18px
@@ -86,8 +85,7 @@
     padding:12px 18px;background:var(--surface-elevated);
     border-top:1px solid var(--border-faint);
   }
-  .scene-participant-selector{display:flex;gap:8px;align-items:end;margin:10px 0}
-  .scene-participant-selector select{width:100%}
+  .scene-participant-selector{display:flex;flex-direction:column;min-width:0;margin:10px 0}
   .person-block{
     border:1px solid var(--border-subtle);border-radius:var(--radius-md);
     padding:var(--space-4);margin:var(--space-3) 0;background:var(--surface-elevated);

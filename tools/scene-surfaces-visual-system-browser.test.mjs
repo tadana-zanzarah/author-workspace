@@ -49,14 +49,31 @@ try{
   await page.click("#addFirst");
   if(!await page.locator("#sceneModal").isVisible())throw new Error("Create Scene modal did not open");
   const createSections=await sectionTitles();
-  // "Время и хронология" no longer has its own heading: this refinement pass
-  // folds date/time/writing-status/scene-status into one equal-height row at
-  // the very top of the primary (heading-less) section, ahead of the include
-  // toggle and chapter/location row, to cut the vertical space the old
-  // separate section spent on a heading + its own grid. See index.html
-  // #sceneModal and css/modals.css .modal-grid-4.
-  if(JSON.stringify(createSections)!==JSON.stringify(["Текст сцены","Персонажи"]))
+  // "Время и хронология" no longer has its own heading: date/time/writing-
+  // status/scene-status fold into one equal-height row at the top of the
+  // primary section, ahead of the include toggle and chapter/location row.
+  // The primary section itself now carries the same heading grammar as
+  // "Текст сцены"/"Персонажи" ("Основное"), so the metadata/title area reads
+  // as one more section in the same hierarchy instead of a heading-less
+  // outlier. See index.html #sceneModal and css/modals.css .modal-grid-4 /
+  // .scene-section-primary.
+  if(JSON.stringify(createSections)!==JSON.stringify(["Основное","Текст сцены","Персонажи"]))
     throw new Error(`Unexpected Create Scene section titles: ${JSON.stringify(createSections)}`);
+  // Section headings share one class and must resolve to identical computed
+  // styling (font-size/weight/letter-spacing/uppercase/divider) — not just
+  // the same class name coincidentally overridden per-section.
+  const headingStyles=await page.evaluate(()=>[...document.querySelectorAll("#sceneModal .scene-section-title")].map(el=>{
+    const cs=getComputedStyle(el);
+    return {fontSize:cs.fontSize,fontWeight:cs.fontWeight,letterSpacing:cs.letterSpacing,textTransform:cs.textTransform,borderBottomWidth:cs.borderBottomWidth,borderBottomColor:cs.borderBottomColor};
+  }));
+  if(headingStyles.some(s=>JSON.stringify(s)!==JSON.stringify(headingStyles[0])))
+    throw new Error(`Section headings do not share identical computed styling: ${JSON.stringify(headingStyles)}`);
+  // Quick-create location feedback message was removed: no message text, no
+  // element, no reserved empty feedback row reserving layout space for it.
+  if(await page.locator("#quickLocationConfirmed").count()!==0)
+    throw new Error("quickLocationConfirmed element still exists — location-created feedback should be fully removed");
+  if(await page.locator(".quick-location-feedback").count()!==0)
+    throw new Error("Reserved quick-location-feedback row still exists in the DOM");
   const missingCreate=await page.evaluate(ids=>ids.filter(id=>!document.getElementById(id)),fieldIds);
   if(missingCreate.length)throw new Error(`Scene fields missing in Create: ${missingCreate.join(", ")}`);
   // 2. Core metadata (chapter select) precedes the text section in DOM order.
@@ -73,6 +90,25 @@ try{
   }));
   if(captions.writing!=="Статус написания")throw new Error(`Writing status caption changed: ${captions.writing}`);
   if(captions.placement!=="Статус сцены")throw new Error(`Placement status caption changed: ${captions.placement}`);
+
+  // ================= UNIFIED CONTROL HEIGHT CONTRACT =================
+  // Every control sharing a horizontal row with an input/select (Location
+  // select + "+ Новая локация", tag input + "Добавить", participant select +
+  // "Добавить персонажа") must resolve to the same rendered height at every
+  // supported breakpoint, not just at the default one.
+  const controlHeightPairs=[["sceneLocation","quickAddLocation"],["sceneTagInput","addSceneTag"],["sceneParticipantSelect","addSceneParticipant"]];
+  for(const width of [1440,1200,1024]){
+    await page.setViewportSize({width,height:900});
+    for(const [fieldId,buttonId] of controlHeightPairs){
+      const heights=await page.evaluate(([f,b])=>[document.getElementById(f).getBoundingClientRect().height,document.getElementById(b).getBoundingClientRect().height],[fieldId,buttonId]);
+      if(Math.abs(heights[0]-heights[1])>1)
+        throw new Error(`${fieldId}/${buttonId} height mismatch at ${width}px: ${heights[0]} vs ${heights[1]}`);
+      const tops=await page.evaluate(([f,b])=>[document.getElementById(f).getBoundingClientRect().top,document.getElementById(b).getBoundingClientRect().top],[fieldId,buttonId]);
+      if(Math.abs(tops[0]-tops[1])>1)
+        throw new Error(`${fieldId}/${buttonId} not vertically aligned at ${width}px: ${tops[0]} vs ${tops[1]}`);
+    }
+  }
+  await page.setViewportSize({width:1440,height:900});
 
   // ================= 6. NO ACCIDENTAL BROWSER BLUE =================
   await page.locator("#sceneDate").focus();

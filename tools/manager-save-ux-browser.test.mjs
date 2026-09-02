@@ -110,10 +110,9 @@ await page.waitForSelector("#quickLocationModal",{state:"hidden"});
 const atticLocations=await page.evaluate(()=>data.locations.filter(l=>l.name==="Чердак"));
 if(atticLocations.length!==1)throw new Error(`K: повторный submit создал ${atticLocations.length} локаций вместо одной`);
 
-// J: created location is selected in the scene, the scene draft (title) survived, and success feedback is visible.
+// J: created location is selected in the scene and the scene draft (title) survived.
 if(await page.inputValue("#sceneLocation")!==atticLocations[0].id)throw new Error("J: новая локация не выбрана в сцене");
 if(await page.inputValue("#sceneTitle")!=="Черновик сцены для quick-create")throw new Error("J: черновик сцены потерян после quick-create");
-if(!(await page.textContent("#quickLocationConfirmed"))?.includes("Чердак"))throw new Error("J: нет видимого success feedback после quick-create");
 
 // N: focus returned to the opener and sceneModal keeps its own focus trap usable.
 if(!await visible("sceneModal"))throw new Error("N: sceneModal не остался открытым после quick-create");

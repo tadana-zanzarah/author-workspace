@@ -336,6 +336,7 @@
     <h2 id="sceneModalTitle">Новая сцена</h2>
 
     <section class="scene-section scene-section-primary">
+      <h3 class="scene-section-title">Основное</h3>
       <div class="modal-grid-4">
         <label><span class="field-caption">Дата</span><input id="sceneDate" type="date"></label>
         <label><span class="field-caption">Время</span><input id="sceneTime" type="time"></label>
@@ -363,7 +364,6 @@
           </div>
         </div>
       </div>
-      <div id="quickLocationConfirmed" class="quick-location-feedback save-status success" role="status" aria-live="polite"></div>
 
       <div class="tag-editor">
         <span class="field-caption">Теги</span>
@@ -388,11 +388,11 @@
     <section class="scene-section">
       <h3 class="scene-section-title">Персонажи</h3>
       <div class="scene-participant-selector">
-        <label style="flex:1">
-          <span class="field-caption">Добавить персонажа в сцену</span>
+        <span class="field-caption">Добавить персонажа в сцену</span>
+        <div class="field-inline-action">
           <select id="sceneParticipantSelect" aria-label="Выбрать персонажа для добавления в сцену"></select>
-        </label>
-        <button type="button" id="addSceneParticipant" disabled>Добавить персонажа</button>
+          <button type="button" id="addSceneParticipant" disabled>Добавить персонажа</button>
+        </div>
       </div>
       <div id="scenePersons"></div>
     </section>

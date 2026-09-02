@@ -313,16 +313,10 @@ document.getElementById("matrixShowRelations").onchange=event=>setMatrixContentM
 document.getElementById("addSceneTag").onclick=addTagToDraft;
 document.getElementById("sceneTagInput").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addTagToDraft()}};
 
-// Transient contextual feedback, not a persistent status: clears the moment
-// the author picks a different (or no) location themselves. Programmatic
-// assignment after a quick-create (below) does not fire "change", so this
-// only reacts to real user selection.
-document.getElementById("sceneLocation").onchange=()=>{document.getElementById("quickLocationConfirmed").textContent=""};
 let quickLocationInFlight=false;
 document.getElementById("quickAddLocation").onclick=()=>{
   const input=document.getElementById("quickLocationName"),createBtn=document.getElementById("quickLocationCreate");
   input.value="";createBtn.disabled=true;document.getElementById("quickLocationStatus").textContent="";document.getElementById("quickLocationStatus").className="save-status";
-  document.getElementById("quickLocationConfirmed").textContent="";
   openModal("quickLocationModal",{initialFocus:"#quickLocationName"});
 };
 document.getElementById("quickLocationName").oninput=()=>{document.getElementById("quickLocationCreate").disabled=!document.getElementById("quickLocationName").value.trim()};
@@ -349,7 +343,6 @@ document.getElementById("quickLocationCreate").onclick=async()=>{
     succeeded=true;
     syncBeforeUnload();
     forceCloseModal("quickLocationModal");
-    document.getElementById("quickLocationConfirmed").textContent=`Локация «${name}» создана и выбрана.`;
   }finally{
     quickLocationInFlight=false;button.textContent=idleLabel;
     button.disabled=succeeded||!document.getElementById("quickLocationName").value.trim();
