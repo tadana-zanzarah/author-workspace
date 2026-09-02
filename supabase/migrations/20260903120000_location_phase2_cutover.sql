@@ -70,42 +70,39 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
--- Step 2: backfill. `loc_source` is MATERIALIZED so gen_random_uuid() is evaluated exactly
--- once per legacy row and the same canonical_id is reused by both inserts below -- without
--- `materialized`, Postgres 12+ may inline this CTE into each reference and generate a
--- different UUID per reference, breaking the id mapping.
+-- Step 2: backfill: one canonical `locations` row + one `project_locations` participation row
+-- (preserving legacy.id) per legacy row.
 -- ---------------------------------------------------------------------------
--- The primary INSERT below explicitly JOINs `ins_locations` (not just `loc_source`) so it has a
--- real data dependency on the locations backfill -- Postgres does NOT guarantee execution order
--- between sibling data-modifying WITH statements that aren't otherwise linked ("the order in
--- which the specified updates actually happen is unpredictable"), and project_locations' own
--- BEFORE INSERT owner-guard trigger requires the matching `locations` row to already exist.
--- Without this join, the trigger can spuriously fail with "project and location owners must
--- match" if the canonical row hasn't been inserted yet when the participation row is checked.
-with loc_source as materialized (
-  select
-    l.id as legacy_id,
-    gen_random_uuid() as canonical_id,
-    l.project_id,
-    p.owner_id,
-    l.name,
-    l.description,
-    coalesce(l.metadata,'{}'::jsonb) as metadata,
-    l.created_at,
-    l.updated_at,
-    l.deleted_at
-  from public.location_projects_legacy_v1 l
-  join public.projects p on p.id=l.project_id
-), ins_locations as (
-  insert into public.locations(id,owner_id,name,base_profile,metadata,revision,created_at,updated_at)
-  select canonical_id, owner_id, name, jsonb_build_object('description',coalesce(description,'')), '{}'::jsonb, 0, created_at, updated_at
-  from loc_source
-  returning id
-)
-insert into public.project_locations(id,project_id,location_id,overrides,metadata,created_at,updated_at,removed_at)
-select ls.legacy_id, ls.project_id, il.id, '{}'::jsonb, ls.metadata, ls.created_at, ls.updated_at, ls.deleted_at
-from loc_source ls
-join ins_locations il on il.id=ls.canonical_id;
+-- A single writable-CTE statement will NOT work here (an earlier version of this migration used
+-- one and it broke under RLS -- see the `import_local_project_content` comment below for why):
+-- all sub-statements of one WITH share the SAME snapshot, so a plain SELECT against
+-- `public.locations` from anywhere else in the same command (in particular, the RLS policy that
+-- gates the `project_locations` INSERT) cannot see a row inserted by a sibling CTE in that same
+-- command, no matter how the CTEs are ordered/joined. This migration runs as a superuser
+-- connection that bypasses RLS, so a single-statement version would have "worked" here by
+-- accident while silently being broken for any RLS-enforced caller -- use the same
+-- always-correct, loop-based, two-separate-statements-per-row shape as the RPC for both
+-- consistency and defense against ever running this under a non-superuser role.
+do $$
+declare
+  legacy_row record;
+  new_canonical_id uuid;
+begin
+  for legacy_row in
+    select l.id as legacy_id, l.project_id, p.owner_id, l.name, l.description,
+           coalesce(l.metadata,'{}'::jsonb) as metadata, l.created_at, l.updated_at, l.deleted_at
+    from public.location_projects_legacy_v1 l
+    join public.projects p on p.id=l.project_id
+    order by l.id
+  loop
+    insert into public.locations(id,owner_id,name,base_profile,metadata,revision,created_at,updated_at)
+    values (gen_random_uuid(), legacy_row.owner_id, legacy_row.name, jsonb_build_object('description',coalesce(legacy_row.description,'')), '{}'::jsonb, 0, legacy_row.created_at, legacy_row.updated_at)
+    returning id into new_canonical_id;
+
+    insert into public.project_locations(id,project_id,location_id,overrides,metadata,created_at,updated_at,removed_at)
+    values (legacy_row.legacy_id, legacy_row.project_id, new_canonical_id, '{}'::jsonb, legacy_row.metadata, legacy_row.created_at, legacy_row.updated_at, legacy_row.deleted_at);
+  end loop;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Step 3: internal verification before anything downstream (the FK cutover) depends on the
@@ -415,7 +412,7 @@ end $$;
 -- ---------------------------------------------------------------------------
 create or replace function public.import_local_project_content(target_project_id uuid,expected_revision bigint,migration_attempt_id uuid,source_project_id text,import_payload jsonb)
 returns jsonb language plpgsql volatile security invoker set search_path='' as $$
-declare p public.projects%rowtype; prior public.local_project_import_attempts%rowtype; item jsonb; owner uuid; previous_revision bigint; new_revision bigint; result jsonb; created jsonb;
+declare p public.projects%rowtype; prior public.local_project_import_attempts%rowtype; item jsonb; owner uuid; previous_revision bigint; new_revision bigint; result jsonb; created jsonb; loc_item jsonb; new_canonical_id uuid;
 begin
   owner=(select auth.uid());
   if owner is null then return jsonb_build_object('ok',false,'code','FORBIDDEN'); end if;
@@ -449,22 +446,21 @@ begin
 
   insert into public.chapters(id,project_id,title,position,metadata) select x.id,target_project_id,x.title,x.position,coalesce(x.metadata,'{}') from jsonb_to_recordset(import_payload->'chapters') as x(id uuid,title text,position numeric,metadata jsonb);
 
-  -- See the analogous backfill comment in Step 2 above: the primary INSERT must JOIN
-  -- `ins_locations`, not just select from `loc_source`, or the project_locations owner-guard
-  -- trigger can spuriously fail on an unlucky execution order.
-  with loc_source as materialized (
-    select x.id as legacy_id, gen_random_uuid() as canonical_id, x.name, x.description, coalesce(x.metadata,'{}'::jsonb) as metadata
-    from jsonb_to_recordset(import_payload->'locations') as x(id uuid,name text,description text,metadata jsonb)
-  ), ins_locations as (
+  -- One writable-CTE statement does NOT work here: all of a single WITH's sub-statements share
+  -- one snapshot, so the RLS policy gating this INSERT (private.location_owned, a plain SELECT
+  -- against public.locations) cannot see a canonical row inserted by a sibling CTE in the same
+  -- statement, regardless of statement ordering -- this function is SECURITY INVOKER and RLS is
+  -- enforced. Loop with two separate statements per row instead, mirroring the
+  -- CREATE_NEW_GLOBAL_IDENTITY + project_characters loop just above: each statement is its own
+  -- command with a fresh snapshot, so the second INSERT correctly sees the first's row.
+  for loc_item in select value from jsonb_array_elements(import_payload->'locations') loop
     insert into public.locations(id,owner_id,name,base_profile)
-    select canonical_id, owner, name, jsonb_build_object('description',coalesce(description,''))
-    from loc_source
-    returning id
-  )
-  insert into public.project_locations(id,project_id,location_id,overrides,metadata)
-  select ls.legacy_id, target_project_id, il.id, '{}'::jsonb, ls.metadata
-  from loc_source ls
-  join ins_locations il on il.id=ls.canonical_id;
+    values (gen_random_uuid(), owner, loc_item->>'name', jsonb_build_object('description',coalesce(loc_item->>'description','')))
+    returning id into new_canonical_id;
+
+    insert into public.project_locations(id,project_id,location_id,overrides,metadata)
+    values ((loc_item->>'id')::uuid, target_project_id, new_canonical_id, '{}'::jsonb, coalesce(loc_item->'metadata','{}'::jsonb));
+  end loop;
 
   insert into public.tags(id,project_id,name,normalized_name) select x.id,target_project_id,x.name,x.normalized_name from jsonb_to_recordset(import_payload->'tags') as x(id uuid,name text,normalized_name text);
   insert into public.scenes(id,project_id,chapter_id,location_id,title,scene_text,scene_date,scene_time,placement_status,writing_status,included,date_review,position,metadata)
