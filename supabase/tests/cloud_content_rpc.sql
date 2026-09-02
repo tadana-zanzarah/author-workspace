@@ -23,7 +23,7 @@ begin
   -- Client B-style stale writer loses and changes nothing.
   r:=public.create_location('c2000000-0000-4000-8000-000000000001',0,'stale','');
   if r->>'code'<>'REVISION_CONFLICT' or (r->>'actualRevision')::bigint<>1 then raise exception 'race contract %',r; end if;
-  if exists(select 1 from public.locations where name='stale') or (select revision from public.projects where id='c2000000-0000-4000-8000-000000000001')<>1 then raise exception 'stale mutation changed state'; end if;
+  if exists(select 1 from public.location_projects_legacy_v1 where name='stale') or (select revision from public.projects where id='c2000000-0000-4000-8000-000000000001')<>1 then raise exception 'stale mutation changed state'; end if;
 
   r:=public.update_chapter('c2000000-0000-4000-8000-000000000001',chapter_id,1,'One');
   if (r->>'changed')::boolean or (r->>'revision')::bigint<>1 then raise exception 'chapter no-op bumped %',r; end if;
