@@ -9,23 +9,23 @@
 
 do $$
 declare
-  loc_id uuid; scene_id uuid; project_id uuid; other_user_id uuid;
+  loc_id uuid; scene_id uuid; fixture_project_id uuid; other_user_id uuid;
   n integer; fk_target text;
 begin
   select value::uuid into loc_id from public._ci_location_upgrade_fixture where key='location_id';
   select value::uuid into scene_id from public._ci_location_upgrade_fixture where key='scene_id';
-  select value::uuid into project_id from public._ci_location_upgrade_fixture where key='project_id';
+  select value::uuid into fixture_project_id from public._ci_location_upgrade_fixture where key='project_id';
   select value::uuid into other_user_id from public._ci_location_upgrade_fixture where key='other_user_id';
-  if loc_id is null or scene_id is null or project_id is null then
+  if loc_id is null or scene_id is null or fixture_project_id is null then
     raise exception 'fixture missing -- location_upgrade_00_pre_seed.sql did not run before the migration was applied';
   end if;
 
   -- 1. The pre-migration location row survived, under its original id, in the renamed table.
-  select count(*) into n from public.location_projects_legacy_v1 where id=loc_id and project_id=project_id and name='Pre-Migration Harbor' and description='Seeded before Phase 1.';
+  select count(*) into n from public.location_projects_legacy_v1 where id=loc_id and project_id=fixture_project_id and name='Pre-Migration Harbor' and description='Seeded before Phase 1.';
   if n<>1 then raise exception 'pre-migration location row missing/changed after migration, id=%', loc_id; end if;
 
   -- 2. scene.location_id is byte-for-byte unchanged.
-  select count(*) into n from public.scenes where id=scene_id and location_id=loc_id and project_id=project_id;
+  select count(*) into n from public.scenes where id=scene_id and location_id=loc_id and project_id=fixture_project_id;
   if n<>1 then raise exception 'scene.location_id changed after migration, scene=%', scene_id; end if;
 
   -- 3. The FK still resolves (by OID) to the renamed legacy table, never to the new tables --
