@@ -42,6 +42,11 @@ begin
   select count(*) into n from public.project_locations; if n<>0 then raise exception 'new project_locations table non-empty after migration, count=%', n; end if;
 end $$;
 
+-- Each role-switching section below is wrapped in its own explicit transaction: `SET LOCAL
+-- role` / `set_config(..., true)` only take effect for the duration of a transaction block, so
+-- without one each statement would run as its own auto-committed implicit transaction and the
+-- role switch would silently not apply to the next statement.
+begin;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','9a000000-0000-4000-8000-000000000001',true);
 
@@ -82,10 +87,12 @@ begin
 end $$;
 
 reset role;
+commit;
 
 -- 9. Local->cloud import compatibility: private.local_import_target_empty and
 --    import_local_project_content (both repointed at the legacy table) still work end-to-end
 --    against a fresh empty project, post-migration.
+begin;
 insert into public.projects(id,owner_id,title,revision) values ('9c000000-0000-4000-8000-000000000002','9a000000-0000-4000-8000-000000000001','CI Import Project',0);
 set local role authenticated;
 select set_config('request.jwt.claim.sub','9a000000-0000-4000-8000-000000000001',true);
@@ -116,5 +123,6 @@ begin
   if n<>0 then raise exception 'import wrote into the new global locations table, count=%', n; end if;
 end $$;
 reset role;
+commit;
 
 drop table public._ci_location_upgrade_fixture;

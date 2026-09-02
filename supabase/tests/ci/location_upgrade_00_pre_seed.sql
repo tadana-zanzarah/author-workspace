@@ -6,12 +6,20 @@
 -- and a Scene through the *unmodified* production RPC, exactly as real pre-Phase-1 production
 -- data would have been created.
 --
--- Not wrapped in begin/rollback: this data must persist so
--- location_upgrade_01_post_verify.sql can find it once the migration under test has been
--- applied on top via `supabase migration up`. The fixture table and every row this script
--- creates live only in the disposable CI database, which is destroyed with the runner.
+-- Ends with COMMIT, not ROLLBACK: this data must persist so location_upgrade_01_post_verify.sql
+-- can find it once the migration under test has been applied on top via `supabase migration
+-- up`. The fixture table and every row this script creates live only in the disposable CI
+-- database, which is destroyed with the runner. An explicit transaction is required here (unlike
+-- the rollback-style test files) because `SET LOCAL role` / `set_config(..., true)` only take
+-- effect for the duration of a transaction block -- without one, each statement below would run
+-- as its own auto-committed implicit transaction and the role switch would silently not apply
+-- to the next statement (psql just warns "SET LOCAL can only be used in transaction blocks" and
+-- create_location/create_scene would then run as the unrestricted connecting role instead of
+-- as the intended `authenticated` user, defeating the point of exercising the real RLS path).
 
 create table if not exists public._ci_location_upgrade_fixture(key text primary key, value text);
+
+begin;
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at) values
 ('00000000-0000-0000-0000-000000000000','9a000000-0000-4000-8000-000000000001','authenticated','authenticated','ci-upgrade-a@example.invalid','',now(),'{}','{}',now(),now()),
@@ -52,3 +60,4 @@ begin
 end $$;
 
 reset role;
+commit;
