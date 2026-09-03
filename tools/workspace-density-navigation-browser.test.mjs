@@ -171,16 +171,16 @@ try{
     await page.waitForSelector("#profileEditorModal",{state:"hidden"});
   }
   {
-    // Location click opens the Locations manager, focused/scrolled to that location —
-    // the documented deferred-Location-Profile behaviour (see report), not a filter.
+    // Location click opens that Location's Profile directly, not a filter — same
+    // contract as the Character sidebar click above (see openLocationEntity).
     const before=await page.evaluate(()=>filters.location);
     await page.click('#sideLocations .sidebar-item');
-    await page.waitForSelector("#locationsModal .modal");
-    const after=await page.evaluate(()=>({filterLocation:filters.location,modalOpen:document.getElementById("locationsModal").style.display==="flex",focusedIsLocationInput:document.activeElement.classList.contains("location-name-input")}));
+    await page.waitForSelector("#locationProfileModal .modal");
+    const after=await page.evaluate(()=>({filterLocation:filters.location,modalOpen:document.getElementById("locationProfileModal").style.display==="flex",name:document.getElementById("locProfileName").value}));
     if(after.filterLocation!==before)throw new Error(`Location sidebar click must not change the active filter, got: ${after.filterLocation}`);
-    if(!after.modalOpen||!after.focusedIsLocationInput)throw new Error(`Location sidebar click did not open the manager focused on that location: ${JSON.stringify(after)}`);
-    await page.click("#closeLocations");
-    await page.waitForSelector("#locationsModal",{state:"hidden"});
+    if(!after.modalOpen||!after.name)throw new Error(`Location sidebar click did not open a populated Profile: ${JSON.stringify(after)}`);
+    await page.click("#locationProfileClose");
+    await page.waitForSelector("#locationProfileModal",{state:"hidden"});
   }
 
   // ================= PROJECT OVERVIEW =================

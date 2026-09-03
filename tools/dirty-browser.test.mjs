@@ -31,12 +31,20 @@ await page.evaluate(()=>openAllScenes());await page.locator('.all-scene-text[dat
 
 await page.click("#projectMenu > summary");await page.click("#manageChars");await page.click("#addChar");await page.fill("#pf_name","Черновой герой");await page.evaluate(()=>{profileDraftPhotos.push({id:"dirty-photo",source:{kind:"data-url",value:"data:image/png;base64,AAAA"},crop:{x:.5,y:.5,zoom:1},alt:""});renderProfilePhotos();syncBeforeUnload()});await page.evaluate(()=>document.getElementById("cancelProfile").click());if(!await visible("discardChangesModal"))throw new Error("анкета/фото не защищены");await page.click("#discardChanges");if(await page.evaluate(()=>data.characters.some(item=>item.name==="Новый персонаж"||item.name==="Черновой герой")))throw new Error("отмена оставила пустого персонажа");await page.click("#closeChars");
 
-await page.evaluate(()=>openLocationsManager());await page.locator('.location-name-input[data-draft-id="location-a"]').fill("Новый дом");await page.locator('.location-row:has([data-draft-id="location-b"]) button.danger').click();await page.click("#confirmActionConfirm");
-if(await page.inputValue('.location-name-input[data-draft-id="location-a"]')!=="Новый дом")throw new Error("удаление соседней локации потеряло draft");
-if(await page.evaluate(()=>data.locations.find(item=>item.id==="location-a").name)!=="Дом")throw new Error("staged delete закоммитил изменения до Save");
-await page.click("#saveLocations");await page.waitForFunction(()=>!trackerFor("locationsModal").isDirty());
-if(await page.evaluate(()=>data.locations.find(item=>item.id==="location-a")?.name)!=="Новый дом"||await page.evaluate(()=>data.locations.some(item=>item.id==="location-b")))throw new Error("сохранение не применило переименование и удаление локации");
-await page.click("#closeLocations");
+await page.evaluate(()=>openLocationProfile("location-a"));await page.fill("#locProfileName","Новый дом");
+if(!await page.evaluate(()=>trackerFor("locationProfileModal").isDirty()))throw new Error("правка названия локации не пометила профиль dirty");
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());
+if(!await visible("discardChangesModal"))throw new Error("закрытие dirty-профиля локации не показало guard");
+await page.click("#continueEditing");
+if(await page.inputValue("#locProfileName")!=="Новый дом"||!await visible("locationProfileModal"))throw new Error("Продолжить редактирование потеряло draft локации");
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());await page.click("#discardChanges");
+if(await visible("locationProfileModal"))throw new Error("discard не закрыл профиль локации");
+if(await page.evaluate(()=>locationById("location-a").name)!=="Дом")throw new Error("discard изменил модель локации");
+await page.evaluate(()=>openLocationProfile("location-a"));await page.fill("#locProfileName","Новый дом");await page.click("#locationProfileSave");
+await page.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
+if(await page.evaluate(()=>locationById("location-a").name)!=="Новый дом")throw new Error("сохранение не применило переименование локации");
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());
+if(await visible("locationProfileModal"))throw new Error("clean профиль локации потребовал подтверждение при закрытии");
 await page.evaluate(()=>openTagsManager());await page.locator('.tag-name-input[data-draft-id="tag-a"]').fill("Новый тег");await page.locator('.tag-manager-row:has([data-draft-id="tag-b"]) button.danger').click();await page.click("#confirmActionConfirm");
 if(await page.inputValue('.tag-name-input[data-draft-id="tag-a"]')!=="Новый тег")throw new Error("удаление соседнего тега потеряло draft");
 await page.click("#saveTags");await page.waitForFunction(()=>!trackerFor("tagsModal").isDirty());

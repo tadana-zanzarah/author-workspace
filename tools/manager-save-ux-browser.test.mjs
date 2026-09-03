@@ -14,64 +14,67 @@ await page.addInitScript(value=>localStorage.setItem("novelTimelineV11",JSON.str
 await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 const visible=id=>page.locator(`#${id}`).isVisible();
 
-/* ---------- Locations manager: staged create/save lifecycle ---------- */
+/* ---------- Location Gallery + Profile: create/edit/save/delete lifecycle ---------- */
 
-await page.evaluate(()=>openLocationsManager());
+await page.evaluate(()=>openLocationGallery());
 
-// C: Save disabled while clean.
-if(!await page.isDisabled("#saveLocations"))throw new Error("C: Save не отключён на чистой форме");
-
-// A: new draft row starts empty with a placeholder, not a fake default value.
+// A: create modal starts empty with a placeholder; Submit disabled until a name is entered.
 await page.click("#addLocation");
-const firstDraftId=await page.locator(".location-name-input").last().getAttribute("data-draft-id");
-const firstDraftInput=page.locator(`.location-name-input[data-draft-id="${firstDraftId}"]`);
-if(await firstDraftInput.inputValue()!=="")throw new Error("A: новая локация не пустая");
-if(await firstDraftInput.getAttribute("placeholder")!=="Название локации")throw new Error("A: нет плейсхолдера у новой локации");
+if(!await visible("createLocationModal"))throw new Error("A: создание локации не открыло app-native модаль");
+if(await page.inputValue("#createLocationName")!=="")throw new Error("A: поле названия новой локации не пустое");
+if(await page.getAttribute("#createLocationName","placeholder")!=="Название локации")throw new Error("A: нет плейсхолдера у новой локации");
+if(await page.isDisabled("#createLocationSubmit")!==true)throw new Error("A: Создать не отключён при пустом имени");
 
-// D: Save enabled once a meaningful change occurred (row added).
-if(await page.isDisabled("#saveLocations"))throw new Error("D: Save не включился после добавления строки");
+// D: Submit enabled once a meaningful change occurred (name entered).
+await page.fill("#createLocationName","Кабинет");
+if(await page.isDisabled("#createLocationSubmit")!==false)throw new Error("D: Создать не включился после ввода имени");
+await page.click("#createLocationSubmit");
+await page.waitForSelector("#createLocationModal",{state:"hidden"});
+if(!await page.evaluate(()=>data.locations.some(l=>l.name==="Кабинет")))throw new Error("новая локация не попала в data после создания");
+// successful create opens the new Location's Profile directly.
+if(!await visible("locationProfileModal"))throw new Error("создание локации не открыло её профиль");
+if(await page.inputValue("#locProfileName")!=="Кабинет")throw new Error("профиль новой локации не показывает её название");
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
-// B: typing into the first draft, then adding a second draft row, must not lose the first draft's text.
-await firstDraftInput.fill("Кабинет");
-await page.click("#addLocation");
-if(await firstDraftInput.inputValue()!=="Кабинет")throw new Error("B: второй черновик стёр первый (Кабинет)");
+// C: Save disabled on a clean Profile.
+await page.evaluate(()=>openLocationProfile("location-a"));
+if(!await page.isDisabled("#locationProfileSave"))throw new Error("C: Save не отключён на чистом профиле");
 
-// G: closing a dirty manager must not silently persist; discard confirmation is app-native.
-await page.click("#closeLocations");
-if(!await visible("discardChangesModal"))throw new Error("G: закрытие dirty-менеджера не показало подтверждение");
-if(await page.evaluate(()=>data.locations.length)!==1)throw new Error("G: черновик локаций был сохранён без подтверждения Save");
+// G: closing a dirty Profile must not silently persist; discard confirmation is app-native.
+await page.fill("#locProfileName","Гостиная");
+if(await page.isDisabled("#locationProfileSave"))throw new Error("правка названия не включила Save");
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());
+if(!await visible("discardChangesModal"))throw new Error("G: закрытие dirty-профиля не показало подтверждение");
+if(await page.evaluate(()=>locationById("location-a").name)!=="Дом")throw new Error("G: черновик локации был сохранён без подтверждения Save");
 await page.click("#discardChanges");
-if(await visible("locationsModal"))throw new Error("G: discard не закрыл менеджер локаций");
+if(await visible("locationProfileModal"))throw new Error("G: discard не закрыл профиль локации");
 
 // F: a failed Save preserves the draft and keeps the modal open with an app-native error.
-await page.evaluate(()=>openLocationsManager());
-await page.click("#addLocation");
-const failDraftId=await page.locator(".location-name-input").last().getAttribute("data-draft-id");
-await page.locator(`.location-name-input[data-draft-id="${failDraftId}"]`).fill("Гараж");
+await page.evaluate(()=>openLocationProfile("location-a"));
+await page.fill("#locProfileName","Гараж");
 await page.evaluate(()=>{const original=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new DOMException("quota","QuotaExceededError")};window.__restoreManagerStorage=()=>Storage.prototype.setItem=original});
-await page.click("#saveLocations");
-if(!await visible("locationsModal"))throw new Error("F: неудачное сохранение закрыло менеджер");
-if(!await page.evaluate(()=>trackerFor("locationsModal").isDirty()))throw new Error("F: неудачное сохранение очистило dirty-состояние");
-if(await page.locator(`.location-name-input[data-draft-id="${failDraftId}"]`).inputValue()!=="Гараж")throw new Error("F: неудачное сохранение потеряло введённое имя");
-if(!(await page.textContent("#locationsSaveStatus"))?.trim())throw new Error("F: нет app-native сообщения об ошибке сохранения");
+await page.click("#locationProfileSave");
+if(!await visible("locationProfileModal"))throw new Error("F: неудачное сохранение закрыло профиль");
+if(!await page.evaluate(()=>trackerFor("locationProfileModal").isDirty()))throw new Error("F: неудачное сохранение очистило dirty-состояние");
+if(await page.inputValue("#locProfileName")!=="Гараж")throw new Error("F: неудачное сохранение потеряло введённое имя");
+if(!(await page.textContent("#locationProfileStatus"))?.trim())throw new Error("F: нет app-native сообщения об ошибке сохранения");
 await page.evaluate(()=>__restoreManagerStorage());
 
-// E: a successful Save returns the manager to a clean state with success feedback, and keeps it open.
-await page.click("#saveLocations");
-await page.waitForFunction(()=>!trackerFor("locationsModal").isDirty());
-if(!await visible("locationsModal"))throw new Error("E: успешное сохранение закрыло менеджер, ожидалось usable modal");
-if(await page.isDisabled("#saveLocations")!==true)throw new Error("E: Save не вернулся в disabled после успешного сохранения");
-if(!(await page.textContent("#locationsSaveStatus"))?.includes("Локации сохранены"))throw new Error("E: нет success feedback после сохранения");
-if(!await page.evaluate(()=>data.locations.some(l=>l.name==="Гараж")))throw new Error("E: новая локация не попала в data после сохранения");
+// E: a successful Save returns the Profile to a clean state with success feedback, and keeps it open.
+await page.click("#locationProfileSave");
+await page.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
+if(!await visible("locationProfileModal"))throw new Error("E: успешное сохранение закрыло профиль, ожидался usable modal");
+if(await page.isDisabled("#locationProfileSave")!==true)throw new Error("E: Save не вернулся в disabled после успешного сохранения");
+if(!(await page.textContent("#locationProfileStatus"))?.includes("Локация сохранена"))throw new Error("E: нет success feedback после сохранения");
+if(await page.evaluate(()=>locationById("location-a").name)!=="Гараж")throw new Error("E: переименование не попало в data после сохранения");
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
 // M: delete confirmation uses the app-native modal (no browser confirm) and preserves domain semantics (scene becomes unlocated).
-await page.locator('.location-row:has([data-draft-id="location-a"]) button.danger').click();
+await page.locator('.location-card[data-location-id="location-a"] button.danger-quiet').click();
 if(!await visible("confirmActionModal"))throw new Error("M: удаление локации не показало app-native подтверждение");
-if(!(await page.textContent("#confirmActionDescription"))?.includes("Дом"))throw new Error("M: подтверждение не называет удаляемую локацию");
+if(!(await page.textContent("#confirmActionDescription"))?.includes("Гараж"))throw new Error("M: подтверждение не называет удаляемую локацию");
 await page.click("#confirmActionConfirm");
-await page.click("#saveLocations");
-await page.waitForFunction(()=>!trackerFor("locationsModal").isDirty());
-if(await page.evaluate(()=>data.locations.some(l=>l.id==="location-a")))throw new Error("M: локация не была удалена после сохранения");
+await page.waitForFunction(()=>!data.locations.some(l=>l.id==="location-a"));
 if(await page.evaluate(()=>data.scenes.find(s=>s.id==="scene-a").locationId)!=="")throw new Error("M: сцена не стала 'без локации' после удаления её локации");
 await page.click("#closeLocations");
 

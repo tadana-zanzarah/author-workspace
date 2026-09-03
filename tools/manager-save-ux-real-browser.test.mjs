@@ -64,27 +64,29 @@ try{
   report.chapterRename="ok";
   await pageA.click("#closeChapters");
 
-  /* ---------- Locations: staged create, no write before Save, rename, authoritative persistence ---------- */
+  /* ---------- Locations: create via Gallery, no write before submit, edit/save via Profile, authoritative persistence ---------- */
   await pageA.click("#projectMenu > summary");await pageA.click("#manageLocations");
   const locationRevBefore=await revision(pageA);
   await pageA.click("#addLocation");
-  await pageA.locator(".location-name-input").last().fill("Cloud Location A");
-  assert((await revision(pageA))===locationRevBefore,"location draft add must not touch cloud revision before Save");
-  assert((await content(pageA)).locations.length===0,"location draft add must not create a remote row before Save");
-  await pageA.click("#saveLocations");
-  await pageA.waitForFunction(()=>!trackerFor("locationsModal").isDirty());
-  assert((await revision(pageA))>locationRevBefore,"location save must increment cloud revision");
+  await pageA.fill("#createLocationName","Cloud Location A");
+  assert((await revision(pageA))===locationRevBefore,"location create must not touch cloud revision before submit");
+  assert((await content(pageA)).locations.length===0,"location create modal must not create a remote row before submit");
+  await pageA.click("#createLocationSubmit");
+  await pageA.waitForSelector("#createLocationModal",{state:"hidden"});
+  assert(await pageA.locator("#locationProfileModal").isVisible(),"successful location create must open its Profile");
+  assert((await revision(pageA))>locationRevBefore,"location create must increment cloud revision");
   remote=await content(pageA);
   const locationId=remote.locations.find(l=>l.name==="Cloud Location A")?.id;
   assert(locationId,"created location missing from authoritative reload");
   report.locationCreate="ok";
 
-  await pageA.locator(".location-name-input").first().fill("Cloud Location A Renamed");
-  await pageA.click("#saveLocations");
-  await pageA.waitForFunction(()=>!trackerFor("locationsModal").isDirty());
+  await pageA.fill("#locProfileName","Cloud Location A Renamed");
+  await pageA.click("#locationProfileSave");
+  await pageA.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
   remote=await content(pageA);
   assert(remote.locations.some(l=>l.id===locationId&&l.name==="Cloud Location A Renamed"),"location rename did not survive authoritative reload");
   report.locationRename="ok";
+  await pageA.evaluate(()=>document.getElementById("locationProfileClose").click());
   await pageA.click("#closeLocations");
 
   /* ---------- Tags: staged create, no write before Save, rename, canonicalization/dedup, authoritative persistence ---------- */

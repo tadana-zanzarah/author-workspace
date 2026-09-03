@@ -201,32 +201,34 @@ try{
   assert(workspaceOpened,"openCloudProject must load the disposable project into the workspace");
   await page.waitForSelector("#workspaceProjectTitle");
 
-  await page.click('.nav-manage[onclick="openLocationsManager()"]');
+  await page.click('.nav-manage[onclick="openLocationGallery()"]');
   await waitModalOpen(page,"locationsModal");
-  const managerRows=await page.locator(".location-name-input").evaluateAll(els=>els.map(el=>el.value));
-  assert(managerRows.includes("Real-Cloud Tavern (renamed)"),`Locations manager must show the migrated/created location, got: ${JSON.stringify(managerRows)}`);
+  const galleryNames=await page.locator(".location-card-name").allTextContents();
+  assert(galleryNames.includes("Real-Cloud Tavern (renamed)"),`Location Gallery must show the migrated/created location, got: ${JSON.stringify(galleryNames)}`);
   report.uiSmoke={managerLoad:true,migratedLocationsVisible:true};
 
   await page.click("#addLocation");
-  const newRowName=page.locator('.location-name-input[value=""]').last();
-  await newRowName.fill(`UI Smoke Location ${token}`);
-  await page.locator('.location-desc-input').last().fill("Created via manager UI.");
-  await page.click("#saveLocations");
-  await page.waitForFunction(()=>document.getElementById("locationsSaveStatus")?.textContent?.includes("охранен")||document.getElementById("locationsSaveStatus")?.textContent?.includes("аписан")||document.getElementById("locationsSaveStatus")?.textContent?.length>0);
-  const statusAfterCreate=await page.locator("#locationsSaveStatus").textContent();
-  assert(!/не удалось|error/i.test(statusAfterCreate||""),`manager create-via-UI must not show an error: ${statusAfterCreate}`);
+  await waitModalOpen(page,"createLocationModal");
+  await page.fill("#createLocationName",`UI Smoke Location ${token}`);
+  await page.fill("#createLocationDescription","Created via Gallery UI.");
+  await page.click("#createLocationSubmit");
+  await waitModalClosed(page,"createLocationModal");
+  await waitModalOpen(page,"locationProfileModal");
+  const createdTitle=await page.locator("#locationProfileTitle").textContent();
+  assert(createdTitle?.includes(`UI Smoke Location ${token}`),`successful create must open the new location's Profile, got: ${createdTitle}`);
   report.uiSmoke.create=true;
 
-  const rowsAfterUiCreate=await page.locator(".location-name-input").evaluateAll(els=>els.map(el=>el.value));
-  const uiCreatedIndex=rowsAfterUiCreate.indexOf(`UI Smoke Location ${token}`);
-  assert(uiCreatedIndex>=0,"UI-created location must appear in the manager list");
-  await page.locator(".location-name-input").nth(uiCreatedIndex).fill(`UI Smoke Location ${token} (edited)`);
-  await page.click("#saveLocations");
-  await page.waitForTimeout(500);
-  const editedValue=await page.locator(".location-name-input").nth(uiCreatedIndex).inputValue();
-  assert(editedValue===`UI Smoke Location ${token} (edited)`,"manager edit-via-UI must persist");
+  await page.fill("#locProfileName",`UI Smoke Location ${token} (edited)`);
+  await page.click("#locationProfileSave");
+  await page.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
+  const editStatus=await page.locator("#locationProfileStatus").textContent();
+  assert(!/не удалось|error/i.test(editStatus||""),`Profile edit-via-UI must not show an error: ${editStatus}`);
+  const editedValue=await page.inputValue("#locProfileName");
+  assert(editedValue===`UI Smoke Location ${token} (edited)`,"Profile edit-via-UI must persist");
   report.uiSmoke.edit=true;
 
+  await page.click("#locationProfileClose");
+  await waitModalClosed(page,"locationProfileModal");
   await page.click("#closeLocations");
   await waitModalClosed(page,"locationsModal");
 
@@ -250,27 +252,28 @@ try{
   report.uiSmoke.quickCreate=true;
 
   // dependency-delete UX: this scene is now bound to the quick-created location; save the scene,
-  // reopen the manager, and confirm deleting that in-use location surfaces a real error (not a
-  // silent success, not raw UNKNOWN) via the manager's own save-status UI.
+  // open that location's Profile, and confirm deleting an in-use location surfaces a real error
+  // (not a silent success, not raw UNKNOWN) via the Profile's own status UI.
   await page.click("#saveScene").catch(()=>{});
   await waitModalClosed(page,"sceneModal").catch(()=>{});
-  await page.click('.nav-manage[onclick="openLocationsManager()"]');
-  await waitModalOpen(page,"locationsModal");
-  const quickRowIndex=(await page.locator(".location-name-input").evaluateAll(els=>els.map(el=>el.value))).indexOf(`Quick Create ${token}`);
-  if(quickRowIndex>=0){
-    await page.locator("#locationsList .danger").nth(quickRowIndex).click();
-    // deleteLocationDraft() uses the app's own custom confirm modal (#confirmActionModal), not a
+  const quickLocationId=await page.evaluate(token=>data.locations.find(l=>l.name.includes(token))?.id,`Quick Create ${token}`);
+  if(quickLocationId){
+    await page.evaluate(id=>openLocationProfile(id),quickLocationId);
+    await waitModalOpen(page,"locationProfileModal");
+    await page.click("#locationProfileDelete");
+    // deleteLocationEntity() uses the app's own custom confirm modal (#confirmActionModal), not a
     // native browser dialog -- the page.on("dialog",...) handler above doesn't cover it.
     await waitModalOpen(page,"confirmActionModal");
     await page.click("#confirmActionConfirm");
     await waitModalClosed(page,"confirmActionModal");
-    await page.click("#saveLocations");
-    await page.waitForTimeout(800);
-    const depStatus=await page.locator("#locationsSaveStatus").textContent();
+    await page.waitForFunction(()=>document.getElementById("locationProfileStatus")?.textContent?.trim().length>0);
+    const depStatus=await page.locator("#locationProfileStatus").textContent();
     assert(depStatus&&depStatus.trim().length>0&&!/UNKNOWN/i.test(depStatus),`dependency-delete via UI must show a real, normalized error: ${depStatus}`);
     report.uiSmoke.dependencyDeleteUx=depStatus.trim();
+    await page.click("#locationProfileClose");
+    await waitModalClosed(page,"locationProfileModal").catch(()=>{});
   }else{
-    report.uiSmoke.dependencyDeleteUx="quick-created row not found for delete-attempt check";
+    report.uiSmoke.dependencyDeleteUx="quick-created location not found for delete-attempt check";
   }
   await page.click("#closeLocations").catch(()=>{});
 
