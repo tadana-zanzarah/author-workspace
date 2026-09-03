@@ -214,17 +214,21 @@ try{
   await page.click("#createLocationSubmit");
   await waitModalClosed(page,"createLocationModal");
   await waitModalOpen(page,"locationProfileModal");
+  assert(await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)===true,"successful create must open the Profile in read mode, not an edit form");
   const createdTitle=await page.locator("#locationProfileTitle").textContent();
   assert(createdTitle?.includes(`UI Smoke Location ${token}`),`successful create must open the new location's Profile, got: ${createdTitle}`);
   report.uiSmoke.create=true;
 
+  await page.click("#locationProfileEdit");
   await page.fill("#locProfileName",`UI Smoke Location ${token} (edited)`);
   await page.click("#locationProfileSave");
-  await page.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
+  await page.waitForFunction(()=>document.getElementById("locationProfileStatus")?.textContent?.includes("Локация сохранена"));
   const editStatus=await page.locator("#locationProfileStatus").textContent();
   assert(!/не удалось|error/i.test(editStatus||""),`Profile edit-via-UI must not show an error: ${editStatus}`);
-  const editedValue=await page.inputValue("#locProfileName");
-  assert(editedValue===`UI Smoke Location ${token} (edited)`,"Profile edit-via-UI must persist");
+  await page.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
+  await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true);
+  const editedTitle=await page.locator("#locationProfileTitle").textContent();
+  assert(editedTitle===`UI Smoke Location ${token} (edited)`,"Profile edit-via-UI must persist and return to read mode showing it");
   report.uiSmoke.edit=true;
 
   await page.click("#locationProfileClose");
@@ -260,6 +264,7 @@ try{
   if(quickLocationId){
     await page.evaluate(id=>openLocationProfile(id),quickLocationId);
     await waitModalOpen(page,"locationProfileModal");
+    await page.click("#locationProfileEdit");
     await page.click("#locationProfileDelete");
     // deleteLocationEntity() uses the app's own custom confirm modal (#confirmActionModal), not a
     // native browser dialog -- the page.on("dialog",...) handler above doesn't cover it.

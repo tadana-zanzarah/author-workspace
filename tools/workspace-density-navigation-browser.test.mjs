@@ -176,9 +176,9 @@ try{
     const before=await page.evaluate(()=>filters.location);
     await page.click('#sideLocations .sidebar-item');
     await page.waitForSelector("#locationProfileModal .modal");
-    const after=await page.evaluate(()=>({filterLocation:filters.location,modalOpen:document.getElementById("locationProfileModal").style.display==="flex",name:document.getElementById("locProfileName").value}));
+    const after=await page.evaluate(()=>({filterLocation:filters.location,modalOpen:document.getElementById("locationProfileModal").style.display==="flex",name:document.getElementById("locationProfileTitle").textContent,readMode:document.getElementById("locationProfileEditView").hidden}));
     if(after.filterLocation!==before)throw new Error(`Location sidebar click must not change the active filter, got: ${after.filterLocation}`);
-    if(!after.modalOpen||!after.name)throw new Error(`Location sidebar click did not open a populated Profile: ${JSON.stringify(after)}`);
+    if(!after.modalOpen||!after.name||!after.readMode)throw new Error(`Location sidebar click did not open a populated Profile in read mode: ${JSON.stringify(after)}`);
     await page.click("#locationProfileClose");
     await page.waitForSelector("#locationProfileModal",{state:"hidden"});
   }

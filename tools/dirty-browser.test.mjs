@@ -31,16 +31,16 @@ await page.evaluate(()=>openAllScenes());await page.locator('.all-scene-text[dat
 
 await page.click("#projectMenu > summary");await page.click("#manageChars");await page.click("#addChar");await page.fill("#pf_name","Черновой герой");await page.evaluate(()=>{profileDraftPhotos.push({id:"dirty-photo",source:{kind:"data-url",value:"data:image/png;base64,AAAA"},crop:{x:.5,y:.5,zoom:1},alt:""});renderProfilePhotos();syncBeforeUnload()});await page.evaluate(()=>document.getElementById("cancelProfile").click());if(!await visible("discardChangesModal"))throw new Error("анкета/фото не защищены");await page.click("#discardChanges");if(await page.evaluate(()=>data.characters.some(item=>item.name==="Новый персонаж"||item.name==="Черновой герой")))throw new Error("отмена оставила пустого персонажа");await page.click("#closeChars");
 
-await page.evaluate(()=>openLocationProfile("location-a"));await page.fill("#locProfileName","Новый дом");
+await page.evaluate(()=>openLocationProfile("location-a"));await page.click("#locationProfileEdit");await page.fill("#locProfileName","Новый дом");
 if(!await page.evaluate(()=>trackerFor("locationProfileModal").isDirty()))throw new Error("правка названия локации не пометила профиль dirty");
-await page.evaluate(()=>document.getElementById("locationProfileClose").click());
-if(!await visible("discardChangesModal"))throw new Error("закрытие dirty-профиля локации не показало guard");
+await page.evaluate(()=>document.getElementById("locationProfileCancelEdit").click());
+if(!await visible("discardChangesModal"))throw new Error("отмена dirty-редактирования локации не показала guard");
 await page.click("#continueEditing");
-if(await page.inputValue("#locProfileName")!=="Новый дом"||!await visible("locationProfileModal"))throw new Error("Продолжить редактирование потеряло draft локации");
-await page.evaluate(()=>document.getElementById("locationProfileClose").click());await page.click("#discardChanges");
-if(await visible("locationProfileModal"))throw new Error("discard не закрыл профиль локации");
+if(await page.inputValue("#locProfileName")!=="Новый дом"||await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==false)throw new Error("Продолжить редактирование потеряло draft локации или вышло из edit mode");
+await page.evaluate(()=>document.getElementById("locationProfileCancelEdit").click());await page.click("#discardChanges");
+if(!await visible("locationProfileModal")||await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==true)throw new Error("discard не вернул профиль локации в read mode");
 if(await page.evaluate(()=>locationById("location-a").name)!=="Дом")throw new Error("discard изменил модель локации");
-await page.evaluate(()=>openLocationProfile("location-a"));await page.fill("#locProfileName","Новый дом");await page.click("#locationProfileSave");
+await page.click("#locationProfileEdit");await page.fill("#locProfileName","Новый дом");await page.click("#locationProfileSave");
 await page.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
 if(await page.evaluate(()=>locationById("location-a").name)!=="Новый дом")throw new Error("сохранение не применило переименование локации");
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());

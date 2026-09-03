@@ -31,42 +31,52 @@ if(await page.isDisabled("#createLocationSubmit")!==false)throw new Error("D: С
 await page.click("#createLocationSubmit");
 await page.waitForSelector("#createLocationModal",{state:"hidden"});
 if(!await page.evaluate(()=>data.locations.some(l=>l.name==="Кабинет")))throw new Error("новая локация не попала в data после создания");
-// successful create opens the new Location's Profile directly.
+// successful create opens the new Location's Profile directly, in READ mode (not an edit form).
 if(!await visible("locationProfileModal"))throw new Error("создание локации не открыло её профиль");
-if(await page.inputValue("#locProfileName")!=="Кабинет")throw new Error("профиль новой локации не показывает её название");
+if(await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==true)throw new Error("Profile новой локации открылся не в read mode");
+if(await page.textContent("#locationProfileTitle")!=="Кабинет")throw new Error("профиль новой локации не показывает её название");
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
-// C: Save disabled on a clean Profile.
+// C: Save disabled on a freshly-entered, unedited Edit mode.
 await page.evaluate(()=>openLocationProfile("location-a"));
+if(await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==true)throw new Error("Profile не открылся в read mode");
+if(await page.locator("#locProfileName").isVisible())throw new Error("read mode показывает постоянно видимый input названия");
+if(await page.locator("#locationProfileSave").isVisible())throw new Error("read mode показывает постоянно видимую кнопку Save");
+await page.click("#locationProfileEdit");
+if(await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==false)throw new Error("«Редактировать» не переключил профиль в edit mode");
 if(!await page.isDisabled("#locationProfileSave"))throw new Error("C: Save не отключён на чистом профиле");
 
-// G: closing a dirty Profile must not silently persist; discard confirmation is app-native.
+// G: leaving a dirty edit (Cancel) must not silently persist; discard confirmation is app-native,
+// and it returns to READ mode rather than closing the whole Profile.
 await page.fill("#locProfileName","Гостиная");
 if(await page.isDisabled("#locationProfileSave"))throw new Error("правка названия не включила Save");
-await page.evaluate(()=>document.getElementById("locationProfileClose").click());
-if(!await visible("discardChangesModal"))throw new Error("G: закрытие dirty-профиля не показало подтверждение");
+await page.evaluate(()=>document.getElementById("locationProfileCancelEdit").click());
+if(!await visible("discardChangesModal"))throw new Error("G: отмена dirty-редактирования не показала подтверждение");
 if(await page.evaluate(()=>locationById("location-a").name)!=="Дом")throw new Error("G: черновик локации был сохранён без подтверждения Save");
 await page.click("#discardChanges");
-if(await visible("locationProfileModal"))throw new Error("G: discard не закрыл профиль локации");
+if(!await visible("locationProfileModal"))throw new Error("G: discard закрыл весь профиль локации вместо возврата в read mode");
+if(await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==true)throw new Error("G: discard не вернул профиль локации в read mode");
 
-// F: a failed Save preserves the draft and keeps the modal open with an app-native error.
-await page.evaluate(()=>openLocationProfile("location-a"));
+// F: a failed Save preserves the draft and keeps edit mode open with an app-native error.
+await page.click("#locationProfileEdit");
 await page.fill("#locProfileName","Гараж");
 await page.evaluate(()=>{const original=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new DOMException("quota","QuotaExceededError")};window.__restoreManagerStorage=()=>Storage.prototype.setItem=original});
 await page.click("#locationProfileSave");
 if(!await visible("locationProfileModal"))throw new Error("F: неудачное сохранение закрыло профиль");
+if(await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==false)throw new Error("F: неудачное сохранение вышло из edit mode");
 if(!await page.evaluate(()=>trackerFor("locationProfileModal").isDirty()))throw new Error("F: неудачное сохранение очистило dirty-состояние");
 if(await page.inputValue("#locProfileName")!=="Гараж")throw new Error("F: неудачное сохранение потеряло введённое имя");
 if(!(await page.textContent("#locationProfileStatus"))?.trim())throw new Error("F: нет app-native сообщения об ошибке сохранения");
 await page.evaluate(()=>__restoreManagerStorage());
 
-// E: a successful Save returns the Profile to a clean state with success feedback, and keeps it open.
+// E: a successful Save shows success feedback, then returns to READ mode with refreshed data.
 await page.click("#locationProfileSave");
+await page.waitForFunction(()=>document.getElementById("locationProfileStatus")?.textContent?.includes("Локация сохранена"));
+if(!await visible("locationProfileModal"))throw new Error("E: успешное сохранение закрыло весь профиль, ожидался usable modal");
 await page.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
-if(!await visible("locationProfileModal"))throw new Error("E: успешное сохранение закрыло профиль, ожидался usable modal");
-if(await page.isDisabled("#locationProfileSave")!==true)throw new Error("E: Save не вернулся в disabled после успешного сохранения");
-if(!(await page.textContent("#locationProfileStatus"))?.includes("Локация сохранена"))throw new Error("E: нет success feedback после сохранения");
+await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true);
 if(await page.evaluate(()=>locationById("location-a").name)!=="Гараж")throw new Error("E: переименование не попало в data после сохранения");
+if(await page.textContent("#locationProfileTitle")!=="Гараж")throw new Error("E: read mode не показывает обновлённое название после сохранения");
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
 // M: delete confirmation uses the app-native modal (no browser confirm) and preserves domain semantics (scene becomes unlocated).

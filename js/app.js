@@ -379,6 +379,8 @@ document.getElementById("createLocationName").onkeydown=e=>{
 document.getElementById("createLocationSubmit").onclick=submitCreateLocation;
 document.getElementById("createLocationCancel").onclick=()=>forceCloseModal("createLocationModal");
 document.getElementById("createLocationModal").onclick=e=>{if(e.target.id==="createLocationModal")forceCloseModal("createLocationModal")};
+document.getElementById("locationProfileEdit").onclick=enterLocationProfileEdit;
+document.getElementById("locationProfileCancelEdit").onclick=cancelLocationProfileEdit;
 document.getElementById("locationProfileSave").onclick=saveLocationProfile;
 document.getElementById("locationProfileDelete").onclick=deleteLocationFromProfile;
 document.getElementById("locationProfileClose").onclick=()=>requestCloseModal("locationProfileModal","button");

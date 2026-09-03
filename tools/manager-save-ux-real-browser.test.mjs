@@ -74,15 +74,18 @@ try{
   await pageA.click("#createLocationSubmit");
   await pageA.waitForSelector("#createLocationModal",{state:"hidden"});
   assert(await pageA.locator("#locationProfileModal").isVisible(),"successful location create must open its Profile");
+  assert(await pageA.evaluate(()=>document.getElementById("locationProfileEditView").hidden)===true,"successful location create must open its Profile in read mode");
   assert((await revision(pageA))>locationRevBefore,"location create must increment cloud revision");
   remote=await content(pageA);
   const locationId=remote.locations.find(l=>l.name==="Cloud Location A")?.id;
   assert(locationId,"created location missing from authoritative reload");
   report.locationCreate="ok";
 
+  await pageA.click("#locationProfileEdit");
   await pageA.fill("#locProfileName","Cloud Location A Renamed");
   await pageA.click("#locationProfileSave");
   await pageA.waitForFunction(()=>!trackerFor("locationProfileModal").isDirty());
+  await pageA.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true);
   remote=await content(pageA);
   assert(remote.locations.some(l=>l.id===locationId&&l.name==="Cloud Location A Renamed"),"location rename did not survive authoritative reload");
   report.locationRename="ok";

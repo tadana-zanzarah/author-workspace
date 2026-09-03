@@ -373,27 +373,40 @@
       <h2 id="locationProfileTitle">Локация</h2>
       <span class="stat-pill" id="locationProfileSceneCount">Сцен <strong>0</strong></span>
     </div>
-    <div class="profile-section">
-      <div class="profile-editor-grid">
-        <label class="profile-field full">
-          <span class="field-caption">Название локации</span>
-          <input id="locProfileName" data-initial-focus placeholder="Название локации">
-        </label>
-        <label class="profile-field full">
-          <span class="field-caption">Описание</span>
-          <textarea id="locProfileDescription" rows="4" placeholder="Необязательное описание — какой эта локация видится в истории"></textarea>
-        </label>
+
+    <div id="locationProfileReadView">
+      <div class="location-profile-read-toolbar">
+        <button type="button" class="location-profile-edit-btn" id="locationProfileEdit">✎ Редактировать</button>
+      </div>
+      <div class="location-profile-summary" id="locationProfileSummary"></div>
+      <div class="profile-section">
+        <h3 class="profile-section-title">Сцены здесь</h3>
+        <div id="locationProfileScenes" class="location-profile-scenes"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="locationProfileClose">Закрыть</button>
       </div>
     </div>
-    <div class="profile-section">
-      <h3 class="profile-section-title">Сцены здесь</h3>
-      <div id="locationProfileScenes" class="location-profile-scenes"></div>
-    </div>
-    <div class="modal-actions">
-      <button type="button" class="danger" id="locationProfileDelete">Удалить локацию</button>
-      <span id="locationProfileStatus" class="save-status" role="status" aria-live="polite"></span>
-      <button type="button" id="locationProfileClose">Закрыть</button>
-      <button type="button" class="primary" id="locationProfileSave">Сохранить</button>
+
+    <div id="locationProfileEditView" hidden>
+      <div class="profile-section">
+        <div class="profile-editor-grid">
+          <label class="profile-field full">
+            <span class="field-caption">Название локации</span>
+            <input id="locProfileName" placeholder="Название локации">
+          </label>
+          <label class="profile-field full">
+            <span class="field-caption">Описание</span>
+            <textarea id="locProfileDescription" rows="4" placeholder="Необязательное описание — какой эта локация видится в истории"></textarea>
+          </label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="danger" id="locationProfileDelete">Удалить локацию</button>
+        <span id="locationProfileStatus" class="save-status" role="status" aria-live="polite"></span>
+        <button type="button" id="locationProfileCancelEdit">Отмена</button>
+        <button type="button" class="primary" id="locationProfileSave">Сохранить</button>
+      </div>
     </div>
   </div>
 </div>

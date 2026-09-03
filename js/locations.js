@@ -21,6 +21,7 @@ function locationSceneEntries(participationId){
 
 let locationGalleryQuery="";
 let locationProfileParticipationId=null;
+let locationProfileMode="read";
 let createLocationInFlight=false;
 
 const locationProfileSaveButton=createSaveButtonController("locationProfileSave","locationProfileModal",{statusId:"locationProfileStatus"});
@@ -62,11 +63,11 @@ function renderLocationGallery(){
     const excerpt=(location.description||"").trim();
     return `<article class="location-card" data-location-id="${esc(participationId)}">
       <button type="button" class="location-card-open" onclick="openLocationProfile('${jsq(participationId)}')" aria-label="Открыть локацию «${esc(location.name||"без названия")}»">
-        <span class="location-card-cover" aria-hidden="true"><span class="location-card-monogram">${esc(monogram)}</span></span>
-        <span class="location-card-body">
+        <span class="location-card-identity">
+          <span class="location-card-monogram" aria-hidden="true">${esc(monogram)}</span>
           <span class="location-card-name">${esc(location.name||"Без названия")}</span>
-          ${excerpt?`<span class="location-card-excerpt">${esc(excerpt)}</span>`:""}
         </span>
+        ${excerpt?`<span class="location-card-excerpt">${esc(excerpt)}</span>`:""}
       </button>
       <div class="location-card-footer">
         <span class="stat-pill">Сцен <strong>${sceneCount}</strong></span>
@@ -106,23 +107,42 @@ async function deleteLocationFromGallery(participationId){
 
 /* ---------- Profile ---------- */
 
+// The Profile opens in a read-only display (name/scene-count header, a readable summary,
+// and the read-only "Scenes here" list) rather than immediately looking like an edit form.
+// "Редактировать" is the single entry into edit mode, which is the only place name/
+// description become editable inputs and Save/Delete live. This mirrors why Scenes-here is
+// read-view-only: it isn't editable content, and keeping edit mode to just its two fields
+// keeps the dirty-tracked form small and focused.
 function populateLocationProfile(participationId){
   const location=locationById(participationId);if(!location)return false;
   locationProfileParticipationId=participationId;
   document.getElementById("locationProfileTitle").textContent=location.name||"Локация";
-  document.getElementById("locProfileName").value=location.name||"";
-  document.getElementById("locProfileDescription").value=location.description||"";
   const sceneCount=locationSceneEntries(participationId).length;
   document.getElementById("locationProfileSceneCount").innerHTML=`Сцен <strong>${sceneCount}</strong>`;
+  syncLocationProfileEditFields(location);
+  renderLocationProfileSummary(location);
   renderLocationProfileScenes(participationId);
   return true;
+}
+
+function syncLocationProfileEditFields(location){
+  document.getElementById("locProfileName").value=location.name||"";
+  document.getElementById("locProfileDescription").value=location.description||"";
+}
+
+function renderLocationProfileSummary(location){
+  const el=document.getElementById("locationProfileSummary");if(!el)return;
+  const description=(location.description||"").trim();
+  el.innerHTML=description
+    ?`<p class="location-profile-description">${esc(description)}</p>`
+    :`<button type="button" class="location-profile-description-empty" onclick="enterLocationProfileEdit()">Описание пока не добавлено</button>`;
 }
 
 function renderLocationProfileScenes(participationId){
   const container=document.getElementById("locationProfileScenes");if(!container)return;
   const scenes=locationSceneEntries(participationId);
   if(!scenes.length){
-    container.innerHTML='<div class="empty-work">У этой локации пока нет сцен в этом проекте.</div>';
+    container.innerHTML='<div class="location-profile-scenes-empty">У этой локации пока нет сцен в этом проекте.</div>';
     return;
   }
   container.innerHTML=scenes.map(scene=>{
@@ -135,13 +155,45 @@ function renderLocationProfileScenes(participationId){
   }).join("");
 }
 
+function showLocationProfileReadMode(){
+  locationProfileMode="read";
+  document.getElementById("locationProfileReadView").hidden=false;
+  document.getElementById("locationProfileEditView").hidden=true;
+}
+
+function showLocationProfileEditMode(){
+  locationProfileMode="edit";
+  document.getElementById("locationProfileReadView").hidden=true;
+  document.getElementById("locationProfileEditView").hidden=false;
+  trackerFor("locationProfileModal").captureInitialState();
+  locationProfileSaveButton.refresh();
+  document.getElementById("locProfileName").focus();
+}
+
+function enterLocationProfileEdit(){
+  const location=locationById(locationProfileParticipationId);if(!location)return;
+  syncLocationProfileEditFields(location);
+  showLocationProfileEditMode();
+}
+
+// Cancel is "exit edit mode", not "close the Profile" — same dirty-state guard as any other
+// draft-destroying transition, just resolved back to read mode instead of a closed modal.
+async function cancelLocationProfileEdit(){
+  if(!await confirmDiscardIfDirty("locationProfileModal"))return;
+  const location=locationById(locationProfileParticipationId);
+  if(location)syncLocationProfileEditFields(location);
+  trackerFor("locationProfileModal").captureInitialState();
+  showLocationProfileReadMode();
+}
+
 function openLocationProfile(participationId){
   return requestEditorTransition(()=>openLocationProfileNow(participationId));
 }
 
 function openLocationProfileNow(participationId){
   if(!populateLocationProfile(participationId))return;
-  showModal("locationProfileModal",{initialFocus:"#locProfileName"});
+  showLocationProfileReadMode();
+  showModal("locationProfileModal",{initialFocus:"#locationProfileEdit"});
   trackerFor("locationProfileModal").captureInitialState();
   locationProfileSaveButton.refresh();
 }
@@ -174,9 +226,13 @@ async function saveLocationProfile(){
       },{renderAfter:false});
       if(!result.ok){locationProfileSaveButton.showStatus(result.userMessage||"Не удалось сохранить локацию.","error");return}
     }
-    document.getElementById("locationProfileTitle").textContent=name||"Локация";
-    trackerFor("locationProfileModal").captureInitialState();
+    // Success is a real, visible state (not skipped straight through) before returning to
+    // read mode with the refreshed data, per the corrective-pass save-state contract.
     locationProfileSaveButton.showStatus("Локация сохранена.","success");
+    await new Promise(resolve=>setTimeout(resolve,700));
+    populateLocationProfile(participationId);
+    trackerFor("locationProfileModal").captureInitialState();
+    showLocationProfileReadMode();
     renderLocationGallery();
     render();
   }finally{
@@ -237,5 +293,5 @@ async function submitCreateLocation(){
   }
 }
 
-Object.assign(globalThis,{locationById,locationCanonicalId,locationSceneEntries,openLocationGallery,setLocationGallerySearch,renderLocationGallery,deleteLocationFromGallery,openLocationProfile,openLocationEntity,saveLocationProfile,deleteLocationFromProfile,openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation});
-export {locationById,locationCanonicalId,locationSceneEntries,openLocationGallery,setLocationGallerySearch,renderLocationGallery,deleteLocationFromGallery,openLocationProfile,openLocationEntity,saveLocationProfile,deleteLocationFromProfile,openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation};
+Object.assign(globalThis,{locationById,locationCanonicalId,locationSceneEntries,openLocationGallery,setLocationGallerySearch,renderLocationGallery,deleteLocationFromGallery,openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation});
+export {locationById,locationCanonicalId,locationSceneEntries,openLocationGallery,setLocationGallerySearch,renderLocationGallery,deleteLocationFromGallery,openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation};
