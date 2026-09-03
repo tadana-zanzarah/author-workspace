@@ -1,9 +1,10 @@
 const CONTENT_ERROR_CODES=new Set([
-  "REVISION_CONFLICT","NOT_FOUND","FORBIDDEN","VALIDATION_ERROR","DUPLICATE","POSITION_ERROR","DEPENDENCIES_EXIST","UNKNOWN"
+  "REVISION_CONFLICT","LOCATION_REVISION_CONFLICT","NOT_FOUND","FORBIDDEN","VALIDATION_ERROR","DUPLICATE","POSITION_ERROR","DEPENDENCIES_EXIST","UNKNOWN"
 ]);
 
 const SAFE_MESSAGES={
   REVISION_CONFLICT:"Проект изменён в другом сеансе. Перезагрузите данные перед сохранением.",
+  LOCATION_REVISION_CONFLICT:"Локация изменена в другом сеансе. Перезагрузите её перед сохранением.",
   NOT_FOUND:"Объект не найден или больше недоступен.",
   FORBIDDEN:"Недостаточно прав для этой операции.",
   VALIDATION_ERROR:"Проверьте введённые данные.",
@@ -21,15 +22,17 @@ function normalizeContentResult(result){
   const value=result?.data;
   if(!value||typeof value!=="object")return {ok:false,code:"UNKNOWN",message:SAFE_MESSAGES.UNKNOWN};
   if(value.ok===true)return {
-    ok:true,code:"OK",revision:Number(value.revision),changed:value.changed===true,
-    data:value.data??null,normalized:value.normalized===true,message:String(value.message||"")
+    ok:true,code:"OK",revision:value.revision==null?undefined:Number(value.revision),
+    locationRevision:value.locationRevision==null?undefined:Number(value.locationRevision),
+    changed:value.changed===true,data:value.data??null,normalized:value.normalized===true,message:String(value.message||"")
   };
   const code=CONTENT_ERROR_CODES.has(value.code)?value.code:"UNKNOWN";
   return {
-    ok:false,code,message:SAFE_MESSAGES[code],
+    ok:false,code,message:SAFE_MESSAGES[code],entityId:value.entityId,
     expectedRevision:value.expectedRevision==null?undefined:Number(value.expectedRevision),
     actualRevision:value.actualRevision==null?undefined:Number(value.actualRevision),
-    revision:value.revision==null?undefined:Number(value.revision),changed:false
+    revision:value.revision==null?undefined:Number(value.revision),
+    locationRevision:value.locationRevision==null?undefined:Number(value.locationRevision),changed:false
   };
 }
 
@@ -45,6 +48,25 @@ function createCloudContentApi(client){
     createLocation:(projectId,expectedRevision,{name,description=""})=>call("create_location",{target_project_id:projectId,expected_revision:expectedRevision,location_name:name,location_description:description}),
     updateLocation:(projectId,locationId,expectedRevision,{name,description=""})=>call("update_location",{target_project_id:projectId,target_location_id:locationId,expected_revision:expectedRevision,location_name:name,location_description:description}),
     deleteLocation:(projectId,locationId,expectedRevision)=>call("delete_location",{target_project_id:projectId,target_location_id:locationId,expected_revision:expectedRevision}),
+    // Phase B canonical-identity path (Location Architecture V2 Phase 3). Distinct RPC names from
+    // the legacy trio above by design -- see the migration header in
+    // 20260904120000_location_phase3_core_identity.sql for why overloading update_location with
+    // an optional expected_location_revision was rejected. createLocationCanonical is still
+    // project-scoped (creates the canonical row + this project's participation together, like
+    // createLocation); updateLocationCanonical/setLocationParent are pure global-identity
+    // mutations gated on the canonical location's OWN revision, not any project's.
+    createLocationCanonical:(projectId,expectedRevision,{name,officialName=null,aliases=[],typePreset=null,customTypeLabel=null,description="",shortSummary=null,parentId=null})=>call("create_location_canonical",{
+      target_project_id:projectId,expected_revision:expectedRevision,location_name:name,location_official_name:officialName,
+      location_aliases:[...new Set(aliases||[])],location_type_preset:typePreset,location_custom_type_label:customTypeLabel,
+      location_description:description,location_short_summary:shortSummary,target_parent_id:parentId
+    }),
+    updateLocationCanonical:(locationId,expectedLocationRevision,{name,officialName=null,aliases=[],typePreset=null,customTypeLabel=null,description="",shortSummary=null})=>call("update_location_canonical",{
+      target_location_id:locationId,expected_location_revision:expectedLocationRevision,location_name:name,location_official_name:officialName,
+      location_aliases:[...new Set(aliases||[])],location_type_preset:typePreset,location_custom_type_label:customTypeLabel,
+      location_description:description,location_short_summary:shortSummary
+    }),
+    setLocationParent:(locationId,expectedLocationRevision,parentId=null)=>call("set_location_parent",{target_location_id:locationId,expected_location_revision:expectedLocationRevision,target_parent_id:parentId}),
+    listOwnedLocations:()=>call("list_owned_locations"),
     createTag:(projectId,expectedRevision,{name})=>call("create_tag",{target_project_id:projectId,expected_revision:expectedRevision,tag_name:name}),
     updateTag:(projectId,tagId,expectedRevision,{name})=>call("update_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision,tag_name:name}),
     deleteTag:(projectId,tagId,expectedRevision)=>call("delete_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision}),

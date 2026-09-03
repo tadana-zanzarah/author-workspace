@@ -31,8 +31,18 @@ begin
   if (select is_nullable from information_schema.columns where table_schema='public' and table_name='locations' and column_name='name') <> 'NO' then
     raise exception 'locations.name is nullable';
   end if;
-  if (select column_default from information_schema.columns where table_schema='public' and table_name='locations' and column_name='type_preset') is distinct from '''other''::text' then
-    raise exception 'locations.type_preset default = %', (select column_default from information_schema.columns where table_schema='public' and table_name='locations' and column_name='type_preset');
+  -- Historically (Phase 1 alone) this asserted NOT NULL default 'other'. This suite runs against
+  -- the FULL migration chain, which by definition includes Phase 3
+  -- (20260904120000_location_phase3_core_identity.sql), where that NOT NULL + default was
+  -- deliberately dropped: a canonical Location must be able to have no type opinion at all (NULL
+  -- = "not specified", distinct from an explicit 'other' choice) rather than every row silently
+  -- being classified 'other'. See that migration's TYPE PRESET header note for the full
+  -- rationale, and supabase/tests/location_phase3_core_identity.sql for the behavioral coverage.
+  if (select column_default from information_schema.columns where table_schema='public' and table_name='locations' and column_name='type_preset') is not null then
+    raise exception 'locations.type_preset still has a default (expected none, against the full migration chain) = %', (select column_default from information_schema.columns where table_schema='public' and table_name='locations' and column_name='type_preset');
+  end if;
+  if (select is_nullable from information_schema.columns where table_schema='public' and table_name='locations' and column_name='type_preset') <> 'YES' then
+    raise exception 'locations.type_preset is not nullable (expected nullable, against the full migration chain)';
   end if;
   if (select numeric_precision from information_schema.columns where table_schema='public' and table_name='locations' and column_name='sort_order') <> 20
      or (select numeric_scale from information_schema.columns where table_schema='public' and table_name='locations' and column_name='sort_order') <> 10 then

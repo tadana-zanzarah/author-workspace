@@ -1,0 +1,82 @@
+name: Location Phase 3 Core Identity CI
+
+# Location Architecture V2 Phase 3 verification (canonical core identity + canonical revision
+# concurrency + server-side hierarchy cycle prevention). Mirrors the Phase 1 workflow pattern in
+# location-foundation-ci.yml -- a single job is sufficient here (unlike Phase 2's cutover, this
+# migration has no backfill/version-ordering concern to rehearse: it only adds new functions plus
+# one narrow, non-rewriting ALTER COLUMN ... DROP NOT NULL/DEFAULT). Backward compatibility with
+# the already-published Phase A frontend is proved INSIDE
+# supabase/tests/location_phase3_core_identity.sql (Block A: legacy create_location/update_location
+# calls, run AFTER this migration is applied, must behave identically to before) rather than by a
+# separate pre/post upgrade-path job.
+#
+# SAFETY / SCOPE (read before editing):
+#   - Every database here is a disposable local Supabase/Postgres stack, created by
+#     `supabase start` on the GitHub-hosted runner and destroyed with the runner. Nothing in this
+#     workflow ever runs `supabase link`, so there is no remote project configured at any point --
+#     `supabase migration up` and friends structurally cannot reach a remote database even by
+#     mistake.
+#   - This workflow does NOT read SUPABASE_ACCESS_TOKEN or any other secret. It does NOT run
+#     `supabase db push`, does NOT call the Supabase Management API, and has no deploy step.
+#   - It only ever runs on this feature branch (push) or on demand (workflow_dispatch), so a PR is
+#     never required to exercise it. It must not be pointed at `master`/production without a
+#     deliberate, separate decision.
+#
+# WHAT THIS VALIDATES (migration
+# supabase/migrations/20260904120000_location_phase3_core_identity.sql):
+#   fresh-db-and-regression: applies the full migration chain from zero and runs every
+#   supabase/tests/*.sql file (schema/introspection, RLS, and the full existing regression suite,
+#   including the new Phase 3 contract in location_phase3_core_identity.sql) against real
+#   Postgres.
+
+on:
+  push:
+    branches:
+      - 'feature/location-phase3-core-identity'
+  workflow_dispatch: {}
+
+jobs:
+  fresh-db-and-regression:
+    runs-on: ubuntu-latest
+    env:
+      LOCAL_PG_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: JS unit tests
+        run: npm test
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Ensure psql is available
+        run: which psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: Start disposable local Supabase (applies the full migration chain from zero)
+        run: supabase start
+
+      - name: Run every SQL test in supabase/tests (schema, RLS, full regression suite)
+        run: |
+          set -e
+          for f in supabase/tests/*.sql; do
+            echo "::group::psql -f $f"
+            if ! psql "$LOCAL_PG_URL" -v ON_ERROR_STOP=1 -f "$f" 2> /tmp/psql-error.log; then
+              escaped=$(sed 's/%/%25/g; s/\r/%0D/g' /tmp/psql-error.log | awk 'BEGIN{ORS="%0A"}{print}')
+              echo "::error title=${f} failed::${escaped}"
+              cat /tmp/psql-error.log
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Stop disposable Supabase
+        if: always()
+        run: supabase stop --no-backup
