@@ -28,26 +28,40 @@ async function login(){
   return {context,page};
 }
 
-async function cleanup(page,projectIds,canonicalLocationIds,titles){
+async function cleanup(page,projectIds,canonicalLocationIds,titles,token){
   // Runs INSIDE the browser page context (dynamic import from a CDN URL only works there, not in
   // a bare Node.js ESM loader) -- mirrors the existing tools/*-real-browser.test.mjs cleanup()
   // pattern exactly, using the public anon key (safe to embed; RLS still applies) as the already-
   // authenticated CLOUD_TEST user's own browser session, not a service role.
-  return page.evaluate(async({projectIds,canonicalLocationIds,titles})=>{
+  //
+  // canonicalLocationIds only covers the location created directly via the RPC in section B --
+  // the UI-smoke steps (manager "+ Создать локацию", quick-create modal) create MORE canonical
+  // locations that were never captured in that array. Rather than track every creation site by
+  // hand (fragile -- a missed one silently orphans a canonical row, since public.locations has
+  // no FK to projects and doesn't cascade-delete with the disposable project), find every
+  // canonical location owned by this account whose name contains this run's unique token and
+  // delete those too. This caught 8 orphaned rows across earlier debugging runs of this exact
+  // script before this fix.
+  return page.evaluate(async({projectIds,canonicalLocationIds,titles,token})=>{
     const {createClient}=await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/+esm");
     const client=createClient("https://crchibwumcuuqhkabmfj.supabase.co","sb_publishable_XF0Jk1qKpK4OgW8NAyaj7g_IuAdH8RT");
     const session=await cloudState.client.auth.getSession();
     await client.auth.setSession(session.data.session);
+    const owner=session.data.session.user.id;
     const found=await client.from("projects").select("id").in("title",titles);
     if(found.error)throw found.error;
     const projects=[...new Set([...projectIds,...found.data.map(x=>x.id)])];
     if(projects.length){const d=await client.from("projects").delete().in("id",projects);if(d.error)throw d.error}
-    if(canonicalLocationIds.length){const d=await client.from("locations").delete().in("id",canonicalLocationIds);if(d.error)throw d.error}
+    const ownedLocations=await client.from("locations").select("id,name").eq("owner_id",owner);
+    if(ownedLocations.error)throw ownedLocations.error;
+    const tokenMatchedLocationIds=ownedLocations.data.filter(l=>l.name.includes(token)).map(l=>l.id);
+    const allLocationIds=[...new Set([...canonicalLocationIds,...tokenMatchedLocationIds])];
+    if(allLocationIds.length){const d=await client.from("locations").delete().in("id",allLocationIds);if(d.error)throw d.error}
     const remainingProjects=await client.from("projects").select("id").in("id",projects);
-    const remainingLocations=canonicalLocationIds.length?await client.from("locations").select("id").in("id",canonicalLocationIds):{data:[]};
+    const remainingLocations=allLocationIds.length?await client.from("locations").select("id").in("id",allLocationIds):{data:[]};
     const remainingParticipation=projects.length?await client.from("project_locations").select("id").in("project_id",projects):{data:[]};
     return {projects:remainingProjects.data.length,locations:remainingLocations.data.length,participation:remainingParticipation.data.length};
-  },{projectIds,canonicalLocationIds,titles});
+  },{projectIds,canonicalLocationIds,titles,token});
 }
 
 // modal-manager.js toggles .modal-backdrop visibility via style.display (flex/none), not the
@@ -271,7 +285,7 @@ try{
 }finally{
   try{
     if(!session)throw new Error("login never succeeded; nothing to clean up via the browser session");
-    const counts=await cleanup(session.page,projectIds,canonicalLocationIds,titles);
+    const counts=await cleanup(session.page,projectIds,canonicalLocationIds,titles,token);
     console.log(JSON.stringify({cleanup:counts}));
     if(!(counts.projects===0&&counts.locations===0&&counts.participation===0)){
       console.log(JSON.stringify({cleanupIncomplete:true,counts}));
