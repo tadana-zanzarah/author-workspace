@@ -13,6 +13,7 @@ import "./character-links.js";
 import "./scenes.js";
 import "./characters.js";
 import "./chapters.js";
+import "./locations.js";
 import "./filters.js";
 import "./filter-controls.js";
 import "./scene-positions.js";
@@ -31,7 +32,7 @@ const editorTrackers={
   profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:safeOwnCopy(profileDraftPhotos),primaryPhotoId:profileDraftPrimaryPhotoId,characterLinks:safeOwnCopy(profileDraftCharacterLinks),favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
   characterLinkModal:createDirtyTracker("characterLinkModal",()=>serializeForm("characterLinkModal")),
   chaptersModal:createDirtyTracker("chaptersModal",()=>serializeForm("chaptersModal")),
-  locationsModal:createDirtyTracker("locationsModal",()=>serializeForm("locationsModal")),
+  locationProfileModal:createDirtyTracker("locationProfileModal",()=>serializeForm("locationProfileModal")),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
   quickFieldModal:createDirtyTracker("quickFieldModal",()=>serializeForm("quickFieldModal")),
   recoveryModal:createDirtyTracker("recoveryModal",()=>serializeForm("recoveryModal"))
@@ -366,11 +367,22 @@ document.getElementById("chaptersModal").onclick=e=>{if(e.target.id==="chaptersM
 
 
 
-document.getElementById("manageLocations").onclick=openLocationsManager;
-document.getElementById("addLocation").onclick=addLocationDraftRow;
-document.getElementById("saveLocations").onclick=saveLocationDraft;
-document.getElementById("closeLocations").onclick=()=>requestCloseModal("locationsModal","button");
-document.getElementById("locationsModal").onclick=e=>{if(e.target.id==="locationsModal")requestCloseModal("locationsModal","backdrop")};
+document.getElementById("manageLocations").onclick=openLocationGallery;
+document.getElementById("addLocation").onclick=openCreateLocationModal;
+document.getElementById("closeLocations").onclick=()=>hideModal("locationsModal");
+document.getElementById("locationsModal").onclick=e=>{if(e.target.id==="locationsModal")hideModal("locationsModal")};
+document.getElementById("locationGallerySearch").oninput=e=>setLocationGallerySearch(e.target.value);
+document.getElementById("createLocationName").oninput=updateCreateLocationSubmitState;
+document.getElementById("createLocationName").onkeydown=e=>{
+  if(e.key==="Enter"){e.preventDefault();if(!document.getElementById("createLocationSubmit").disabled)document.getElementById("createLocationSubmit").click()}
+};
+document.getElementById("createLocationSubmit").onclick=submitCreateLocation;
+document.getElementById("createLocationCancel").onclick=()=>forceCloseModal("createLocationModal");
+document.getElementById("createLocationModal").onclick=e=>{if(e.target.id==="createLocationModal")forceCloseModal("createLocationModal")};
+document.getElementById("locationProfileSave").onclick=saveLocationProfile;
+document.getElementById("locationProfileDelete").onclick=deleteLocationFromProfile;
+document.getElementById("locationProfileClose").onclick=()=>requestCloseModal("locationProfileModal","button");
+document.getElementById("locationProfileModal").onclick=e=>{if(e.target.id==="locationProfileModal")requestCloseModal("locationProfileModal","backdrop")};
 
 
 

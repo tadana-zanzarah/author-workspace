@@ -1,10 +1,7 @@
 let chapterDraft=[],chapterBaseline=[];
-let locationDraft=[],locationBaseline=[];
 let tagDraft=[],tagBaseline=[];
 
 function chapterById(id){return data.chapters.find(c=>c.id===id)}
-
-function locationById(id){return data.locations.find(l=>l.id===id)}
 
 function tagById(id){return data.tags.find(t=>t.id===id)}
 
@@ -13,7 +10,6 @@ function writingStatusById(id){return WRITING_STATUSES.find(x=>x.id===id)||WRITI
 function closeProjectMenu(){const menu=document.getElementById("projectMenu");if(menu){menu.open=false;menu.querySelector("summary")?.focus()}}
 
 const chaptersSaveButton=createSaveButtonController("saveChapters","chaptersModal",{statusId:"chaptersSaveStatus"});
-const locationsSaveButton=createSaveButtonController("saveLocations","locationsModal",{statusId:"locationsSaveStatus"});
 const tagsSaveButton=createSaveButtonController("saveTags","tagsModal",{statusId:"tagsSaveStatus"});
 
 /* ---------- Chapters ---------- */
@@ -139,111 +135,6 @@ async function saveChapterDraft(){
     render();
   }finally{
     chaptersSaveButton.endSaving();
-  }
-}
-
-/* ---------- Locations ---------- */
-
-function openLocationsManager(focusLocationId=null){
-  closeProjectMenu();
-  return requestEditorTransition(()=>{
-    locationBaseline=data.locations.map(l=>({id:l.id,name:l.name,description:l.description}));
-    locationDraft=locationBaseline.map(l=>({draftId:l.id,id:l.id,name:l.name,description:l.description}));
-    renderLocationsManager();
-    const initialFocus=focusLocationId?`.location-name-input[data-draft-id="${cssEscape(focusLocationId)}"]`:undefined;
-    showModal("locationsModal",{initialFocus});
-    if(initialFocus)document.querySelector(initialFocus)?.closest(".manager-row")?.scrollIntoView({block:"center"});
-    trackerFor("locationsModal").captureInitialState();locationsSaveButton.refresh();
-  });
-}
-
-function syncLocationDraftFromDom(){
-  locationDraft.forEach(row=>{
-    const nameInput=document.querySelector(`.location-name-input[data-draft-id="${cssEscape(row.draftId)}"]`);
-    const descInput=document.querySelector(`.location-desc-input[data-draft-id="${cssEscape(row.draftId)}"]`);
-    if(nameInput)row.name=nameInput.value;
-    if(descInput)row.description=descInput.value;
-  });
-}
-
-function renderLocationsManager(){
-  document.getElementById("locationsList").innerHTML=locationDraft.map(l=>`
-    <div class="manager-row location-row">
-      <input class="location-name-input" data-draft-id="${esc(l.draftId)}" value="${esc(l.name)}" aria-label="Название локации" placeholder="Название локации">
-      <input class="location-desc-input" data-draft-id="${esc(l.draftId)}" value="${esc(l.description)}" aria-label="Описание локации${l.name?` ${esc(l.name)}`:""}" placeholder="Необязательное описание">
-      <button type="button" class="danger" aria-label="Удалить локацию${l.name?` ${esc(l.name)}`:""}" onclick="deleteLocationDraft('${jsq(l.draftId)}')">Удалить</button>
-    </div>`).join("")||'<div class="empty-work">Локаций пока нет.</div>';
-}
-
-function addLocationDraftRow(){
-  syncLocationDraftFromDom();
-  const draftId=makeId("location-draft");
-  locationDraft.push({draftId,id:null,name:"",description:""});
-  renderLocationsManager();
-  syncBeforeUnload();
-  document.querySelector(`.location-name-input[data-draft-id="${cssEscape(draftId)}"]`)?.focus();
-}
-
-async function deleteLocationDraft(draftId){
-  syncLocationDraftFromDom();
-  const row=locationDraft.find(l=>l.draftId===draftId);if(!row)return;
-  if(row.id){
-    const confirmed=await showConfirmAction({title:"Удалить локацию?",description:isCloudWorkspace()?`Локация «${row.name||"без названия"}» будет удалена из проекта при сохранении. Если она ещё используется в сценах, удаление будет отклонено — сначала уберите её из этих сцен.`:`Локация «${row.name||"без названия"}» будет удалена при сохранении. В сценах она станет не указанной.`});
-    if(!confirmed)return;
-  }
-  locationDraft=locationDraft.filter(l=>l.draftId!==draftId);
-  renderLocationsManager();
-  syncBeforeUnload();
-}
-
-async function saveLocationDraft(){
-  if(locationsSaveButton.saving)return;
-  syncLocationDraftFromDom();
-  const invalid=locationDraft.find(l=>l.id&&!l.name.trim());
-  if(invalid){locationsSaveButton.showStatus("Название локации не может быть пустым.","error");return}
-  locationsSaveButton.beginSaving();
-  try{
-    if(isCloudWorkspace()){
-      const keptIds=locationDraft.filter(l=>l.id).map(l=>l.id);
-      const deletedIds=locationBaseline.map(l=>l.id).filter(id=>!keptIds.includes(id));
-      for(const id of deletedIds){
-        const result=await runCloudMutation("deleteLocation",(api,revision)=>api.deleteLocation(cloudProjectSync.projectId,id,revision),{renderAfter:false});
-        if(!result.ok){locationsSaveButton.showStatus(result.message||"Не удалось удалить локацию.","error");return}
-      }
-      for(const row of locationDraft){
-        if(!row.id)continue;
-        const original=locationBaseline.find(l=>l.id===row.id);if(!original)continue;
-        const name=row.name.trim(),description=row.description.trim();
-        if(name&&(name!==original.name||description!==original.description)){
-          const result=await runCloudMutation("updateLocation",(api,revision)=>api.updateLocation(cloudProjectSync.projectId,row.id,revision,{name,description}),{renderAfter:false});
-          if(!result.ok){locationsSaveButton.showStatus(result.message||"Не удалось сохранить локацию.","error");return}
-        }
-      }
-      for(const row of locationDraft){
-        if(row.id)continue;
-        const name=row.name.trim();if(!name)continue;
-        const description=row.description.trim();
-        const result=await runCloudMutation("createLocation",(api,revision)=>api.createLocation(cloudProjectSync.projectId,revision,{name,description}),{renderAfter:false});
-        if(!result.ok){locationsSaveButton.showStatus(result.message||"Не удалось создать локацию.","error");return}
-        row.id=result.data?.id||null;
-      }
-    }else{
-      const keptRows=locationDraft.filter(row=>row.id||row.name.trim());
-      const result=commitDataChange(next=>{
-        next.locations=keptRows.map(row=>({id:row.id||makeId("location"),name:row.name.trim(),description:row.description.trim()}));
-        const keptLocationIds=new Set(next.locations.map(l=>l.id));
-        next.scenes.forEach(s=>{if(s.locationId&&!keptLocationIds.has(s.locationId))s.locationId=""});
-      },{renderAfter:false});
-      if(!result.ok){locationsSaveButton.showStatus(result.userMessage||"Не удалось сохранить локации.","error");return}
-    }
-    locationBaseline=data.locations.map(l=>({id:l.id,name:l.name,description:l.description}));
-    locationDraft=locationBaseline.map(l=>({draftId:l.id,id:l.id,name:l.name,description:l.description}));
-    renderLocationsManager();
-    trackerFor("locationsModal").captureInitialState();
-    locationsSaveButton.showStatus("Локации сохранены.","success");
-    render();
-  }finally{
-    locationsSaveButton.endSaving();
   }
 }
 
@@ -388,13 +279,5 @@ function navigateToChapter(chapterId){
   return true;
 }
 
-// Sidebar location navigation: there is no standalone Location Profile surface yet
-// (deferred — see workspace-density-navigation report), so the "most concrete existing
-// context" is the Locations manager scrolled/focused to that specific row, instead of
-// silently reusing the location click as a scene filter.
-function openLocationEntity(locationId){
-  return openLocationsManager(locationId);
-}
-
-Object.assign(globalThis,{chapterById,locationById,tagById,writingStatusById,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openLocationsManager,renderLocationsManager,addLocationDraftRow,deleteLocationDraft,saveLocationDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter,openLocationEntity});
-export {chapterById,locationById,tagById,writingStatusById,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openLocationsManager,renderLocationsManager,addLocationDraftRow,deleteLocationDraft,saveLocationDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter,openLocationEntity};
+Object.assign(globalThis,{chapterById,tagById,writingStatusById,closeProjectMenu,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter});
+export {chapterById,tagById,writingStatusById,closeProjectMenu,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter};

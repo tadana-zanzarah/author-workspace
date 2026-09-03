@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/modals.css">
 <link rel="stylesheet" href="css/profiles.css">
 <link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/locations.css">
 </head>
 <body>
 <div id="cloudShell">
@@ -172,7 +173,7 @@
     <div class="sidebar-section" data-sidebar-section="locations">
       <div class="sidebar-title">
         <button type="button" class="sidebar-toggle" data-sidebar-toggle="locations" aria-expanded="true" aria-controls="sideLocations" onclick="toggleSidebarSection('locations')"><span class="sidebar-toggle-icon" aria-hidden="true">▾</span> Локации</button>
-        <button class="nav-manage" type="button" aria-label="Управление локациями" title="Управление локациями" onclick="openLocationsManager()">•••</button>
+        <button class="nav-manage" type="button" aria-label="Управление локациями" title="Управление локациями" onclick="openLocationGallery()">•••</button>
       </div>
       <div id="sideLocations" class="sidebar-list"></div>
     </div>
@@ -331,6 +332,72 @@
   </div>
 </div>
 
+<!-- Location Gallery/Profile/Create sit BEFORE #sceneModal in document order: .modal-backdrop
+     stacking is purely DOM-order-based (flat z-index:100, no dynamic reordering — see
+     modal-manager.js), so "Scenes here" (Profile) opening the Scene editor on top must have
+     the Scene editor appear later in the document than these three. -->
+<div class="modal-backdrop" id="locationsModal" role="dialog" aria-modal="true" aria-labelledby="locationsModalTitle">
+  <div class="modal" style="width:min(1180px,100%);height:94vh;max-height:94vh">
+    <h2 id="locationsModalTitle">Локации</h2>
+    <label class="location-gallery-search"><span class="visually-hidden">Поиск локаций</span><input id="locationGallerySearch" class="search-input" placeholder="Поиск локаций: название, описание…"></label>
+    <div id="locationsGalleryGrid" class="locations-grid"></div>
+    <div class="modal-actions">
+      <button id="closeLocations" type="button">Закрыть</button>
+      <button class="primary" id="addLocation" type="button">＋ Создать локацию</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="createLocationModal" role="dialog" aria-modal="true" aria-labelledby="createLocationTitle">
+  <div class="modal" style="width:min(480px,100%)">
+    <h2 id="createLocationTitle">Новая локация</h2>
+    <label style="display:block;margin-top:10px">
+      <span class="field-caption">Название локации</span>
+      <input id="createLocationName" data-initial-focus placeholder="Название локации">
+    </label>
+    <label style="display:block;margin-top:10px">
+      <span class="field-caption">Описание (необязательно)</span>
+      <textarea id="createLocationDescription" rows="3" placeholder="Необязательное описание"></textarea>
+    </label>
+    <div class="modal-actions">
+      <span id="createLocationStatus" class="save-status" role="status" aria-live="polite"></span>
+      <button id="createLocationCancel" type="button">Отмена</button>
+      <button class="primary" id="createLocationSubmit" type="button" disabled>Создать</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="locationProfileModal" role="dialog" aria-modal="true" aria-labelledby="locationProfileTitle">
+  <div class="modal location-profile-modal" style="width:min(760px,100%);max-height:94vh">
+    <div class="location-profile-header">
+      <h2 id="locationProfileTitle">Локация</h2>
+      <span class="stat-pill" id="locationProfileSceneCount">Сцен <strong>0</strong></span>
+    </div>
+    <div class="profile-section">
+      <div class="profile-editor-grid">
+        <label class="profile-field full">
+          <span class="field-caption">Название локации</span>
+          <input id="locProfileName" data-initial-focus placeholder="Название локации">
+        </label>
+        <label class="profile-field full">
+          <span class="field-caption">Описание</span>
+          <textarea id="locProfileDescription" rows="4" placeholder="Необязательное описание — какой эта локация видится в истории"></textarea>
+        </label>
+      </div>
+    </div>
+    <div class="profile-section">
+      <h3 class="profile-section-title">Сцены здесь</h3>
+      <div id="locationProfileScenes" class="location-profile-scenes"></div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="danger" id="locationProfileDelete">Удалить локацию</button>
+      <span id="locationProfileStatus" class="save-status" role="status" aria-live="polite"></span>
+      <button type="button" id="locationProfileClose">Закрыть</button>
+      <button type="button" class="primary" id="locationProfileSave">Сохранить</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="sceneModal" role="dialog" aria-modal="true" aria-labelledby="sceneModalTitle">
   <div class="modal">
     <h2 id="sceneModalTitle">Новая сцена</h2>
@@ -433,19 +500,6 @@
       <button id="closeChapters" type="button">Закрыть</button>
       <button id="saveChapters" type="button">Сохранить изменения</button>
       <button class="primary" id="addChapter" type="button">＋ Создать главу</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-backdrop" id="locationsModal" role="dialog" aria-modal="true" aria-labelledby="locationsModalTitle">
-  <div class="modal" style="width:min(850px,100%)">
-    <h2 id="locationsModalTitle">Локации</h2>
-    <div id="locationsList" class="manager-list"></div>
-    <div class="modal-actions">
-      <span id="locationsSaveStatus" class="save-status" role="status" aria-live="polite"></span>
-      <button id="closeLocations" type="button">Закрыть</button>
-      <button id="saveLocations" type="button">Сохранить изменения</button>
-      <button class="primary" id="addLocation" type="button">＋ Создать локацию</button>
     </div>
   </div>
 </div>
