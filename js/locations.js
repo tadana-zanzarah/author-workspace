@@ -190,7 +190,7 @@ function renderLocationGallery(){
         <span class="location-card-identity">
           <span class="location-card-monogram" aria-hidden="true">${esc(monogram)}</span>
           <span class="location-card-name">${esc(location.name||"Без названия")}</span>
-          ${typeLabel?`<span class="location-type-badge location-type-badge-sm">${esc(typeLabel)}</span>`:""}
+          ${typeLabel?`<span class="location-type-badge location-type-badge-sm" title="${esc(typeLabel)}">${esc(typeLabel)}</span>`:""}
         </span>
         ${parentRow?`<span class="location-card-parent">в «${esc(parentRow.name||"")}»</span>`:""}
         ${excerpt?`<span class="location-card-excerpt">${esc(excerpt)}</span>`:""}

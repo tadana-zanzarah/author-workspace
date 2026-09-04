@@ -22,7 +22,10 @@ const locations=[
   {id:"loc-city",name:"Рен",description:"Столица королевства, полная шпилей.",officialName:"",aliases:["Город шпилей"],parentId:"loc-country",typePreset:"settlement",customTypeLabel:"Столица",shortSummary:"Столица, полная шпилей и тайн."},
   {id:"loc-room",name:"Кабинет Рене",description:"Тихий рабочий кабинет.",officialName:"",aliases:[],parentId:"loc-city",typePreset:"room",customTypeLabel:"",shortSummary:""},
   {id:"loc-orphan",name:"Заброшенная шахта",description:"",officialName:"",aliases:[],parentId:null,typePreset:"natural_place",customTypeLabel:"",shortSummary:""},
-  {id:"loc-untyped",name:"Безымянное место",description:"",officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:"",shortSummary:""}
+  {id:"loc-untyped",name:"Безымянное место",description:"",officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:"",shortSummary:""},
+  // Corrective-pass regression fixture: a long name paired with the longest type label
+  // ("Транспорт / транспортный объект") reproduced the Gallery-card name-collapses-to-0px bug.
+  {id:"loc-longname",name:"Богом забытая пристань на краю света, куда не заходят даже контрабандисты",description:"",officialName:"",aliases:[],parentId:null,typePreset:"transport",customTypeLabel:"",shortSummary:""}
 ];
 const project={version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations,tags:[],future:{},scenes:[]};
 await page.addInitScript(value=>localStorage.setItem("novelTimelineV11",JSON.stringify(value)),project);
@@ -41,6 +44,26 @@ if(cityIntro.typeBadge!=="Столица")throw new Error(`custom_type_label д�
 if(JSON.stringify(cityIntro.breadcrumb)!==JSON.stringify(["Эферия","Вальдория","Рен"]))throw new Error(`breadcrumb в неверном порядке/составе: ${JSON.stringify(cityIntro.breadcrumb)}`);
 if(JSON.stringify(cityIntro.aliases)!==JSON.stringify(["Город шпилей"]))throw new Error(`aliases не отрендерились как read-only чипы: ${JSON.stringify(cityIntro.aliases)}`);
 if(cityIntro.summary!=="Столица, полная шпилей и тайн.")throw new Error("shortSummary не отобразился в read mode intro");
+
+// Corrective-pass regression: the intro's column-flex default align-items:stretch was
+// stretching the type badge to the full container width (a wide beige bar instead of a
+// compact pill). Real geometry assertion, not just a screenshot: the badge must stay close to
+// its own content width and far short of the intro container's width.
+const badgeGeometry=await page.evaluate(()=>{
+  const intro=document.getElementById("locationProfileIntro");
+  const badge=intro.querySelector(".location-type-badge");
+  const probe=document.createElement("span");
+  probe.textContent=badge.textContent;
+  probe.style.cssText=`position:absolute;visibility:hidden;white-space:nowrap;font-size:${getComputedStyle(badge).fontSize};font-weight:${getComputedStyle(badge).fontWeight}`;
+  document.body.appendChild(probe);
+  const contentWidth=probe.getBoundingClientRect().width;
+  probe.remove();
+  return {badgeWidth:badge.getBoundingClientRect().width,introWidth:intro.getBoundingClientRect().width,contentWidth};
+});
+// Badge box = text content + fixed horizontal padding (2*8px, see .location-type-badge) + border
+// (2*1px) — allow generous slack (24px) above the bare text width for that chrome.
+if(!(badgeGeometry.badgeWidth<badgeGeometry.contentWidth+24))throw new Error(`type badge шире своего содержимого больше, чем на паддинг/бордер — похоже на регресс full-width растягивания (badge=${badgeGeometry.badgeWidth}px, content=${badgeGeometry.contentWidth}px)`);
+if(!(badgeGeometry.badgeWidth<badgeGeometry.introWidth*0.5))throw new Error(`type badge остаётся близко к полной ширине intro-контейнера — регресс align-items:stretch (badge=${badgeGeometry.badgeWidth}px, intro=${badgeGeometry.introWidth}px)`);
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
 // A Location with no parent must not render a meaningless breadcrumb at all.
@@ -112,7 +135,7 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 /* ---------- Gallery: type badge, parent context, search by alias/official name, type filter ---------- */
 
 await page.evaluate(()=>openLocationGallery());
-await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===6);
+await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===7);
 const cityCard=await page.evaluate(()=>{
   const card=document.querySelector('.location-card[data-location-id="loc-city"]');
   return {
@@ -126,6 +149,39 @@ if(cityCard.excerpt!=="Столица, полная шпилей и тайн.")t
 const roomCardExcerpt=await page.evaluate(()=>document.querySelector('.location-card[data-location-id="loc-room"] .location-card-excerpt')?.textContent.trim());
 if(roomCardExcerpt!=="Тихий рабочий кабинет.")throw new Error("Gallery card с пустым shortSummary должна показывать description как запасной вариант");
 
+// Corrective-pass regression: a long name + the longest type label must never squeeze the
+// Location's own name to 0px (the confirmed blocking bug) — real geometry assertions, not just
+// a screenshot. Checked at both ~1280px (grid at its widest, most columns) and ~1080px (fewer,
+// narrower columns, where the bug reproduced worse) per the corrective-pass instructions.
+async function assertLongNameCardGeometry(label){
+  const geometry=await page.evaluate(()=>{
+    const card=document.querySelector('.location-card[data-location-id="loc-longname"]');
+    const identity=card.querySelector(".location-card-identity");
+    const name=card.querySelector(".location-card-name");
+    const badge=card.querySelector(".location-type-badge");
+    const cardRect=card.getBoundingClientRect(),identityRect=identity.getBoundingClientRect();
+    return {
+      nameWidth:name.getBoundingClientRect().width,
+      nameText:name.textContent.trim(),
+      badgeWidth:badge.getBoundingClientRect().width,
+      identityWidth:identityRect.width,
+      cardHeight:cardRect.height,
+      // horizontal overflow: any child's right edge past the card's own right edge
+      overflowsCard:[...card.querySelectorAll("*")].some(el=>el.getBoundingClientRect().right>cardRect.right+1)
+    };
+  });
+  if(!(geometry.nameWidth>0))throw new Error(`[${label}] .location-card-name сжалось до 0px — имя локации полностью скрыто (regression от исходного бага)`);
+  if(!geometry.nameText)throw new Error(`[${label}] .location-card-name не содержит видимого текста`);
+  if(geometry.overflowsCard)throw new Error(`[${label}] карточка создаёт horizontal overflow за пределы своих границ`);
+  // Badge stays secondary: must not consume the whole identity row (monogram+gap left it none).
+  if(!(geometry.badgeWidth<geometry.identityWidth*0.6))throw new Error(`[${label}] type badge занимает слишком большую долю identity-строки (badge=${geometry.badgeWidth}px, identity=${geometry.identityWidth}px) — должен оставаться вторичным`);
+  if(!(geometry.cardHeight<180))throw new Error(`[${label}] карточка стала слишком высокой при исправлении (${geometry.cardHeight}px) — фикс не должен решать проблему увеличением высоты карточек`);
+}
+await assertLongNameCardGeometry("Gallery @1280px");
+await page.setViewportSize({width:1080,height:760});
+await assertLongNameCardGeometry("Gallery @1080px");
+await page.setViewportSize({width:1280,height:900});
+
 await page.fill("#locationGallerySearch","Город шпилей");
 await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===1);
 if((await page.locator(".location-card-name").first().textContent()).trim()!=="Рен")throw new Error("поиск по alias не нашёл ожидаемую локацию");
@@ -133,7 +189,7 @@ await page.fill("#locationGallerySearch","Королевство Вальдор�
 await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===1);
 if((await page.locator(".location-card-name").first().textContent()).trim()!=="Вальдория")throw new Error("поиск по official_name не нашёл ожидаемую локацию");
 await page.fill("#locationGallerySearch","");
-await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===6);
+await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===7);
 
 const filterVisible=await page.evaluate(()=>!document.querySelector("#locationGalleryTypeFilter").closest(".location-gallery-type-filter").hidden);
 if(!filterVisible)throw new Error("type filter должен быть виден, когда среди локаций есть заданные типы");
@@ -141,7 +197,7 @@ await page.selectOption("#locationGalleryTypeFilter","room");
 await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===1);
 if((await page.locator(".location-card-name").first().textContent()).trim()!=="Кабинет Рене")throw new Error("type filter не сузил список ожидаемым образом");
 await page.selectOption("#locationGalleryTypeFilter","");
-await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===6);
+await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===7);
 await page.click("#closeLocations");
 
 /* ---------- Create: type + custom label + parent + aliases + short summary in one step ---------- */
