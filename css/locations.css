@@ -153,6 +153,61 @@
   font-size:var(--text-2xs);color:var(--text-secondary);
 }
 
+/* ---- Profile: B3A thematic modules (Appearance & Atmosphere / Geography) ----
+   Read mode: sections of one editorial dossier, not separate cards -- a quiet section title
+   (same grammar as .profile-section-title) plus normal spacing, no tinted background/border box.
+   Hidden entirely (not a placeholder) when a module has no meaningful data -- a Core-only Profile
+   stays exactly as compact as before B3A (see task brief "READ MODE — EMPTY MODULES"). */
+.location-profile-thematic{margin-bottom:var(--space-4)}
+.location-profile-thematic[hidden]{display:none}
+.location-profile-thematic-title{
+  margin:0 0 var(--space-2);padding-bottom:6px;
+  font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;
+  color:var(--text-secondary);border-bottom:1px solid var(--border-faint);
+}
+.location-profile-thematic-prose{margin:0 0 8px;white-space:pre-wrap;line-height:1.5;font-size:var(--text-sm);color:var(--text-primary)}
+.location-profile-thematic-prose:last-child{margin-bottom:0}
+.location-profile-thematic-prose-secondary{color:var(--text-secondary)}
+
+/* Compact label:value facts (sensory details, coordinates/area/elevation, short geography
+   fields) -- a wrapping row, not one bordered row per fact. */
+.location-profile-facts{display:flex;flex-wrap:wrap;gap:5px 18px;margin:8px 0 0}
+.location-profile-fact{display:flex;gap:5px;min-width:0;font-size:var(--text-xs)}
+.location-profile-fact dt{margin:0;color:var(--text-secondary);font-weight:650}
+.location-profile-fact dd{margin:0;color:var(--text-primary);overflow-wrap:anywhere}
+
+.location-profile-thematic-chips{margin-top:8px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.location-profile-thematic-chips-label{font-size:var(--text-2xs);color:var(--text-secondary)}
+
+/* Edit mode: progressive disclosure for the two optional modules -- collapsed by default when
+   empty, expanded when they already hold data (js/locations.js syncLocationProfileThematicFields).
+   A restrained bordered toggle row (not a heavy accordion header), aria-expanded carries the
+   state for assistive tech, and the toggle row itself gets a subtle background change on top of
+   the chevron rotation so state isn't communicated by chevron direction alone. */
+.location-thematic-editor{margin-top:var(--space-4)}
+.location-thematic-module{margin-top:var(--space-3)}
+.location-thematic-module:first-of-type{margin-top:var(--space-2)}
+.location-thematic-disclosure{
+  display:flex;align-items:center;gap:8px;width:100%;
+  padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+  background:var(--surface-elevated);color:var(--text-primary);font-size:var(--text-sm);font-weight:650;
+  cursor:pointer;text-align:left;
+}
+.location-thematic-disclosure:hover{background:var(--soft)}
+.location-thematic-disclosure[aria-expanded="true"]{background:var(--soft);border-color:#cfc3b4}
+.location-thematic-disclosure-chevron{
+  display:inline-block;flex:none;font-size:11px;color:var(--text-secondary);
+  transition:transform var(--motion-fast);
+}
+.location-thematic-disclosure[aria-expanded="true"] .location-thematic-disclosure-chevron{transform:rotate(90deg)}
+.location-thematic-body{padding:var(--space-3) 2px 0}
+.location-thematic-body[hidden]{display:none}
+.location-thematic-clear{
+  display:inline-block;margin-top:var(--space-2);padding:4px 0;border:0;background:transparent;
+  color:var(--text-secondary);font-size:var(--text-xs);text-decoration:underline;text-decoration-color:transparent;cursor:pointer;
+}
+.location-thematic-clear:hover,.location-thematic-clear:focus-visible{color:var(--text-primary);text-decoration-color:currentColor}
+
 .location-profile-summary{margin-bottom:var(--space-4)}
 .location-profile-description{margin:0;white-space:pre-wrap;line-height:1.5;font-size:var(--text-sm);color:var(--text-primary)}
 /* Understated, compact — not a big empty card — and doubles as a natural way into

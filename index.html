@@ -405,6 +405,8 @@
       </div>
       <div class="location-profile-intro" id="locationProfileIntro" hidden></div>
       <div class="location-profile-summary" id="locationProfileSummary"></div>
+      <div class="location-profile-thematic" id="locationProfileAppearance" hidden></div>
+      <div class="location-profile-thematic" id="locationProfileGeography" hidden></div>
       <div class="profile-section">
         <h3 class="profile-section-title">Сцены здесь</h3>
         <div id="locationProfileScenes" class="location-profile-scenes"></div>
@@ -455,6 +457,99 @@
           </label>
         </div>
       </div>
+
+      <div class="profile-section location-thematic-editor" id="locationProfileThematicSection">
+        <h3 class="profile-section-title">Дополнительные сведения</h3>
+
+        <div class="location-thematic-module">
+          <button type="button" class="location-thematic-disclosure" id="locProfileAppearanceToggle" aria-expanded="false" aria-controls="locProfileAppearanceBody" onclick="toggleLocationThematicDisclosure('appearanceAtmosphere')">
+            <span class="location-thematic-disclosure-chevron" aria-hidden="true">▸</span>
+            <span>Внешний вид и атмосфера</span>
+          </button>
+          <div id="locProfileAppearanceBody" class="location-thematic-body" hidden>
+            <div class="profile-editor-grid">
+              <label class="profile-field full">
+                <span class="field-caption">Внешний вид</span>
+                <textarea id="locProfileVisualDescription" rows="3" placeholder="Как локация выглядит"></textarea>
+              </label>
+              <label class="profile-field full">
+                <span class="field-caption">Атмосфера</span>
+                <textarea id="locProfileAtmosphere" rows="3" placeholder="Общее ощущение от локации"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Звуки</span>
+                <textarea id="locProfileSounds" rows="2"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Запахи</span>
+                <textarea id="locProfileSmells" rows="2"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Освещение</span>
+                <textarea id="locProfileLighting" rows="2"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Ощущение климата</span>
+                <textarea id="locProfileClimateFeel" rows="2" placeholder="Субъективное ощущение — не путать с «Климат» в разделе «География»"></textarea>
+              </label>
+              <div class="profile-field full">
+                <span class="field-caption">Характерные детали</span>
+                <div class="multi-value-host" id="locProfileNotableFeatures"></div>
+              </div>
+            </div>
+            <button type="button" class="location-thematic-clear" id="locProfileAppearanceClear" onclick="clearLocationThematicModule('appearanceAtmosphere')">Очистить раздел «Внешний вид и атмосфера»</button>
+          </div>
+        </div>
+
+        <div class="location-thematic-module">
+          <button type="button" class="location-thematic-disclosure" id="locProfileGeographyToggle" aria-expanded="false" aria-controls="locProfileGeographyBody" onclick="toggleLocationThematicDisclosure('geography')">
+            <span class="location-thematic-disclosure-chevron" aria-hidden="true">▸</span>
+            <span>География</span>
+          </button>
+          <div id="locProfileGeographyBody" class="location-thematic-body" hidden>
+            <div class="profile-editor-grid">
+              <label class="profile-field">
+                <span class="field-caption">Рельеф</span>
+                <textarea id="locProfileTerrain" rows="2"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Климат</span>
+                <textarea id="locProfileClimate" rows="2" placeholder="Объективное описание климата — не путать с «Ощущение климата»"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Вода</span>
+                <textarea id="locProfileWater" rows="2"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Растительность</span>
+                <textarea id="locProfileVegetation" rows="2"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Доступ</span>
+                <textarea id="locProfileAccess" rows="2"></textarea>
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Координаты</span>
+                <input id="locProfileCoordinates" placeholder="Например, 45°N 12°E">
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Площадь</span>
+                <input id="locProfileArea" placeholder="Например, 120 кв. км">
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Высота</span>
+                <input id="locProfileElevation" placeholder="Например, 300 м над уровнем моря">
+              </label>
+              <div class="profile-field full">
+                <span class="field-caption">Природные особенности</span>
+                <div class="multi-value-host" id="locProfileNaturalFeatures"></div>
+              </div>
+            </div>
+            <button type="button" class="location-thematic-clear" id="locProfileGeographyClear" onclick="clearLocationThematicModule('geography')">Очистить раздел «География»</button>
+          </div>
+        </div>
+      </div>
+
       <div class="modal-actions">
         <button type="button" class="danger" id="locationProfileDelete">Удалить локацию</button>
         <span id="locationProfileStatus" class="save-status" role="status" aria-live="polite"></span>

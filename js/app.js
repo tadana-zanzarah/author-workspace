@@ -14,6 +14,7 @@ import "./scenes.js";
 import "./characters.js";
 import "./chapters.js";
 import "./location-types.js";
+import "./location-base-profile.js";
 import "./locations.js";
 import "./filters.js";
 import "./filter-controls.js";
@@ -33,13 +34,19 @@ const editorTrackers={
   profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:safeOwnCopy(profileDraftPhotos),primaryPhotoId:profileDraftPrimaryPhotoId,characterLinks:safeOwnCopy(profileDraftCharacterLinks),favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
   characterLinkModal:createDirtyTracker("characterLinkModal",()=>serializeForm("characterLinkModal")),
   chaptersModal:createDirtyTracker("chaptersModal",()=>serializeForm("chaptersModal")),
-  // aliases (multi-value combobox clears its own <input> on every add, so its real value
-  // never shows up in serializeForm's plain input.value scan) and parentId (a custom picker,
-  // not a native form control) are passed as explicit extra state, same pattern as
-  // profileEditorModal's favorites/hobbies/photos above.
+  // aliases/notableFeatures/naturalFeatures (multi-value comboboxes clear their own <input> on
+  // every add, so their real value never shows up in serializeForm's plain input.value scan) and
+  // parentId (a custom picker, not a native form control) are passed as explicit extra state,
+  // same pattern as profileEditorModal's favorites/hobbies/photos above. The B3A thematic
+  // textareas/inputs themselves (visualDescription, terrain, coordinates, ...) need no such
+  // treatment -- they are plain native controls inside #locationProfileModal, picked up by
+  // serializeForm's own querySelectorAll scan even while their disclosure section is hidden
+  // (collapsing a section only toggles the `hidden` attribute, it never removes the elements).
   locationProfileModal:createDirtyTracker("locationProfileModal",()=>serializeForm("locationProfileModal",{
     aliases:multiValueInputs.locationAliases?.getValues()||[],
-    parentId:currentLocationProfileParentSelection()
+    parentId:currentLocationProfileParentSelection(),
+    notableFeatures:multiValueInputs.locationNotableFeatures?.getValues()||[],
+    naturalFeatures:multiValueInputs.locationNaturalFeatures?.getValues()||[]
   })),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
   quickFieldModal:createDirtyTracker("quickFieldModal",()=>serializeForm("quickFieldModal")),

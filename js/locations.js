@@ -245,6 +245,8 @@ function populateLocationProfileCore(participationId){
   syncLocationProfileEditFields(location);
   renderLocationProfileSummary(location);
   renderLocationProfileIntro(location,ownedLocationRowsSync());
+  renderLocationProfileAppearance(location);
+  renderLocationProfileGeography(location);
   renderLocationProfileScenes(participationId);
   refreshLocationHierarchyContext(location);
   return location;
@@ -275,6 +277,7 @@ function syncLocationProfileEditFields(location){
   const picker=ensureLocationParentPicker();
   picker.setRows(ownedLocationRowsSync());
   picker.setSelected(locationProfileOriginalParentId);
+  syncLocationProfileThematicFields(location);
 }
 
 function renderLocationProfileSummary(location){
@@ -311,6 +314,167 @@ function renderLocationProfileIntro(location,rows){
   const officialNameHtml=officialName&&officialName!==location.name?`<p class="location-profile-official-name">${esc(officialName)}</p>`:"";
   el.innerHTML=`${typeLabel?`<span class="location-type-badge">${esc(typeLabel)}</span>`:""}${breadcrumbHtml}${officialNameHtml}${summaryHtml}${aliasesHtml}`;
   el.hidden=!el.innerHTML.trim();
+}
+
+/* ---------- Profile: B3A thematic modules (Appearance & Atmosphere / Geography) ----------
+ * Read-mode rendering, edit-mode field sync/read, disclosure state, and Clear-section actions.
+ * Normalization/patch-building logic itself lives in js/location-base-profile.js (pure, unit-
+ * tested); this file only wires that logic to the DOM. See that file's header for the three-state
+ * patch contract this mirrors from update_location_canonical. */
+
+// entries: [[label,value], ...] already filtered to non-empty values.
+function renderLocationThematicFacts(entries){
+  if(!entries.length)return "";
+  return `<dl class="location-profile-facts">${entries.map(([label,value])=>
+    `<div class="location-profile-fact"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`
+  ).join("")}</dl>`;
+}
+function renderLocationThematicChips(label,values){
+  if(!values.length)return "";
+  return `<div class="location-profile-thematic-chips"><span class="location-profile-thematic-chips-label">${esc(label)}</span><div class="location-profile-aliases">${values.map(v=>`<span class="location-alias-chip">${esc(v)}</span>`).join("")}</div></div>`;
+}
+
+function renderLocationProfileAppearance(location){
+  const el=document.getElementById("locationProfileAppearance");if(!el)return;
+  const m=normalizeAppearanceAtmosphere(location.baseProfile?.appearanceAtmosphere);
+  if(isModuleEmpty(m)){el.hidden=true;el.innerHTML="";return}
+  const proseHtml=[
+    m.visualDescription?`<p class="location-profile-thematic-prose">${esc(m.visualDescription)}</p>`:"",
+    m.atmosphere?`<p class="location-profile-thematic-prose location-profile-thematic-prose-secondary">${esc(m.atmosphere)}</p>`:""
+  ].join("");
+  const factsHtml=renderLocationThematicFacts([
+    ["Звуки",m.sounds],["Запахи",m.smells],["Освещение",m.lighting],["Ощущение климата",m.climateFeel]
+  ].filter(([,value])=>value));
+  const chipsHtml=renderLocationThematicChips("Характерные детали",m.notableFeatures||[]);
+  el.innerHTML=`<h3 class="location-profile-thematic-title">Внешний вид и атмосфера</h3>${proseHtml}${factsHtml}${chipsHtml}`;
+  el.hidden=false;
+}
+
+// Rельеф/климат/вода/растительность/доступ read as prose once they run past a short phrase (a
+// long sentence in a label:value fact row wraps awkwardly); short values stay compact facts
+// alongside coordinates/area/elevation, which are always compact. See task brief "GEOGRAPHY" --
+// this is the one place that distinction is made, deliberately not duplicated elsewhere.
+const LOCATION_GEOGRAPHY_PROSE_THRESHOLD=80;
+const LOCATION_GEOGRAPHY_VARIABLE_LABELS={terrain:"Рельеф",climate:"Климат",water:"Вода",vegetation:"Растительность",access:"Доступ"};
+
+function renderLocationProfileGeography(location){
+  const el=document.getElementById("locationProfileGeography");if(!el)return;
+  const m=normalizeGeography(location.baseProfile?.geography);
+  if(isModuleEmpty(m)){el.hidden=true;el.innerHTML="";return}
+  const proseParts=[],factEntries=[];
+  for(const key of ["terrain","climate","water","vegetation","access"]){
+    const value=m[key];if(!value)continue;
+    if(value.length>LOCATION_GEOGRAPHY_PROSE_THRESHOLD)proseParts.push(`<p class="location-profile-thematic-prose"><strong>${esc(LOCATION_GEOGRAPHY_VARIABLE_LABELS[key])}:</strong> ${esc(value)}</p>`);
+    else factEntries.push([LOCATION_GEOGRAPHY_VARIABLE_LABELS[key],value]);
+  }
+  factEntries.push(...[["Координаты",m.coordinates],["Площадь",m.area],["Высота",m.elevation]].filter(([,value])=>value));
+  const factsHtml=renderLocationThematicFacts(factEntries);
+  const chipsHtml=renderLocationThematicChips("Природные особенности",m.naturalFeatures||[]);
+  el.innerHTML=`<h3 class="location-profile-thematic-title">География</h3>${proseParts.join("")}${factsHtml}${chipsHtml}`;
+  el.hidden=false;
+}
+
+function ensureLocationNotableFeaturesWidget(){
+  if(multiValueInputs.locationNotableFeatures)return multiValueInputs.locationNotableFeatures;
+  const host=document.getElementById("locProfileNotableFeatures");
+  multiValueInputs.locationNotableFeatures=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить деталь…",label:"Характерные детали",onChange:syncBeforeUnload});
+  return multiValueInputs.locationNotableFeatures;
+}
+function ensureLocationNaturalFeaturesWidget(){
+  if(multiValueInputs.locationNaturalFeatures)return multiValueInputs.locationNaturalFeatures;
+  const host=document.getElementById("locProfileNaturalFeatures");
+  multiValueInputs.locationNaturalFeatures=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить особенность…",label:"Природные особенности",onChange:syncBeforeUnload});
+  return multiValueInputs.locationNaturalFeatures;
+}
+
+const LOCATION_THEMATIC_DISCLOSURE_IDS={
+  appearanceAtmosphere:{toggle:"locProfileAppearanceToggle",body:"locProfileAppearanceBody"},
+  geography:{toggle:"locProfileGeographyToggle",body:"locProfileGeographyBody"}
+};
+
+// Presentation only: never clears values, saves, or resets dirty state -- see task brief
+// "DISCLOSURE RULE". Collapsing a populated module leaves its fields exactly as they were,
+// just hidden (serializeForm still scans them, see js/app.js's locationProfileModal tracker).
+function setLocationThematicDisclosure(moduleKey,expanded){
+  const ids=LOCATION_THEMATIC_DISCLOSURE_IDS[moduleKey];if(!ids)return;
+  const toggle=document.getElementById(ids.toggle),body=document.getElementById(ids.body);
+  if(!toggle||!body)return;
+  toggle.setAttribute("aria-expanded",String(expanded));
+  body.hidden=!expanded;
+}
+function toggleLocationThematicDisclosure(moduleKey){
+  const ids=LOCATION_THEMATIC_DISCLOSURE_IDS[moduleKey];if(!ids)return;
+  const expanded=document.getElementById(ids.toggle)?.getAttribute("aria-expanded")==="true";
+  setLocationThematicDisclosure(moduleKey,!expanded);
+}
+
+// Prefills every B3A field from the Location's stored modules and sets each module's initial
+// disclosure state for this edit session (expanded iff it has meaningful data) -- called from
+// syncLocationProfileEditFields, so this also naturally re-runs (and re-derives disclosure state
+// from the untouched original) on Cancel and on every fresh entry into edit mode.
+function syncLocationProfileThematicFields(location){
+  const appearance=hydrateAppearanceAtmosphere(location.baseProfile?.appearanceAtmosphere);
+  document.getElementById("locProfileVisualDescription").value=appearance.visualDescription;
+  document.getElementById("locProfileAtmosphere").value=appearance.atmosphere;
+  document.getElementById("locProfileSounds").value=appearance.sounds;
+  document.getElementById("locProfileSmells").value=appearance.smells;
+  document.getElementById("locProfileLighting").value=appearance.lighting;
+  document.getElementById("locProfileClimateFeel").value=appearance.climateFeel;
+  ensureLocationNotableFeaturesWidget().setValues(appearance.notableFeatures);
+
+  const geography=hydrateGeography(location.baseProfile?.geography);
+  document.getElementById("locProfileTerrain").value=geography.terrain;
+  document.getElementById("locProfileClimate").value=geography.climate;
+  document.getElementById("locProfileWater").value=geography.water;
+  document.getElementById("locProfileVegetation").value=geography.vegetation;
+  document.getElementById("locProfileAccess").value=geography.access;
+  document.getElementById("locProfileCoordinates").value=geography.coordinates;
+  document.getElementById("locProfileArea").value=geography.area;
+  document.getElementById("locProfileElevation").value=geography.elevation;
+  ensureLocationNaturalFeaturesWidget().setValues(geography.naturalFeatures);
+
+  setLocationThematicDisclosure("appearanceAtmosphere",!isModuleEmpty(normalizeAppearanceAtmosphere(appearance)));
+  setLocationThematicDisclosure("geography",!isModuleEmpty(normalizeGeography(geography)));
+}
+
+function readLocationThematicDraftFields(){
+  return {
+    appearanceAtmosphere:{
+      visualDescription:document.getElementById("locProfileVisualDescription").value,
+      atmosphere:document.getElementById("locProfileAtmosphere").value,
+      sounds:document.getElementById("locProfileSounds").value,
+      smells:document.getElementById("locProfileSmells").value,
+      lighting:document.getElementById("locProfileLighting").value,
+      climateFeel:document.getElementById("locProfileClimateFeel").value,
+      notableFeatures:ensureLocationNotableFeaturesWidget().getValues()
+    },
+    geography:{
+      terrain:document.getElementById("locProfileTerrain").value,
+      climate:document.getElementById("locProfileClimate").value,
+      water:document.getElementById("locProfileWater").value,
+      vegetation:document.getElementById("locProfileVegetation").value,
+      access:document.getElementById("locProfileAccess").value,
+      coordinates:document.getElementById("locProfileCoordinates").value,
+      area:document.getElementById("locProfileArea").value,
+      elevation:document.getElementById("locProfileElevation").value,
+      naturalFeatures:ensureLocationNaturalFeaturesWidget().getValues()
+    }
+  };
+}
+
+const LOCATION_THEMATIC_FIELD_IDS={
+  appearanceAtmosphere:["locProfileVisualDescription","locProfileAtmosphere","locProfileSounds","locProfileSmells","locProfileLighting","locProfileClimateFeel"],
+  geography:["locProfileTerrain","locProfileClimate","locProfileWater","locProfileVegetation","locProfileAccess","locProfileCoordinates","locProfileArea","locProfileElevation"]
+};
+
+// Clears one module's fields in the DRAFT only (plain DOM state, nothing committed to
+// location.baseProfile) -- keeps edit mode open and marks the form dirty; harmless to call on an
+// already-empty module. Reversible with Cancel until Save, so no destructive-confirmation modal
+// (see task brief "FULL MODULE CLEARING UX").
+function clearLocationThematicModule(moduleKey){
+  (LOCATION_THEMATIC_FIELD_IDS[moduleKey]||[]).forEach(id=>{const el=document.getElementById(id);if(el)el.value=""});
+  (moduleKey==="appearanceAtmosphere"?ensureLocationNotableFeaturesWidget():ensureLocationNaturalFeaturesWidget()).setValues([]);
+  syncBeforeUnload();
 }
 
 function renderLocationProfileScenes(participationId){
@@ -533,6 +697,11 @@ async function saveLocationProfile(){
   if(!location)return;
   const fields=readLocationEditFormFields();
   if(!fields.name){locationProfileSaveButton.showStatus("Название локации не может быть пустым.","error");return}
+  const thematicDraft=readLocationThematicDraftFields();
+  const baseProfilePatch=buildLocationBaseProfilePatch({
+    originalAppearance:location.baseProfile?.appearanceAtmosphere,originalGeography:location.baseProfile?.geography,
+    draftAppearance:thematicDraft.appearanceAtmosphere,draftGeography:thematicDraft.geography
+  });
   locationProfileSaveButton.beginSaving();
   try{
     if(isCloudWorkspace()){
@@ -540,7 +709,7 @@ async function saveLocationProfile(){
       const coreResult=await cloudProjectSync.api.updateLocationCanonical(canonicalId,location.locationRevision,{
         name:fields.name,officialName:fields.officialName||null,aliases:fields.aliases,
         typePreset:fields.typePreset||null,customTypeLabel:fields.customTypeLabel||null,
-        description:fields.description,shortSummary:fields.shortSummary||null
+        description:fields.description,shortSummary:fields.shortSummary||null,baseProfilePatch
       });
       if(!coreResult.ok){locationProfileSaveButton.showStatus(coreResult.message||"Не удалось сохранить локацию.","error");return}
       const parentChanged=fields.parentId!==locationProfileOriginalParentId;
@@ -559,11 +728,13 @@ async function saveLocationProfile(){
     }else{
       const result=commitDataChange(next=>{
         const target=next.locations.find(l=>l.id===participationId);
-        if(target)Object.assign(target,{
+        if(!target)return;
+        Object.assign(target,{
           name:fields.name,officialName:fields.officialName,aliases:fields.aliases,
           typePreset:fields.typePreset,customTypeLabel:fields.customTypeLabel,
           shortSummary:fields.shortSummary,description:fields.description,parentId:fields.parentId
         });
+        if(baseProfilePatch)target.baseProfile=applyLocationBaseProfilePatch(target.baseProfile,baseProfilePatch);
       },{renderAfter:false});
       if(!result.ok){locationProfileSaveButton.showStatus(result.userMessage||"Не удалось сохранить локацию.","error");return}
     }
@@ -663,9 +834,11 @@ Object.assign(globalThis,{locationById,locationCanonicalId,locationSceneEntries,
   ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,
   openLocationGallery,setLocationGallerySearch,setLocationGalleryTypeFilter,renderLocationGallery,deleteLocationFromGallery,
   openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,
-  openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect});
+  openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
+  toggleLocationThematicDisclosure,clearLocationThematicModule});
 export {locationById,locationCanonicalId,locationSceneEntries,locationAncestors,locationDescendantIds,
   ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,
   openLocationGallery,setLocationGallerySearch,setLocationGalleryTypeFilter,renderLocationGallery,deleteLocationFromGallery,
   openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,
-  openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect};
+  openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
+  toggleLocationThematicDisclosure,clearLocationThematicModule};
