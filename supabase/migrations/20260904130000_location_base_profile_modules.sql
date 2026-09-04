@@ -57,19 +57,31 @@
 -- without bumping location_revision, exactly like the pre-existing Phase 3 no-op path did for
 -- description/shortSummary alone.
 --
--- WHY A SIGNATURE EXTENSION, NOT A NEW RPC NAME: unlike the Phase 3 migration's decision to add
--- create_location_canonical/update_location_canonical as NEW distinct names next to the legacy
--- create_location/update_location (to avoid PostgREST overload-resolution ambiguity between TWO
--- different functions sharing a name), this is a single CREATE OR REPLACE of ONE existing
--- function's body, appending exactly one new parameter with a DEFAULT at the very end of the
--- parameter list. Postgres explicitly supports this (a replacement function may add trailing
--- parameters with defaults without being considered a different function for dependent-object
--- purposes), and PostgREST resolves an RPC call by matching the JSON request body's keys against
--- THIS function's own parameter names -- there is no second candidate function to disambiguate
--- against, so every already-published B2 caller (whose JSON body never contains
--- location_base_profile_patch) simply gets the new parameter's NULL default and behaves exactly as
--- before. Proven in supabase/tests/location_base_profile_modules.sql Block A (legacy-shaped call,
--- byte-for-byte) and Block D (mixed core-identity + thematic edits in the same call).
+-- WHY A SIGNATURE EXTENSION, NOT A NEW RPC NAME -- AND WHY IT NEEDS AN EXPLICIT DROP FIRST:
+-- unlike the Phase 3 migration's decision to add create_location_canonical/update_location_
+-- canonical as NEW distinct names next to the legacy create_location/update_location (to avoid
+-- PostgREST overload-resolution ambiguity between TWO different functions sharing a name), the
+-- intent here is a single function `update_location_canonical` with one new trailing DEFAULT
+-- parameter -- NOT a second overload. That intent is NOT achieved by `CREATE OR REPLACE FUNCTION`
+-- alone: Postgres identifies a function by (name, parameter TYPE list), and appending a parameter
+-- -- even one with a DEFAULT -- changes that type list, so `CREATE OR REPLACE` does not replace
+-- the existing 9-argument function at all; it silently CREATES A SECOND, DISTINCT 10-argument
+-- overload beside it. This was caught for real by disposable CI on the first version of this
+-- migration (not caught by static review): supabase/tests/location_phase3_core_identity.sql's own
+-- positional 9-argument calls to update_location_canonical started failing with
+-- "function public.update_location_canonical(uuid, bigint, unknown, ...) is not unique" --
+-- because with the 10th parameter defaulted, a 9-argument call now matches BOTH the untouched old
+-- function and the new one. The fix (below, immediately before the CREATE OR REPLACE) is an
+-- explicit `DROP FUNCTION public.update_location_canonical(<the exact old 9-argument type list>)`
+-- first, so exactly one function named update_location_canonical exists afterward -- a genuine
+-- replacement, not an overload. PostgREST then resolves every RPC call unambiguously against that
+-- one function by matching the JSON body's keys to its parameter names, so every already-published
+-- B2 caller (whose JSON body never contains location_base_profile_patch) simply gets the new
+-- parameter's NULL default and behaves exactly as before. Proven in
+-- supabase/tests/location_base_profile_modules.sql Block A (legacy-shaped call, byte-for-byte) and
+-- Block D (mixed core-identity + thematic edits in the same call), and by
+-- location_phase3_core_identity.sql's pre-existing Block C/D positional calls continuing to pass
+-- unmodified after this migration.
 --
 -- import_local_project_content (local -> cloud migration): the per-location insert previously
 -- hardcoded base_profile to `jsonb_build_object('description', ...)` only -- it silently dropped
@@ -108,6 +120,15 @@ create or replace function private.location_thematic_module_keys()
 returns text[] language sql immutable security invoker set search_path = ''
 as $$ select array['appearanceAtmosphere','geography'] $$;
 grant execute on function private.location_thematic_module_keys() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Explicit drop of the EXACT old 9-argument signature (see "WHY A SIGNATURE EXTENSION..." above)
+-- -- required so the CREATE OR REPLACE just below genuinely replaces this function instead of
+-- creating a second, ambiguous 10-argument overload beside it. No CASCADE: nothing in this schema
+-- has a dependency on update_location_canonical's signature itself (RPCs are called by name via
+-- PostgREST, not referenced from other function bodies/views/triggers), so a plain DROP is safe.
+-- ---------------------------------------------------------------------------
+drop function if exists public.update_location_canonical(uuid,bigint,text,text,text[],text,text,text,text);
 
 -- ---------------------------------------------------------------------------
 -- update_location_canonical: Phase 3 body, unchanged in every existing branch, plus the new
