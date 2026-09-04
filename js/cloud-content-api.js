@@ -60,10 +60,17 @@ function createCloudContentApi(client){
       location_aliases:[...new Set(aliases||[])],location_type_preset:typePreset,location_custom_type_label:customTypeLabel,
       location_description:description,location_short_summary:shortSummary,target_parent_id:parentId
     }),
-    updateLocationCanonical:(locationId,expectedLocationRevision,{name,officialName=null,aliases=[],typePreset=null,customTypeLabel=null,description="",shortSummary=null})=>call("update_location_canonical",{
+    // location_base_profile_patch (Location base_profile thematic-module contract,
+    // 20260904130000_location_base_profile_modules.sql): a generic, allowlisted patch for
+    // thematic module keys (B3A: appearanceAtmosphere/geography), forwarded verbatim -- this
+    // adapter does no interpretation of the three-state contract (absent/JSON null/object) itself,
+    // that lives entirely server-side. baseProfilePatch defaults to null so every existing B2
+    // caller (which never passes it) sends exactly the same RPC args as before this contract
+    // existed.
+    updateLocationCanonical:(locationId,expectedLocationRevision,{name,officialName=null,aliases=[],typePreset=null,customTypeLabel=null,description="",shortSummary=null,baseProfilePatch=null})=>call("update_location_canonical",{
       target_location_id:locationId,expected_location_revision:expectedLocationRevision,location_name:name,location_official_name:officialName,
       location_aliases:[...new Set(aliases||[])],location_type_preset:typePreset,location_custom_type_label:customTypeLabel,
-      location_description:description,location_short_summary:shortSummary
+      location_description:description,location_short_summary:shortSummary,location_base_profile_patch:baseProfilePatch
     }),
     setLocationParent:(locationId,expectedLocationRevision,parentId=null)=>call("set_location_parent",{target_location_id:locationId,expected_location_revision:expectedLocationRevision,target_parent_id:parentId}),
     listOwnedLocations:()=>call("list_owned_locations"),

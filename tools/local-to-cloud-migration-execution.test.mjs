@@ -32,6 +32,13 @@ assert.equal(prepared.uploads[0].storagePath,`${ownerId}/characters/${confirmed.
 assert(!JSON.stringify(prepared.dbPayload).includes("base64"));
 assert(!JSON.stringify(prepared.dbPayload).includes("aGVsbG8"));
 
+// Location base_profile thematic-module contract (20260904130000_location_base_profile_modules.sql):
+// short_summary/base_profile must reach the RPC payload under their snake_case wire names, and a
+// location with neither (this fixture's plain {id,name,description:""} location) must still
+// produce well-formed defaults rather than undefined/omitted keys.
+assert.equal(prepared.dbPayload.locations[0].short_summary,"");
+assert.deepEqual(prepared.dbPayload.locations[0].base_profile,{});
+
 function fakeClient({preflight={ok:true,code:"OK"},importResult={ok:true,code:"OK",previousRevision:7,revision:8,created:{}},rpcError=null,uploadError=null,removeError=null,snapshot=null,attempt=null}={}){
   const calls=[];
   return {calls,client:{

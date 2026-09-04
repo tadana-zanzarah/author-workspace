@@ -75,4 +75,24 @@ assert.equal(buildLocalToCloudMigrationPreview(opts()).expectedProjectRevision,7
   const data=normal();data.scenes[0].date="2026-02-30";data.scenes[0].time="25:00";data.tags.push({id:"tag-b",name:"  ТАЙНА "});const result=buildLocalToCloudMigrationPreview(opts(data));assert(result.blockingConflicts.some(x=>x.code==="INVALID_SCENE_DATE"));assert(result.blockingConflicts.some(x=>x.code==="INVALID_SCENE_TIME"));assert(result.blockingConflicts.some(x=>x.code==="DUPLICATE_NORMALIZED_TAG_NAME"));
 }
 
+// 19. Location shortSummary/baseProfile survive into the entity plan (Location base_profile
+// thematic-module contract, 20260904130000_location_base_profile_modules.sql) -- this plan layer
+// does no allowlist filtering itself (that lives server-side in import_local_project_content), it
+// only must not drop or rename these fields on the way through.
+{
+  const data=normal();
+  data.locations[0].shortSummary="Founded after the war.";
+  data.locations[0].baseProfile={appearanceAtmosphere:{visualDescription:"Stone walls"},geography:{terrain:"Hills"}};
+  const result=buildLocalToCloudMigrationPreview(opts(data,{characterDecisions:resolved,structuralLinkDecisions:{"link-a":"project"}}));
+  assert.equal(result.entityPlan.locations[0].shortSummary,"Founded after the war.");
+  assert.deepEqual(result.entityPlan.locations[0].baseProfile,{appearanceAtmosphere:{visualDescription:"Stone walls"},geography:{terrain:"Hills"}});
+}
+// 20. A location with neither shortSummary nor baseProfile (every pre-B3A local snapshot) must
+// still produce a well-formed entity (empty string / empty object, never throw/undefined).
+{
+  const result=buildLocalToCloudMigrationPreview(opts(normal(),{characterDecisions:resolved,structuralLinkDecisions:{"link-a":"project"}}));
+  assert.equal(result.entityPlan.locations[0].shortSummary,"");
+  assert.deepEqual(result.entityPlan.locations[0].baseProfile,{});
+}
+
 console.log("local to cloud migration preview tests passed");

@@ -56,7 +56,17 @@ await api.updateLocationCanonical("loc-canonical-1",7,{name:"Tavern",aliases:["a
   assert.equal(updated.args.expected_location_revision,7,"canonical update is gated on the LOCATION's own revision, not the project's");
   assert.ok(!("target_project_id" in updated.args),"updateLocationCanonical must never send a project id -- it is a pure global-identity mutation");
   assert.deepEqual(updated.args.location_aliases,["a","b"],"duplicate aliases are collapsed before the RPC call");
+  assert.equal(updated.args.location_base_profile_patch,null,"legacy B2 call (no baseProfilePatch) must send SQL NULL, not an empty object or undefined -- 'no thematic module changes'");
 }
+
+// Location base_profile thematic-module contract (20260904130000_location_base_profile_modules.sql):
+// the adapter is a pure passthrough -- it does not interpret the three-state contract itself, only
+// pins the exact wire argument name and that a supplied patch (including one containing JSON null
+// for a module key) round-trips verbatim.
+await api.updateLocationCanonical("loc-canonical-1",7,{name:"Tavern",baseProfilePatch:{appearanceAtmosphere:{visualDescription:"Stone walls"}}});
+assert.deepEqual(calls.pop().args.location_base_profile_patch,{appearanceAtmosphere:{visualDescription:"Stone walls"}},"a supplied base_profile patch object must be forwarded verbatim as location_base_profile_patch");
+await api.updateLocationCanonical("loc-canonical-1",7,{name:"Tavern",baseProfilePatch:{appearanceAtmosphere:null}});
+assert.deepEqual(calls.pop().args.location_base_profile_patch,{appearanceAtmosphere:null},"JSON null inside the patch (module removal) must round-trip as null, not be dropped or stringified");
 await api.setLocationParent("loc-canonical-1",8,"loc-canonical-2");
 assert.deepEqual(calls.pop(),{name:"set_location_parent",args:{target_location_id:"loc-canonical-1",expected_location_revision:8,target_parent_id:"loc-canonical-2"}});
 await api.setLocationParent("loc-canonical-1",9);

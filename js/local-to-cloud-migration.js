@@ -66,7 +66,13 @@ function buildLocalToCloudMigrationPreview({
   });
   const projectCharacterId=id=>provenance.projectCharacters[id]?.cloudId||null;
   const chapters=collections.chapters.filter(x=>x?.id!==SYSTEM_CHAPTER_ID).map((chapter,index)=>({id:provenance.chapters[chapter.id]?.cloudId,localId:chapter.id,title:String(chapter.title||""),position:(index+1)*1000,source:own(chapter)}));
-  const locations=collections.locations.map(location=>({id:provenance.locations[location.id]?.cloudId,localId:location.id,name:String(location.name||""),description:String(location.description||""),source:own(location)}));
+  // shortSummary + baseProfile: local Locations already mirror these B2/B3A field names directly
+  // (js/locations.js), forwarded here so import_local_project_content can carry them into the
+  // canonical row's base_profile -- see the base_profile thematic-module migration
+  // (20260904130000_location_base_profile_modules.sql) for the server-side allowlist/sanitization
+  // that actually decides what survives. This plan layer does no filtering itself, only a safe
+  // own-properties copy (own()), matching how character profiles are carried through above.
+  const locations=collections.locations.map(location=>({id:provenance.locations[location.id]?.cloudId,localId:location.id,name:String(location.name||""),description:String(location.description||""),shortSummary:String(location.shortSummary||""),baseProfile:own(location.baseProfile||{}),source:own(location)}));
   const tags=collections.tags.map(tag=>({id:provenance.tags[tag.id]?.cloudId,localId:tag.id,name:String(tag.name||""),normalizedName:normalizedName(tag.name),source:own(tag)}));
   const sceneCharacters=[],sceneRelationChanges=[];
   const scenes=collections.scenes.map((scene,index)=>{
