@@ -9,16 +9,21 @@
  * client-computed no-op never disagrees with the server's, but is NOT a security boundary -- the
  * server independently validates and normalizes every write.
  *
- * Phase 1 catalog is deliberately just the two modules that already exist. Adding a future module
- * (populationCulture, governmentSociety, economy, historyNotes) is meant to be a one-line catalog
- * entry here plus the matching backend allowlist line -- see the original audit's "Extensibility
- * strategy" -- not a redesign of anything in this file.
+ * Phase 1 shipped the first two modules (appearanceAtmosphere, geography); B3B ("Location Adaptive
+ * Modules -- B3B Product Specification: Government & Society + Economy") adds governmentSociety
+ * and economy the same one-line way the header above always anticipated. populationCulture/
+ * historyNotes remain future work -- not catalog entries yet, per the backend allowlist's own
+ * "no unvalidated write surface" principle.
  */
-import {normalizeAppearanceAtmosphere,normalizeGeography,isModuleEmpty} from "./location-base-profile.js";
+import {
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,isModuleEmpty
+} from "./location-base-profile.js";
 
 const LOCATION_MODULE_CATALOG=[
   {key:"appearanceAtmosphere",label:"Внешний вид и атмосфера"},
-  {key:"geography",label:"География и природа"}
+  {key:"geography",label:"География и природа"},
+  {key:"governmentSociety",label:"Государство и общество"},
+  {key:"economy",label:"Экономика"}
 ];
 const LOCATION_MODULE_KEYS=LOCATION_MODULE_CATALOG.map(m=>m.key);
 const LOCATION_MODULE_LABELS=Object.fromEntries(LOCATION_MODULE_CATALOG.map(m=>[m.key,m.label]));
@@ -29,7 +34,37 @@ function locationModuleHasData(location,moduleKey){
   const baseProfile=(location&&location.baseProfile)||{};
   if(moduleKey==="appearanceAtmosphere")return !isModuleEmpty(normalizeAppearanceAtmosphere(baseProfile.appearanceAtmosphere));
   if(moduleKey==="geography")return !isModuleEmpty(normalizeGeography(baseProfile.geography));
+  if(moduleKey==="governmentSociety")return !isModuleEmpty(normalizeGovernmentSociety(baseProfile.governmentSociety));
+  if(moduleKey==="economy")return !isModuleEmpty(normalizeEconomy(baseProfile.economy));
   return false;
+}
+
+// B3B type recommendations -- UI guidance ONLY (see task brief "TYPE RECOMMENDATIONS"): never
+// auto-adds/hides/removes a module or touches any canonical/selection data. A small additive table
+// keyed by [moduleKey][typePreset], deliberately NOT built for appearanceAtmosphere/geography
+// (Phase 1 shipped without recommendations and nothing in this task asks to add them
+// retroactively -- an absent moduleKey here simply always resolves to "none"). "strong" and
+// "recommend" are kept as distinct values (for possible future visual differentiation) even though
+// the current UI renders both with the same restrained hint -- see js/locations.js.
+const LOCATION_MODULE_TYPE_RECOMMENDATIONS={
+  governmentSociety:{
+    world:"recommend",continent:"none",country:"strong",region:"strong",settlement:"strong",
+    district:"recommend",street:"none",building:"recommend",room:"none",natural_place:"none",
+    transport:"recommend",other:"none"
+  },
+  economy:{
+    world:"recommend",continent:"none",country:"strong",region:"strong",settlement:"strong",
+    district:"strong",street:"recommend",building:"recommend",room:"none",natural_place:"none",
+    transport:"strong",other:"none"
+  }
+};
+// Returns "strong" | "recommend" | "none". An unspecified/custom Location type (typePreset falsy
+// or not one of the known presets) always resolves to "none" -- recommendations are guidance for a
+// known type, never a default nudge for the "not specified" case.
+function locationModuleRecommendation(moduleKey,typePreset){
+  const table=LOCATION_MODULE_TYPE_RECOMMENDATIONS[moduleKey];
+  if(!table||!typePreset)return "none";
+  return table[typePreset]||"none";
 }
 
 function normalizeModuleKeyList(raw){
@@ -142,14 +177,14 @@ function saveNeedsModuleSelectionWrite(originalSelection,draftSelection){
 }
 
 Object.assign(globalThis,{
-  LOCATION_MODULE_CATALOG,LOCATION_MODULE_KEYS,locationModuleLabel,locationModuleHasData,
+  LOCATION_MODULE_CATALOG,LOCATION_MODULE_KEYS,locationModuleLabel,locationModuleHasData,locationModuleRecommendation,
   normalizeModuleSelection,moduleSelectionsEqual,moduleSelectionEffective,
   locationModuleEditVisible,locationModuleReadVisible,locationVisibleModules,locationModulePickerCandidates,
   addEmptyLocationModule,removeEmptyLocationModule,hideLocationModule,showLocationModule,
   deleteLocationModuleSelectionEntry,dropRedundantShownEntries,saveNeedsModuleSelectionWrite
 });
 export {
-  LOCATION_MODULE_CATALOG,LOCATION_MODULE_KEYS,locationModuleLabel,locationModuleHasData,
+  LOCATION_MODULE_CATALOG,LOCATION_MODULE_KEYS,locationModuleLabel,locationModuleHasData,locationModuleRecommendation,
   normalizeModuleSelection,moduleSelectionsEqual,moduleSelectionEffective,
   locationModuleEditVisible,locationModuleReadVisible,locationVisibleModules,locationModulePickerCandidates,
   addEmptyLocationModule,removeEmptyLocationModule,hideLocationModule,showLocationModule,

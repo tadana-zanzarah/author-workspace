@@ -255,6 +255,8 @@ function populateLocationProfileCore(participationId){
   renderLocationProfileChildren(location);
   renderLocationProfileAppearance(location);
   renderLocationProfileGeography(location);
+  renderLocationProfileGovernmentSociety(location);
+  renderLocationProfileEconomy(location);
   renderLocationProfileScenes(participationId);
   refreshLocationHierarchyContext(location);
   return location;
@@ -400,11 +402,12 @@ function renderLocationProfileAppearance(location){
   el.hidden=false;
 }
 
-// Rельеф/климат/вода/растительность/доступ read as prose once they run past a short phrase (a
-// long sentence in a label:value fact row wraps awkwardly); short values stay compact facts
-// alongside coordinates/area/elevation, which are always compact. See task brief "GEOGRAPHY" --
-// this is the one place that distinction is made, deliberately not duplicated elsewhere.
-const LOCATION_GEOGRAPHY_PROSE_THRESHOLD=80;
+// Рельеф/климат/вода/растительность/доступ (Geography) and, from B3B, politicalSituation/
+// lawsAndRules (Government & Society) and economicCharacter (Economy) read as prose once they run
+// past a short phrase (a long sentence in a label:value fact row wraps awkwardly); short values
+// stay compact facts. See task brief "GEOGRAPHY" / B3B spec section 10 -- one shared threshold,
+// reused rather than duplicated per module.
+const LOCATION_THEMATIC_PROSE_THRESHOLD=80;
 const LOCATION_GEOGRAPHY_VARIABLE_LABELS={terrain:"Рельеф",climate:"Климат",water:"Вода",vegetation:"Растительность",access:"Доступ"};
 
 function renderLocationProfileGeography(location){
@@ -415,13 +418,56 @@ function renderLocationProfileGeography(location){
   const proseParts=[],factEntries=[];
   for(const key of ["terrain","climate","water","vegetation","access"]){
     const value=m[key];if(!value)continue;
-    if(value.length>LOCATION_GEOGRAPHY_PROSE_THRESHOLD)proseParts.push(`<p class="location-profile-thematic-prose"><strong>${esc(LOCATION_GEOGRAPHY_VARIABLE_LABELS[key])}:</strong> ${esc(value)}</p>`);
+    if(value.length>LOCATION_THEMATIC_PROSE_THRESHOLD)proseParts.push(`<p class="location-profile-thematic-prose"><strong>${esc(LOCATION_GEOGRAPHY_VARIABLE_LABELS[key])}:</strong> ${esc(value)}</p>`);
     else factEntries.push([LOCATION_GEOGRAPHY_VARIABLE_LABELS[key],value]);
   }
   factEntries.push(...[["Координаты",m.coordinates],["Площадь",m.area],["Высота",m.elevation]].filter(([,value])=>value));
   const factsHtml=renderLocationThematicFacts(factEntries);
   const chipsHtml=renderLocationThematicChips("Природные особенности",m.naturalFeatures||[]);
   el.innerHTML=`<h3 class="location-profile-thematic-title">География и природа</h3>${proseParts.join("")}${factsHtml}${chipsHtml}`;
+  el.hidden=false;
+}
+
+// B3B read order (spec section 10): politicalSituation, lawsAndRules (prose-or-fact by length) ->
+// governmentForm, leadership (always-compact facts) -> securityForces, notableInstitutions (chips).
+const LOCATION_GOVERNMENT_SOCIETY_PROSE_LABELS={politicalSituation:"Политическая обстановка",lawsAndRules:"Законы и порядки"};
+
+function renderLocationProfileGovernmentSociety(location){
+  const el=document.getElementById("locationProfileGovernmentSociety");if(!el)return;
+  if(!locationModuleReadVisible(location,location.moduleSelection,"governmentSociety")){el.hidden=true;el.innerHTML="";return}
+  const m=normalizeGovernmentSociety(location.baseProfile?.governmentSociety);
+  if(isModuleEmpty(m)){el.hidden=true;el.innerHTML="";return}
+  const proseParts=[],factEntries=[];
+  for(const key of ["politicalSituation","lawsAndRules"]){
+    const value=m[key];if(!value)continue;
+    if(value.length>LOCATION_THEMATIC_PROSE_THRESHOLD)proseParts.push(`<p class="location-profile-thematic-prose"><strong>${esc(LOCATION_GOVERNMENT_SOCIETY_PROSE_LABELS[key])}:</strong> ${esc(value)}</p>`);
+    else factEntries.push([LOCATION_GOVERNMENT_SOCIETY_PROSE_LABELS[key],value]);
+  }
+  factEntries.push(...[["Форма правления",m.governmentForm],["Кто управляет",m.leadership]].filter(([,value])=>value));
+  const factsHtml=renderLocationThematicFacts(factEntries);
+  const chipsHtml=renderLocationThematicChips("Силы порядка",m.securityForces||[])+renderLocationThematicChips("Учреждения и организации",m.notableInstitutions||[]);
+  el.innerHTML=`<h3 class="location-profile-thematic-title">Государство и общество</h3>${proseParts.join("")}${factsHtml}${chipsHtml}`;
+  el.hidden=false;
+}
+
+// B3B read order (spec section 10): economicCharacter (prose-or-fact by length) -> currency,
+// costOfLiving (always-compact facts) -> industries, scarcity, tradeConnections (chips).
+function renderLocationProfileEconomy(location){
+  const el=document.getElementById("locationProfileEconomy");if(!el)return;
+  if(!locationModuleReadVisible(location,location.moduleSelection,"economy")){el.hidden=true;el.innerHTML="";return}
+  const m=normalizeEconomy(location.baseProfile?.economy);
+  if(isModuleEmpty(m)){el.hidden=true;el.innerHTML="";return}
+  const proseParts=[],factEntries=[];
+  if(m.economicCharacter){
+    if(m.economicCharacter.length>LOCATION_THEMATIC_PROSE_THRESHOLD)proseParts.push(`<p class="location-profile-thematic-prose">${esc(m.economicCharacter)}</p>`);
+    else factEntries.push(["Экономическая жизнь",m.economicCharacter]);
+  }
+  factEntries.push(...[["Валюта",m.currency],["Стоимость жизни",m.costOfLiving]].filter(([,value])=>value));
+  const factsHtml=renderLocationThematicFacts(factEntries);
+  const chipsHtml=renderLocationThematicChips("Основные отрасли и источники дохода",m.industries||[])
+    +renderLocationThematicChips("В дефиците",m.scarcity||[])
+    +renderLocationThematicChips("Торговые связи",m.tradeConnections||[]);
+  el.innerHTML=`<h3 class="location-profile-thematic-title">Экономика</h3>${proseParts.join("")}${factsHtml}${chipsHtml}`;
   el.hidden=false;
 }
 
@@ -437,10 +483,42 @@ function ensureLocationNaturalFeaturesWidget(){
   multiValueInputs.locationNaturalFeatures=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить особенность…",label:"Природные особенности",onChange:syncBeforeUnload});
   return multiValueInputs.locationNaturalFeatures;
 }
+function ensureLocationSecurityForcesWidget(){
+  if(multiValueInputs.locationSecurityForces)return multiValueInputs.locationSecurityForces;
+  const host=document.getElementById("locProfileSecurityForces");
+  multiValueInputs.locationSecurityForces=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Силы порядка",onChange:syncBeforeUnload});
+  return multiValueInputs.locationSecurityForces;
+}
+function ensureLocationNotableInstitutionsWidget(){
+  if(multiValueInputs.locationNotableInstitutions)return multiValueInputs.locationNotableInstitutions;
+  const host=document.getElementById("locProfileNotableInstitutions");
+  multiValueInputs.locationNotableInstitutions=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Учреждения и организации",onChange:syncBeforeUnload});
+  return multiValueInputs.locationNotableInstitutions;
+}
+function ensureLocationIndustriesWidget(){
+  if(multiValueInputs.locationIndustries)return multiValueInputs.locationIndustries;
+  const host=document.getElementById("locProfileIndustries");
+  multiValueInputs.locationIndustries=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Основные отрасли и источники дохода",onChange:syncBeforeUnload});
+  return multiValueInputs.locationIndustries;
+}
+function ensureLocationScarcityWidget(){
+  if(multiValueInputs.locationScarcity)return multiValueInputs.locationScarcity;
+  const host=document.getElementById("locProfileScarcity");
+  multiValueInputs.locationScarcity=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"В дефиците",onChange:syncBeforeUnload});
+  return multiValueInputs.locationScarcity;
+}
+function ensureLocationTradeConnectionsWidget(){
+  if(multiValueInputs.locationTradeConnections)return multiValueInputs.locationTradeConnections;
+  const host=document.getElementById("locProfileTradeConnections");
+  multiValueInputs.locationTradeConnections=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Торговые связи",onChange:syncBeforeUnload});
+  return multiValueInputs.locationTradeConnections;
+}
 
 const LOCATION_THEMATIC_DISCLOSURE_IDS={
   appearanceAtmosphere:{toggle:"locProfileAppearanceToggle",body:"locProfileAppearanceBody"},
-  geography:{toggle:"locProfileGeographyToggle",body:"locProfileGeographyBody"}
+  geography:{toggle:"locProfileGeographyToggle",body:"locProfileGeographyBody"},
+  governmentSociety:{toggle:"locProfileGovernmentSocietyToggle",body:"locProfileGovernmentSocietyBody"},
+  economy:{toggle:"locProfileEconomyToggle",body:"locProfileEconomyBody"}
 };
 
 // Presentation only: never clears values, saves, or resets dirty state -- see task brief
@@ -477,7 +555,9 @@ let locationProfileModuleAddPanelOpen=false;
 
 const LOCATION_THEMATIC_MODULE_IDS={
   appearanceAtmosphere:{module:"locProfileAppearanceModule",hide:"locProfileAppearanceHide",remove:"locProfileAppearanceRemove",deleteStart:"locProfileAppearanceDeleteStart",deleteConfirm:"locProfileAppearanceDeleteConfirm",deleteWarning:"locProfileAppearanceDeleteWarning",firstField:"locProfileVisualDescription"},
-  geography:{module:"locProfileGeographyModule",hide:"locProfileGeographyHide",remove:"locProfileGeographyRemove",deleteStart:"locProfileGeographyDeleteStart",deleteConfirm:"locProfileGeographyDeleteConfirm",deleteWarning:"locProfileGeographyDeleteWarning",firstField:"locProfileTerrain"}
+  geography:{module:"locProfileGeographyModule",hide:"locProfileGeographyHide",remove:"locProfileGeographyRemove",deleteStart:"locProfileGeographyDeleteStart",deleteConfirm:"locProfileGeographyDeleteConfirm",deleteWarning:"locProfileGeographyDeleteWarning",firstField:"locProfileTerrain"},
+  governmentSociety:{module:"locProfileGovernmentSocietyModule",hide:"locProfileGovernmentSocietyHide",remove:"locProfileGovernmentSocietyRemove",deleteStart:"locProfileGovernmentSocietyDeleteStart",deleteConfirm:"locProfileGovernmentSocietyDeleteConfirm",deleteWarning:"locProfileGovernmentSocietyDeleteWarning",firstField:"locProfileGovernmentForm"},
+  economy:{module:"locProfileEconomyModule",hide:"locProfileEconomyHide",remove:"locProfileEconomyRemove",deleteStart:"locProfileEconomyDeleteStart",deleteConfirm:"locProfileEconomyDeleteConfirm",deleteWarning:"locProfileEconomyDeleteWarning",firstField:"locProfileCurrency"}
 };
 
 // A location-shaped object reflecting the CURRENT unsaved draft fields (not the original saved
@@ -487,7 +567,16 @@ const LOCATION_THEMATIC_MODULE_IDS={
 // must never visually vanish out from under someone still typing into it.
 function locationThematicDraftLocationLike(){
   const draft=readLocationThematicDraftFields();
-  return {baseProfile:{appearanceAtmosphere:draft.appearanceAtmosphere,geography:draft.geography}};
+  return {
+    baseProfile:{
+      appearanceAtmosphere:draft.appearanceAtmosphere,geography:draft.geography,
+      governmentSociety:draft.governmentSociety,economy:draft.economy
+    },
+    // Recommendation hints (see locationThematicPickerCandidates) react to the type the author is
+    // CURRENTLY choosing in the still-open edit form, not the last-saved type -- same
+    // draft-reflects-live-state principle as every other field this function exposes.
+    typePreset:document.getElementById("locProfileTypePreset")?.value||null
+  };
 }
 
 function renderLocationThematicModuleActions(moduleKey,locationLike){
@@ -501,14 +590,25 @@ function renderLocationThematicModuleActions(moduleKey,locationLike){
 
 function locationThematicPickerCandidates(locationLike,visibleSet){
   return LOCATION_MODULE_KEYS.filter(key=>!visibleSet.has(key)).map(key=>({
-    key,label:locationModuleLabel(key),hasData:locationModuleHasData(locationLike,key)
+    key,label:locationModuleLabel(key),hasData:locationModuleHasData(locationLike,key),
+    recommendation:locationModuleRecommendation(key,locationLike?.typePreset)
   }));
 }
 
+// Recommendation hint is a restrained TEXT tag ("Рекомендуется"), never color alone (see task
+// brief accessibility requirement) -- "strong" and "recommend" render identically on purpose
+// (avoiding a second visual tier the spec explicitly said isn't worth the complexity) while
+// staying distinct values in locationModuleRecommendation for possible future use.
 function renderLocationModuleAddPanel(locationLike,visibleSet){
   const panel=document.getElementById("locProfileAddSectionPanel");if(!panel)return;
   const candidates=locationThematicPickerCandidates(locationLike,visibleSet);
-  panel.innerHTML=candidates.map(c=>`<button type="button" class="location-thematic-add-chip" onclick="${c.hasData?"showLocationThematicModule":"addEmptyLocationThematicModule"}('${jsq(c.key)}')">${esc(c.label)}${c.hasData?'<span class="location-thematic-add-chip-restore-tag">есть данные</span>':""}</button>`).join("");
+  panel.innerHTML=candidates.map(c=>{
+    const tags=[
+      c.hasData?'<span class="location-thematic-add-chip-restore-tag">есть данные</span>':"",
+      c.recommendation!=="none"?'<span class="location-thematic-add-chip-recommend-tag">Рекомендуется</span>':""
+    ].join("");
+    return `<button type="button" class="location-thematic-add-chip" onclick="${c.hasData?"showLocationThematicModule":"addEmptyLocationThematicModule"}('${jsq(c.key)}')">${esc(c.label)}${tags}</button>`;
+  }).join("");
 }
 
 function closeLocationModuleAddPanel(){
@@ -643,8 +743,26 @@ function syncLocationProfileThematicFields(location){
   document.getElementById("locProfileElevation").value=geography.elevation;
   ensureLocationNaturalFeaturesWidget().setValues(geography.naturalFeatures);
 
+  const governmentSociety=hydrateGovernmentSociety(location.baseProfile?.governmentSociety);
+  document.getElementById("locProfileGovernmentForm").value=governmentSociety.governmentForm;
+  document.getElementById("locProfileLeadership").value=governmentSociety.leadership;
+  document.getElementById("locProfilePoliticalSituation").value=governmentSociety.politicalSituation;
+  document.getElementById("locProfileLawsAndRules").value=governmentSociety.lawsAndRules;
+  ensureLocationSecurityForcesWidget().setValues(governmentSociety.securityForces);
+  ensureLocationNotableInstitutionsWidget().setValues(governmentSociety.notableInstitutions);
+
+  const economy=hydrateEconomy(location.baseProfile?.economy);
+  document.getElementById("locProfileCurrency").value=economy.currency;
+  document.getElementById("locProfileEconomicCharacter").value=economy.economicCharacter;
+  ensureLocationIndustriesWidget().setValues(economy.industries);
+  document.getElementById("locProfileCostOfLiving").value=economy.costOfLiving;
+  ensureLocationScarcityWidget().setValues(economy.scarcity);
+  ensureLocationTradeConnectionsWidget().setValues(economy.tradeConnections);
+
   setLocationThematicDisclosure("appearanceAtmosphere",!isModuleEmpty(normalizeAppearanceAtmosphere(appearance)));
   setLocationThematicDisclosure("geography",!isModuleEmpty(normalizeGeography(geography)));
+  setLocationThematicDisclosure("governmentSociety",!isModuleEmpty(normalizeGovernmentSociety(governmentSociety)));
+  setLocationThematicDisclosure("economy",!isModuleEmpty(normalizeEconomy(economy)));
 
   locationProfileModuleSelectionDraft=normalizeModuleSelection(location.moduleSelection);
   closeLocationModuleAddPanel();
@@ -672,13 +790,41 @@ function readLocationThematicDraftFields(){
       area:document.getElementById("locProfileArea").value,
       elevation:document.getElementById("locProfileElevation").value,
       naturalFeatures:ensureLocationNaturalFeaturesWidget().getValues()
+    },
+    governmentSociety:{
+      governmentForm:document.getElementById("locProfileGovernmentForm").value,
+      leadership:document.getElementById("locProfileLeadership").value,
+      politicalSituation:document.getElementById("locProfilePoliticalSituation").value,
+      lawsAndRules:document.getElementById("locProfileLawsAndRules").value,
+      securityForces:ensureLocationSecurityForcesWidget().getValues(),
+      notableInstitutions:ensureLocationNotableInstitutionsWidget().getValues()
+    },
+    economy:{
+      currency:document.getElementById("locProfileCurrency").value,
+      economicCharacter:document.getElementById("locProfileEconomicCharacter").value,
+      industries:ensureLocationIndustriesWidget().getValues(),
+      costOfLiving:document.getElementById("locProfileCostOfLiving").value,
+      scarcity:ensureLocationScarcityWidget().getValues(),
+      tradeConnections:ensureLocationTradeConnectionsWidget().getValues()
     }
   };
 }
 
 const LOCATION_THEMATIC_FIELD_IDS={
   appearanceAtmosphere:["locProfileVisualDescription","locProfileAtmosphere","locProfileSounds","locProfileSmells","locProfileLighting","locProfileClimateFeel"],
-  geography:["locProfileTerrain","locProfileClimate","locProfileWater","locProfileVegetation","locProfileAccess","locProfileCoordinates","locProfileArea","locProfileElevation"]
+  geography:["locProfileTerrain","locProfileClimate","locProfileWater","locProfileVegetation","locProfileAccess","locProfileCoordinates","locProfileArea","locProfileElevation"],
+  governmentSociety:["locProfileGovernmentForm","locProfileLeadership","locProfilePoliticalSituation","locProfileLawsAndRules"],
+  economy:["locProfileCurrency","locProfileEconomicCharacter","locProfileCostOfLiving"]
+};
+
+// governmentSociety/economy (B3B) each have more than one multi-value field, unlike
+// appearanceAtmosphere/geography (exactly one each) -- so unlike the old hardcoded
+// appearanceAtmosphere-vs-geography ternary this replaces, module-to-widgets is a real list.
+const LOCATION_THEMATIC_ARRAY_WIDGETS_BY_MODULE={
+  appearanceAtmosphere:[ensureLocationNotableFeaturesWidget],
+  geography:[ensureLocationNaturalFeaturesWidget],
+  governmentSociety:[ensureLocationSecurityForcesWidget,ensureLocationNotableInstitutionsWidget],
+  economy:[ensureLocationIndustriesWidget,ensureLocationScarcityWidget,ensureLocationTradeConnectionsWidget]
 };
 
 // Clears one module's fields in the DRAFT only (plain DOM state, nothing committed to
@@ -687,7 +833,7 @@ const LOCATION_THEMATIC_FIELD_IDS={
 // (see task brief "FULL MODULE CLEARING UX").
 function clearLocationThematicModule(moduleKey){
   (LOCATION_THEMATIC_FIELD_IDS[moduleKey]||[]).forEach(id=>{const el=document.getElementById(id);if(el)el.value=""});
-  (moduleKey==="appearanceAtmosphere"?ensureLocationNotableFeaturesWidget():ensureLocationNaturalFeaturesWidget()).setValues([]);
+  (LOCATION_THEMATIC_ARRAY_WIDGETS_BY_MODULE[moduleKey]||[]).forEach(ensureWidget=>ensureWidget().setValues([]));
   syncBeforeUnload();
 }
 
@@ -921,7 +1067,9 @@ async function saveLocationProfile(){
   const thematicDraft=readLocationThematicDraftFields();
   const baseProfilePatch=buildLocationBaseProfilePatch({
     originalAppearance:location.baseProfile?.appearanceAtmosphere,originalGeography:location.baseProfile?.geography,
-    draftAppearance:thematicDraft.appearanceAtmosphere,draftGeography:thematicDraft.geography
+    originalGovernmentSociety:location.baseProfile?.governmentSociety,originalEconomy:location.baseProfile?.economy,
+    draftAppearance:thematicDraft.appearanceAtmosphere,draftGeography:thematicDraft.geography,
+    draftGovernmentSociety:thematicDraft.governmentSociety,draftEconomy:thematicDraft.economy
   });
   // Adaptive Module Selection: normalize the draft selection against what base_profile will
   // ACTUALLY look like after this save (a module that just gained data drops out of `shown` as

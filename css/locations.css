@@ -271,10 +271,11 @@
 .location-thematic-delete-confirm-no:hover,.location-thematic-delete-confirm-no:focus-visible{background:var(--soft)}
 
 /* "+ Добавить раздел": a small inline panel, not a modal -- lists every module not currently
-   edit-visible. Phase 1 has only two catalog modules total, so this never needs a "recommended vs
-   other" grouping (see the audit's own "do not overbuild recommendation UI" guidance). A hidden,
+   edit-visible, in a single flat list (B3B intentionally did NOT add a separate "recommended"
+   grouping/section -- see the B3B spec's "do not overbuild recommendation UI" guidance). A hidden,
    populated module renders with a visibly distinct tag ("есть данные") so restoring it never
-   reads as starting from nothing. */
+   reads as starting from nothing; a recommended-for-this-type module gets its own restrained text
+   tag ("Рекомендуется", see -recommend-tag below) alongside it, never instead of it. */
 .location-thematic-add{margin-top:var(--space-3);position:relative}
 .location-thematic-add-toggle{
   display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border:1px dashed var(--border-subtle);
@@ -295,6 +296,13 @@
 .location-thematic-add-chip-restore-tag{
   font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);
   border:1px solid var(--accent);border-radius:999px;padding:1px 6px;
+}
+/* B3B type recommendation hint -- restrained, TEXT-carried ("Рекомендуется") so the signal never
+   depends on color alone; neutral (not accent-colored) so it reads as a quieter hint than the
+   "есть данные" restore tag above, not a second competing call-to-action. */
+.location-thematic-add-chip-recommend-tag{
+  font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary);
+  border:1px solid var(--border-subtle);border-radius:999px;padding:1px 6px;
 }
 
 .location-profile-summary{margin-bottom:var(--space-4)}

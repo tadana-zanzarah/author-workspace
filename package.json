@@ -12,6 +12,7 @@
     "test:location-phase-b2-core-identity-browser": "node tools/location-phase-b2-core-identity-browser.test.mjs",
     "test:location-phase-b3a-profile-modules-browser": "node tools/location-phase-b3a-profile-modules-browser.test.mjs",
     "test:location-adaptive-module-selection-browser": "node tools/location-adaptive-module-selection-browser.test.mjs",
+    "test:location-government-economy-modules-browser": "node tools/location-government-economy-modules-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",
     "test:cloud-browser": "node tools/cloud-browser.test.mjs",
     "test:auth-browser": "node tools/auth-browser.test.mjs",

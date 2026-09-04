@@ -4,7 +4,7 @@
 // wholesale, cleared module -> JSON null, individual field removal drops the old field entirely.
 import assert from "node:assert/strict";
 import {
-  normalizeAppearanceAtmosphere,normalizeGeography,isModuleEmpty,
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,isModuleEmpty,
   buildLocationBaseProfilePatch,applyLocationBaseProfilePatch
 } from "../js/location-base-profile.js";
 
@@ -112,6 +112,72 @@ assert.deepEqual(
     draftAppearance:{atmosphere:"  Напряжённо  "},draftGeography:{terrain:"Горы",climate:""} // whitespace/blank-key noise only
   });
   assert.equal(patch,null,"a semantic no-op (whitespace/blank-field noise only) must produce no patch");
+}
+
+// B3B: governmentSociety/economy normalization -- same generic contract, different field lists.
+
+// 14. completely empty / whitespace-only -> empty normalized module
+assert.deepEqual(normalizeGovernmentSociety({}),{});
+assert.deepEqual(normalizeGovernmentSociety(undefined),{});
+assert.deepEqual(normalizeGovernmentSociety({governmentForm:"   ",leadership:"\t",politicalSituation:"",lawsAndRules:"  "}),{});
+assert.deepEqual(normalizeEconomy({}),{});
+assert.deepEqual(normalizeEconomy({currency:"  ",economicCharacter:"",costOfLiving:"\n"}),{});
+
+// 15. blank/duplicate array entries removed, case-insensitive dedupe (shared normalizeMultiValue).
+assert.deepEqual(normalizeGovernmentSociety({securityForces:["","  ","Городская стража","городская стража"]}),{securityForces:["Городская стража"]});
+assert.deepEqual(normalizeEconomy({scarcity:["Чистая вода","","чистая вода"]}),{scarcity:["Чистая вода"]});
+
+// 16. populated governmentSociety normalized: trims, keeps only non-empty fields, fixed key order.
+assert.deepEqual(
+  normalizeGovernmentSociety({
+    governmentForm:"  Монархия  ",leadership:"Король Эдмунд III",politicalSituation:"",lawsAndRules:"Комендантский час с 22:00",
+    securityForces:["  Королевская гвардия  "],notableInstitutions:[]
+  }),
+  {governmentForm:"Монархия",leadership:"Король Эдмунд III",lawsAndRules:"Комендантский час с 22:00",securityForces:["Королевская гвардия"]}
+);
+
+// 17. populated economy normalized.
+assert.deepEqual(
+  normalizeEconomy({
+    currency:"Кроны",economicCharacter:"",industries:["Сельское хозяйство","  Рыболовство  "],
+    costOfLiving:"Дёшево",scarcity:[],tradeConnections:["Морской путь на юг"]
+  }),
+  {currency:"Кроны",costOfLiving:"Дёшево",industries:["Сельское хозяйство","Рыболовство"],tradeConnections:["Морской путь на юг"]}
+);
+
+// 18. buildLocationBaseProfilePatch: all four modules coexist -- editing governmentSociety must
+// not disturb appearanceAtmosphere/geography/economy, and vice versa (extends test 12 to 4 keys).
+{
+  const patch=buildLocationBaseProfilePatch({
+    originalAppearance:{},originalGeography:{terrain:"Горы"},originalGovernmentSociety:{},originalEconomy:{currency:"Кроны"},
+    draftAppearance:{},draftGeography:{terrain:"Горы"},draftGovernmentSociety:{leadership:"Совет"},draftEconomy:{currency:"Кроны"}
+  });
+  assert.ok(patch);
+  assert.deepEqual(Object.keys(patch),["governmentSociety"],"only the actually-changed module (governmentSociety) appears in the patch");
+  assert.deepEqual(patch.governmentSociety,{leadership:"Совет"});
+}
+
+// 19. clearing governmentSociety to empty -> JSON null, geography/economy untouched/omitted.
+{
+  const patch=buildLocationBaseProfilePatch({
+    originalGovernmentSociety:{leadership:"Совет"},originalEconomy:{currency:"Кроны"},
+    draftGovernmentSociety:{leadership:"   "},draftEconomy:{currency:"Кроны"}
+  });
+  assert.ok(patch);
+  assert.equal(patch.governmentSociety,null);
+  assert.ok(!("economy" in patch),"unchanged economy must not appear in the patch");
+  assert.ok(!("appearanceAtmosphere" in patch)&&!("geography" in patch),"omitted B3A args must normalize to unchanged, not spuriously appear");
+}
+
+// 20. omitting governmentSociety/economy args entirely (pre-B3B call shape) still works -- both
+// normalize to {} on both sides, so they're simply absent from the patch, never treated as changed.
+{
+  const patch=buildLocationBaseProfilePatch({
+    originalAppearance:{},originalGeography:{},
+    draftAppearance:{atmosphere:"Напряжённо"},draftGeography:{}
+  });
+  assert.ok(patch);
+  assert.deepEqual(Object.keys(patch),["appearanceAtmosphere"]);
 }
 
 // applyLocationBaseProfilePatch: local-mode mirror of the server's patch-application loop.

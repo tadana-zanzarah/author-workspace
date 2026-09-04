@@ -408,6 +408,8 @@
       <div class="location-profile-children" id="locationProfileChildren" hidden></div>
       <div class="location-profile-thematic" id="locationProfileAppearance" hidden></div>
       <div class="location-profile-thematic" id="locationProfileGeography" hidden></div>
+      <div class="location-profile-thematic" id="locationProfileGovernmentSociety" hidden></div>
+      <div class="location-profile-thematic" id="locationProfileEconomy" hidden></div>
       <div class="profile-section">
         <h3 class="profile-section-title">Сцены здесь</h3>
         <div id="locationProfileScenes" class="location-profile-scenes"></div>
@@ -563,6 +565,96 @@
                 <span class="location-thematic-delete-warning" id="locProfileGeographyDeleteWarning"></span>
                 <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('geography')">Да, удалить</button>
                 <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('geography')">Отмена</button>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="location-thematic-module" id="locProfileGovernmentSocietyModule" hidden>
+          <button type="button" class="location-thematic-disclosure" id="locProfileGovernmentSocietyToggle" aria-expanded="false" aria-controls="locProfileGovernmentSocietyBody" onclick="toggleLocationThematicDisclosure('governmentSociety')">
+            <span class="location-thematic-disclosure-chevron" aria-hidden="true">▸</span>
+            <span>Государство и общество</span>
+          </button>
+          <div id="locProfileGovernmentSocietyBody" class="location-thematic-body" hidden>
+            <div class="profile-editor-grid">
+              <label class="profile-field">
+                <span class="field-caption">Форма правления</span>
+                <input id="locProfileGovernmentForm" placeholder="например: монархия, республика, племенной союз">
+              </label>
+              <label class="profile-field">
+                <span class="field-caption">Кто управляет</span>
+                <input id="locProfileLeadership" placeholder="например: король Эдмунд III, городской совет, администрация аэропорта">
+              </label>
+              <label class="profile-field full">
+                <span class="field-caption">Политическая обстановка</span>
+                <textarea id="locProfilePoliticalSituation" rows="3"></textarea>
+              </label>
+              <label class="profile-field full">
+                <span class="field-caption">Законы и порядки</span>
+                <textarea id="locProfileLawsAndRules" rows="3" placeholder="важные законы, ограничения и правила, которые могут повлиять на персонажей"></textarea>
+              </label>
+              <div class="profile-field full">
+                <span class="field-caption">Силы порядка</span>
+                <div class="multi-value-host" id="locProfileSecurityForces"></div>
+              </div>
+              <div class="profile-field full">
+                <span class="field-caption">Учреждения и организации</span>
+                <div class="multi-value-host" id="locProfileNotableInstitutions"></div>
+              </div>
+            </div>
+            <div class="location-thematic-actions" id="locProfileGovernmentSocietyActions">
+              <button type="button" class="location-thematic-hide" id="locProfileGovernmentSocietyHide" onclick="hideLocationThematicModule('governmentSociety')" hidden>Скрыть раздел</button>
+              <button type="button" class="location-thematic-remove" id="locProfileGovernmentSocietyRemove" onclick="removeEmptyLocationThematicModule('governmentSociety')" hidden>Убрать раздел</button>
+              <button type="button" class="location-thematic-delete-start" id="locProfileGovernmentSocietyDeleteStart" onclick="startDeleteLocationThematicModule('governmentSociety')" hidden>Удалить данные раздела</button>
+              <span class="location-thematic-delete-confirm" id="locProfileGovernmentSocietyDeleteConfirm" hidden>
+                <span class="location-thematic-delete-warning" id="locProfileGovernmentSocietyDeleteWarning"></span>
+                <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('governmentSociety')">Да, удалить</button>
+                <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('governmentSociety')">Отмена</button>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="location-thematic-module" id="locProfileEconomyModule" hidden>
+          <button type="button" class="location-thematic-disclosure" id="locProfileEconomyToggle" aria-expanded="false" aria-controls="locProfileEconomyBody" onclick="toggleLocationThematicDisclosure('economy')">
+            <span class="location-thematic-disclosure-chevron" aria-hidden="true">▸</span>
+            <span>Экономика</span>
+          </button>
+          <div id="locProfileEconomyBody" class="location-thematic-body" hidden>
+            <div class="profile-editor-grid">
+              <label class="profile-field">
+                <span class="field-caption">Валюта</span>
+                <input id="locProfileCurrency" placeholder="например: кроны, доллары, бартер">
+              </label>
+              <label class="profile-field full">
+                <span class="field-caption">Экономическая жизнь</span>
+                <textarea id="locProfileEconomicCharacter" rows="3"></textarea>
+              </label>
+              <div class="profile-field full">
+                <span class="field-caption">Основные отрасли и источники дохода</span>
+                <div class="multi-value-host" id="locProfileIndustries"></div>
+              </div>
+              <label class="profile-field">
+                <span class="field-caption">Стоимость жизни</span>
+                <input id="locProfileCostOfLiving" placeholder="например: очень дорого, дешёвое жильё, аренда почти недоступна">
+              </label>
+              <div class="profile-field full">
+                <span class="field-caption">В дефиците</span>
+                <div class="multi-value-host" id="locProfileScarcity"></div>
+              </div>
+              <div class="profile-field full">
+                <span class="field-caption">Торговые связи</span>
+                <div class="multi-value-host" id="locProfileTradeConnections"></div>
+              </div>
+            </div>
+            <div class="location-thematic-actions" id="locProfileEconomyActions">
+              <button type="button" class="location-thematic-hide" id="locProfileEconomyHide" onclick="hideLocationThematicModule('economy')" hidden>Скрыть раздел</button>
+              <button type="button" class="location-thematic-remove" id="locProfileEconomyRemove" onclick="removeEmptyLocationThematicModule('economy')" hidden>Убрать раздел</button>
+              <button type="button" class="location-thematic-delete-start" id="locProfileEconomyDeleteStart" onclick="startDeleteLocationThematicModule('economy')" hidden>Удалить данные раздела</button>
+              <span class="location-thematic-delete-confirm" id="locProfileEconomyDeleteConfirm" hidden>
+                <span class="location-thematic-delete-warning" id="locProfileEconomyDeleteWarning"></span>
+                <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('economy')">Да, удалить</button>
+                <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('economy')">Отмена</button>
               </span>
             </div>
           </div>

@@ -3,17 +3,20 @@
 // backend RPC's own normalization (20260904140000_location_adaptive_module_selection.sql).
 import assert from "node:assert/strict";
 import {
-  LOCATION_MODULE_KEYS,locationModuleLabel,locationModuleHasData,
+  LOCATION_MODULE_KEYS,locationModuleLabel,locationModuleHasData,locationModuleRecommendation,
   normalizeModuleSelection,moduleSelectionsEqual,moduleSelectionEffective,
   locationModuleEditVisible,locationModuleReadVisible,locationVisibleModules,locationModulePickerCandidates,
   addEmptyLocationModule,removeEmptyLocationModule,hideLocationModule,showLocationModule,
   deleteLocationModuleSelectionEntry,dropRedundantShownEntries,saveNeedsModuleSelectionWrite
 } from "../js/location-module-selection.js";
 
-// 1. Phase 1 catalog is exactly the two existing modules, nothing more.
-assert.deepEqual(LOCATION_MODULE_KEYS,["appearanceAtmosphere","geography"]);
+// 1. Catalog is the four shipped modules (Phase 1: appearanceAtmosphere/geography; B3B:
+// governmentSociety/economy), in this fixed order, nothing more.
+assert.deepEqual(LOCATION_MODULE_KEYS,["appearanceAtmosphere","geography","governmentSociety","economy"]);
 assert.equal(locationModuleLabel("appearanceAtmosphere"),"Внешний вид и атмосфера");
 assert.equal(locationModuleLabel("geography"),"География и природа");
+assert.equal(locationModuleLabel("governmentSociety"),"Государство и общество");
+assert.equal(locationModuleLabel("economy"),"Экономика");
 
 // 2. hasData: empty/absent baseProfile -> false for both modules.
 assert.equal(locationModuleHasData({},"appearanceAtmosphere"),false);
@@ -33,7 +36,7 @@ assert.deepEqual(normalizeModuleSelection({shown:["geography","appearanceAtmosph
 assert.deepEqual(normalizeModuleSelection({hidden:["appearanceAtmosphere","appearanceAtmosphere"]}),{shown:[],hidden:["appearanceAtmosphere"]});
 
 // 6. normalizeModuleSelection: unknown keys are dropped (frontend catalog is the allowlist here).
-assert.deepEqual(normalizeModuleSelection({shown:["economy","appearanceAtmosphere"]}),{shown:["appearanceAtmosphere"],hidden:[]});
+assert.deepEqual(normalizeModuleSelection({shown:["populationCulture","appearanceAtmosphere"]}),{shown:["appearanceAtmosphere"],hidden:[]});
 
 // 7. normalizeModuleSelection: malformed input never throws.
 assert.deepEqual(normalizeModuleSelection(undefined),{shown:[],hidden:[]});
@@ -90,7 +93,7 @@ assert.deepEqual(moduleSelectionEffective({shown:["geography"]}),{shown:["geogra
   const location={baseProfile:{geography:{terrain:"Горы"}}};
   const selection={hidden:["geography"]};
   const candidates=locationModulePickerCandidates(location,selection);
-  assert.deepEqual(candidates.map(c=>c.key).sort(),["appearanceAtmosphere","geography"]);
+  assert.deepEqual(candidates.map(c=>c.key).sort(),["appearanceAtmosphere","economy","geography","governmentSociety"]);
   const geo=candidates.find(c=>c.key==="geography");
   assert.equal(geo.action,"show");
   assert.equal(geo.hasData,true);
@@ -102,8 +105,28 @@ assert.deepEqual(moduleSelectionEffective({shown:["geography"]}),{shown:["geogra
   // geography's candidacy here is solely a function of selection state, not hasData).
   const emptyLocation={baseProfile:{}};
   const shownSelection={shown:["appearanceAtmosphere"]};
-  assert.deepEqual(locationModulePickerCandidates(emptyLocation,shownSelection).map(c=>c.key),["geography"]);
+  assert.deepEqual(locationModulePickerCandidates(emptyLocation,shownSelection).map(c=>c.key),["geography","governmentSociety","economy"]);
 }
+
+// 22. B3B hasData: governmentSociety/economy follow the exact same rules as the existing modules.
+assert.equal(locationModuleHasData({baseProfile:{governmentSociety:{governmentForm:"   "}}},"governmentSociety"),false);
+assert.equal(locationModuleHasData({baseProfile:{governmentSociety:{leadership:"Совет старейшин"}}},"governmentSociety"),true);
+assert.equal(locationModuleHasData({baseProfile:{economy:{}}},"economy"),false);
+assert.equal(locationModuleHasData({baseProfile:{economy:{currency:"кроны"}}},"economy"),true);
+
+// 23. locationModuleRecommendation: guidance-only lookup, never throws, "none" for an
+// unspecified/custom type (no typePreset) and for a module with no recommendation table.
+assert.equal(locationModuleRecommendation("governmentSociety","country"),"strong");
+assert.equal(locationModuleRecommendation("governmentSociety","continent"),"none");
+assert.equal(locationModuleRecommendation("governmentSociety","district"),"recommend");
+assert.equal(locationModuleRecommendation("economy","transport"),"strong");
+assert.equal(locationModuleRecommendation("economy","street"),"recommend");
+assert.equal(locationModuleRecommendation("economy","room"),"none");
+assert.equal(locationModuleRecommendation("governmentSociety",null),"none");
+assert.equal(locationModuleRecommendation("governmentSociety",undefined),"none");
+assert.equal(locationModuleRecommendation("governmentSociety","some-custom-unlisted-type"),"none");
+assert.equal(locationModuleRecommendation("appearanceAtmosphere","country"),"none","Phase 1 modules have no recommendation table");
+assert.equal(locationModuleRecommendation("geography","country"),"none","Phase 1 modules have no recommendation table");
 
 // 15. addEmptyLocationModule: adds to shown, removes from hidden if it was there (defensive).
 assert.deepEqual(addEmptyLocationModule({},"geography"),{shown:["geography"],hidden:[]});

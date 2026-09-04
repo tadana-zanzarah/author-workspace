@@ -1,4 +1,5 @@
-/* Location Phase B3A -- base_profile thematic modules (appearanceAtmosphere, geography).
+/* Location Phase B3A/B3B -- base_profile thematic modules (appearanceAtmosphere, geography,
+ * governmentSociety, economy).
  *
  * Pure frontend counterpart to the backend three-state patch contract published in
  * supabase/migrations/20260904130000_location_base_profile_modules.sql:
@@ -18,6 +19,14 @@ const APPEARANCE_ATMOSPHERE_TEXT_FIELDS=["visualDescription","atmosphere","sound
 const APPEARANCE_ATMOSPHERE_ARRAY_FIELDS=["notableFeatures"];
 const GEOGRAPHY_TEXT_FIELDS=["terrain","climate","water","vegetation","coordinates","area","elevation","access"];
 const GEOGRAPHY_ARRAY_FIELDS=["naturalFeatures"];
+// B3B (governmentSociety/economy) -- see "Location Adaptive Modules -- B3B Product Specification"
+// for why exactly these fields and not e.g. a dedicated `capital` field (deferred to a future
+// Location<->Location relation model) or a split of geography.access (deferred, see that field's
+// own unchanged treatment below -- this migration touches zero Geography semantics).
+const GOVERNMENT_SOCIETY_TEXT_FIELDS=["governmentForm","leadership","politicalSituation","lawsAndRules"];
+const GOVERNMENT_SOCIETY_ARRAY_FIELDS=["securityForces","notableInstitutions"];
+const ECONOMY_TEXT_FIELDS=["currency","economicCharacter","costOfLiving"];
+const ECONOMY_ARRAY_FIELDS=["industries","scarcity","tradeConnections"];
 
 // Full-shape hydration: every field present with a safe empty default (string or []), regardless
 // of what the stored module actually contains -- used to prefill the edit-mode draft (the DOM
@@ -32,6 +41,8 @@ function hydrateThematicModule(raw,textFields,arrayFields){
 }
 function hydrateAppearanceAtmosphere(raw){return hydrateThematicModule(raw,APPEARANCE_ATMOSPHERE_TEXT_FIELDS,APPEARANCE_ATMOSPHERE_ARRAY_FIELDS)}
 function hydrateGeography(raw){return hydrateThematicModule(raw,GEOGRAPHY_TEXT_FIELDS,GEOGRAPHY_ARRAY_FIELDS)}
+function hydrateGovernmentSociety(raw){return hydrateThematicModule(raw,GOVERNMENT_SOCIETY_TEXT_FIELDS,GOVERNMENT_SOCIETY_ARRAY_FIELDS)}
+function hydrateEconomy(raw){return hydrateThematicModule(raw,ECONOMY_TEXT_FIELDS,ECONOMY_ARRAY_FIELDS)}
 
 // Clean-shape normalization for comparison/patch/display: trims strings, drops blank/duplicate
 // array entries (normalizeMultiValue -- the same dedup/order rule the multi-value widgets already
@@ -54,6 +65,8 @@ function normalizeThematicModule(draft,textFields,arrayFields){
 }
 function normalizeAppearanceAtmosphere(draft){return normalizeThematicModule(draft,APPEARANCE_ATMOSPHERE_TEXT_FIELDS,APPEARANCE_ATMOSPHERE_ARRAY_FIELDS)}
 function normalizeGeography(draft){return normalizeThematicModule(draft,GEOGRAPHY_TEXT_FIELDS,GEOGRAPHY_ARRAY_FIELDS)}
+function normalizeGovernmentSociety(draft){return normalizeThematicModule(draft,GOVERNMENT_SOCIETY_TEXT_FIELDS,GOVERNMENT_SOCIETY_ARRAY_FIELDS)}
+function normalizeEconomy(draft){return normalizeThematicModule(draft,ECONOMY_TEXT_FIELDS,ECONOMY_ARRAY_FIELDS)}
 
 function isModuleEmpty(normalizedModule){return Object.keys(normalizedModule||{}).length===0}
 
@@ -68,17 +81,26 @@ function buildThematicModulePatchEntry(normalizedOriginal,normalizedDraft){
 }
 
 // Builds the location_base_profile_patch object for update_location_canonical (cloud) or the
-// equivalent local-mode merge (see applyLocationBaseProfilePatch). Returns null when NEITHER
-// module actually changed -- callers must send that null through as-is ("no thematic module
+// equivalent local-mode merge (see applyLocationBaseProfilePatch). Returns null when NO module
+// actually changed -- callers must send that null through as-is ("no thematic module
 // changes this call"), never an empty object. Accepts raw-or-hydrated module shapes for both
-// original and draft (normalization happens here).
-function buildLocationBaseProfilePatch({originalAppearance,originalGeography,draftAppearance,draftGeography}){
+// original and draft (normalization happens here). governmentSociety/economy (B3B) are optional --
+// an omitted original/draft pair normalizes to {} (unchanged, omitted from the patch), so every
+// call site written before B3B keeps working unmodified.
+function buildLocationBaseProfilePatch({
+  originalAppearance,originalGeography,originalGovernmentSociety,originalEconomy,
+  draftAppearance,draftGeography,draftGovernmentSociety,draftEconomy
+}){
   const appearanceEntry=buildThematicModulePatchEntry(normalizeAppearanceAtmosphere(originalAppearance),normalizeAppearanceAtmosphere(draftAppearance));
   const geographyEntry=buildThematicModulePatchEntry(normalizeGeography(originalGeography),normalizeGeography(draftGeography));
-  if(!appearanceEntry.changed&&!geographyEntry.changed)return null;
+  const governmentSocietyEntry=buildThematicModulePatchEntry(normalizeGovernmentSociety(originalGovernmentSociety),normalizeGovernmentSociety(draftGovernmentSociety));
+  const economyEntry=buildThematicModulePatchEntry(normalizeEconomy(originalEconomy),normalizeEconomy(draftEconomy));
+  if(!appearanceEntry.changed&&!geographyEntry.changed&&!governmentSocietyEntry.changed&&!economyEntry.changed)return null;
   const patch={};
   if(appearanceEntry.changed)patch.appearanceAtmosphere=appearanceEntry.value;
   if(geographyEntry.changed)patch.geography=geographyEntry.value;
+  if(governmentSocietyEntry.changed)patch.governmentSociety=governmentSocietyEntry.value;
+  if(economyEntry.changed)patch.economy=economyEntry.value;
   return patch;
 }
 
@@ -97,11 +119,14 @@ function applyLocationBaseProfilePatch(baseProfile,patch){
 }
 
 Object.assign(globalThis,{
-  hydrateAppearanceAtmosphere,hydrateGeography,normalizeAppearanceAtmosphere,normalizeGeography,
+  hydrateAppearanceAtmosphere,hydrateGeography,hydrateGovernmentSociety,hydrateEconomy,
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,
   isModuleEmpty,buildLocationBaseProfilePatch,applyLocationBaseProfilePatch
 });
 export {
   APPEARANCE_ATMOSPHERE_TEXT_FIELDS,APPEARANCE_ATMOSPHERE_ARRAY_FIELDS,GEOGRAPHY_TEXT_FIELDS,GEOGRAPHY_ARRAY_FIELDS,
-  hydrateAppearanceAtmosphere,hydrateGeography,normalizeAppearanceAtmosphere,normalizeGeography,
+  GOVERNMENT_SOCIETY_TEXT_FIELDS,GOVERNMENT_SOCIETY_ARRAY_FIELDS,ECONOMY_TEXT_FIELDS,ECONOMY_ARRAY_FIELDS,
+  hydrateAppearanceAtmosphere,hydrateGeography,hydrateGovernmentSociety,hydrateEconomy,
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,
   isModuleEmpty,thematicModulesEqual,buildLocationBaseProfilePatch,applyLocationBaseProfilePatch
 };
