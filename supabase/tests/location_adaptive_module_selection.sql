@@ -184,10 +184,11 @@ begin
 end $$;
 
 -- ===========================================================================
--- Block G: unknown module key (not on the allowlist) is rejected. Uses 'populationCulture' --
--- NOT 'economy', which B3B (20260905090000_location_government_economy_modules.sql) allowlisted
--- after this test was originally written; a still-unallowlisted key is what this block actually
--- needs to prove the point, not that specific key.
+-- Block G: unknown module key (not on the allowlist) is rejected. Uses 'historyNotes' -- NOT
+-- 'economy'/'populationCulture', which B3B (20260905090000_location_government_economy_modules.sql)
+-- and B3C (20260906090000_location_population_culture_module.sql) respectively allowlisted after
+-- this test was originally written; a still-unallowlisted key is what this block actually needs to
+-- prove the point, not that specific key.
 -- ===========================================================================
 do $$
 declare
@@ -198,7 +199,7 @@ begin
   r:=public.create_location_canonical(proj,rev,'Forbidden Wing');
   pl_id:=(r->'data'->>'id')::uuid; rev:=(r->>'revision')::bigint;
 
-  r:=public.update_project_location_module_selection(proj,pl_id,rev,jsonb_build_object('shown',jsonb_build_array('populationCulture')));
+  r:=public.update_project_location_module_selection(proj,pl_id,rev,jsonb_build_object('shown',jsonb_build_array('historyNotes')));
   if coalesce((r->>'ok')::boolean,false) or r->>'code'<>'VALIDATION_ERROR' then raise exception 'G: unknown module key was not rejected: %', r; end if;
   if (select metadata ? 'locationProfile' from public.project_locations where id=pl_id) then raise exception 'G: rejected unknown-key call still wrote metadata'; end if;
 end $$;
@@ -418,15 +419,16 @@ begin
 
   -- T: malformed/unknown entries -- non-array hidden, unknown module key, non-string entry,
   -- unexpected top-level key -- degrade safely rather than crash the import or leak invalid data.
-  -- Uses 'populationCulture' as the unknown key (NOT 'economy', which B3B allowlisted after this
-  -- test was originally written -- see Block G's comment above for the same reasoning).
+  -- Uses 'historyNotes' as the unknown key (NOT 'economy'/'populationCulture', which B3B/B3C
+  -- allowlisted after this test was originally written -- see Block G's comment above for the
+  -- same reasoning).
   payload:=jsonb_build_object(
     'project_id',import_project_t::text,'source_project_id','adaptive-malformed-snapshot','migration_attempt_id','f3000000-0000-4000-8000-000000000004',
     'characters','[]'::jsonb,'chapters','[]'::jsonb,
     'locations',jsonb_build_array(
       jsonb_build_object(
         'id','f4000000-0000-4000-8000-000000000004','name','Malformed Snapshot Loft','description','',
-        'module_selection',jsonb_build_object('shown',jsonb_build_array('populationCulture','appearanceAtmosphere',42),'hidden','not-an-array','extra','key')
+        'module_selection',jsonb_build_object('shown',jsonb_build_array('historyNotes','appearanceAtmosphere',42),'hidden','not-an-array','extra','key')
       ),
       jsonb_build_object(
         'id','f4000000-0000-4000-8000-000000000005','name','Wrong Type Snapshot Cellar','description','',

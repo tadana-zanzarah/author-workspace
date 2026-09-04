@@ -168,7 +168,9 @@ begin
 end $$;
 
 -- ===========================================================================
--- Block H: unknown/disallowed module key -- stable domain error, not a crash (case H).
+-- Block H: unknown/disallowed module key -- stable domain error, not a crash (case H). Uses
+-- historyNotes -- populationCulture shipped in B3C (20260906090000_location_population_culture_
+-- module.sql) and is no longer a valid example of an unallowlisted key.
 -- ===========================================================================
 do $$
 declare
@@ -179,9 +181,9 @@ begin
   r:=public.create_location_canonical(proj,rev,'Forbidden Archive');
   canonical_id:=(r->'data'->>'location_id')::uuid; loc_rev:=(r->'data'->>'location_revision')::bigint;
 
-  r:=public.update_location_canonical(canonical_id,loc_rev,'Forbidden Archive',null,'{}',null,null,'','',jsonb_build_object('populationCulture',jsonb_build_object('note','not yet allowlisted')));
+  r:=public.update_location_canonical(canonical_id,loc_rev,'Forbidden Archive',null,'{}',null,null,'','',jsonb_build_object('historyNotes',jsonb_build_object('note','not yet allowlisted')));
   if coalesce((r->>'ok')::boolean,false) or r->>'code'<>'VALIDATION_ERROR' then raise exception 'unknown module key was not rejected with a stable domain error: %', r; end if;
-  if (select base_profile ? 'populationCulture' from public.locations where id=canonical_id) then raise exception 'unknown module key leaked into base_profile despite rejection'; end if;
+  if (select base_profile ? 'historyNotes' from public.locations where id=canonical_id) then raise exception 'unknown module key leaked into base_profile despite rejection'; end if;
 end $$;
 
 -- ===========================================================================
@@ -326,7 +328,9 @@ begin
 
   -- O: sanitization -- an unknown/unapproved base_profile key, plus a malformed (non-object)
   -- value for an allowlisted key, plus an empty-object module, must all be silently dropped
-  -- rather than crash the whole import or leak into the canonical row.
+  -- rather than crash the whole import or leak into the canonical row. Uses historyNotes as the
+  -- unapproved key -- populationCulture shipped in B3C (20260906090000_location_population_
+  -- culture_module.sql) and is no longer a valid example of an unallowlisted key.
   payload:=jsonb_build_object(
     'project_id',import_project_o::text,'source_project_id','b3a-hostile-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000004',
     'characters','[]'::jsonb,'chapters','[]'::jsonb,
@@ -335,7 +339,7 @@ begin
       'base_profile',jsonb_build_object(
         'appearanceAtmosphere',jsonb_build_object('visualDescription','A leaning shack'),
         'geography','not-an-object',
-        'populationCulture',jsonb_build_object('note','not allowlisted'),
+        'historyNotes',jsonb_build_object('note','not allowlisted'),
         'economy',jsonb_build_object()
       )
     )),
@@ -347,7 +351,7 @@ begin
   select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000004' and project_id=import_project_o;
   if (select base_profile->'appearanceAtmosphere'->>'visualDescription' from public.locations where id=canonical_id)<>'A leaning shack' then raise exception 'valid allowlisted module was dropped alongside the invalid data'; end if;
   if (select base_profile ? 'geography' from public.locations where id=canonical_id) then raise exception 'malformed (non-object) geography value was not sanitized away'; end if;
-  if (select base_profile ? 'populationCulture' from public.locations where id=canonical_id) then raise exception 'unapproved base_profile key leaked through import'; end if;
+  if (select base_profile ? 'historyNotes' from public.locations where id=canonical_id) then raise exception 'unapproved base_profile key leaked through import'; end if;
   if (select base_profile ? 'economy' from public.locations where id=canonical_id) then raise exception 'empty-object module leaked through import instead of being dropped'; end if;
 end $$;
 

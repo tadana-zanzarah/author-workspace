@@ -18,14 +18,20 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','e1000000-0000-4000-8000-000000000001',true);
 
 -- ===========================================================================
--- Block A: allowlist contains all four modules, in canonical order, existing two untouched.
+-- Block A: allowlist contains governmentSociety/economy, in canonical order, immediately after
+-- geography and before anything else. Checked as a sub-sequence (not full-array equality) because
+-- this suite runs after the FULL migration chain -- including B3C (20260906090000_location_
+-- population_culture_module.sql), applied on top of this migration in every disposable-CI/test run
+-- -- so the live allowlist legitimately has a fifth key (populationCulture) beyond what this
+-- migration itself added; a full-array equality here would go stale every time a later phase
+-- extends the allowlist further, same lesson as the historical fixes to this file's Block C/G.
 -- ===========================================================================
 do $$
 declare allowed text[];
 begin
   allowed:=private.location_thematic_module_keys();
-  if allowed<>array['appearanceAtmosphere','geography','governmentSociety','economy'] then
-    raise exception 'A: allowlist is not exactly the four expected keys in canonical order: %', allowed;
+  if allowed[1:4]<>array['appearanceAtmosphere','geography','governmentSociety','economy'] then
+    raise exception 'A: the first four allowlist keys are not appearanceAtmosphere/geography/governmentSociety/economy in that order: %', allowed;
   end if;
 end $$;
 
