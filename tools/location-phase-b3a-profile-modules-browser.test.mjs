@@ -78,7 +78,9 @@ await page.evaluate(()=>openLocationProfile("loc-geography-only"));
   }));
   if(!state.appearanceHidden)throw new Error("Appearance must stay absent when the Location has no appearance data");
   if(state.geographyHidden)throw new Error("Geography module with data must be visible");
-  if(state.title!=="География")throw new Error(`unexpected Geography heading: ${state.title}`);
+  // Adaptive Module Selection (Phase 1) relabeled the read-mode heading "География" ->
+  // "География и природа" (catalog decision, UI label only -- the base_profile key is unchanged).
+  if(state.title!=="География и природа")throw new Error(`unexpected Geography heading: ${state.title}`);
   if(!state.facts.some(text=>text.includes("Горы"))||!state.facts.some(text=>text.includes("Холодный")))throw new Error(`short geography fields did not render as compact facts: ${JSON.stringify(state.facts)}`);
   if(JSON.stringify(state.chips)!==JSON.stringify(["Ледник"]))throw new Error("naturalFeatures did not render as compact chips");
 }
@@ -115,27 +117,38 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 
 /* ---------- EDIT MODE ---------- */
 
-// G/H/I/J. Disclosure: empty module collapsed, populated module expanded, toggle works, aria-expanded correct.
+// G/H/I/J. Disclosure: empty module collapsed, populated module expanded, toggle works, aria-
+// expanded correct. Adaptive Module Selection (Phase 1) change: an EMPTY, never-selected module
+// is no longer rendered as a collapsed accordion at all -- it must be added via "+ Добавить
+// раздел" first (which itself auto-expands it), so this now also covers that add flow directly.
 await page.evaluate(()=>openLocationProfile("loc-appearance-only"));
 await page.click("#locationProfileEdit");
 {
   const initial=await page.evaluate(()=>({
     appExpanded:document.getElementById("locProfileAppearanceToggle").getAttribute("aria-expanded"),
     appBodyHidden:document.getElementById("locProfileAppearanceBody").hidden,
+    geoModuleHidden:document.getElementById("locProfileGeographyModule").hidden
+  }));
+  if(initial.appExpanded!=="true"||initial.appBodyHidden)throw new Error("populated Appearance must start expanded on entering edit mode");
+  if(!initial.geoModuleHidden)throw new Error("empty, never-selected Geography must not be rendered as an accordion at all on entering edit mode");
+}
+await page.click("#locProfileAddSectionToggle");
+await page.click(".location-thematic-add-chip:has-text(\"География и природа\")");
+{
+  const afterAdd=await page.evaluate(()=>({
+    geoModuleHidden:document.getElementById("locProfileGeographyModule").hidden,
     geoExpanded:document.getElementById("locProfileGeographyToggle").getAttribute("aria-expanded"),
     geoBodyHidden:document.getElementById("locProfileGeographyBody").hidden
   }));
-  if(initial.appExpanded!=="true"||initial.appBodyHidden)throw new Error("populated Appearance must start expanded on entering edit mode");
-  if(initial.geoExpanded!=="false"||!initial.geoBodyHidden)throw new Error("empty Geography must start collapsed on entering edit mode");
+  if(afterAdd.geoModuleHidden)throw new Error("Добавить раздел must render the module accordion immediately");
+  if(afterAdd.geoExpanded!=="true"||afterAdd.geoBodyHidden)throw new Error("adding an empty module must expand it immediately, not leave it collapsed");
 }
 await page.click("#locProfileGeographyToggle");
 {
-  const afterToggle=await page.evaluate(()=>({
-    geoExpanded:document.getElementById("locProfileGeographyToggle").getAttribute("aria-expanded"),
-    geoBodyHidden:document.getElementById("locProfileGeographyBody").hidden
-  }));
-  if(afterToggle.geoExpanded!=="true"||afterToggle.geoBodyHidden)throw new Error("clicking the disclosure toggle must expand a collapsed module");
+  const afterCollapse=await page.evaluate(()=>document.getElementById("locProfileGeographyBody").hidden);
+  if(!afterCollapse)throw new Error("clicking an expanded disclosure toggle must collapse it");
 }
+await page.click("#locProfileGeographyToggle");
 await page.click("#locProfileAppearanceToggle");
 {
   const afterCollapse=await page.evaluate(()=>({
@@ -154,7 +167,9 @@ await page.evaluate(()=>openLocationProfile("loc-edit-target"));
 await page.click("#locationProfileEdit");
 if(await page.evaluate(()=>document.getElementById("locProfileGeographyToggle").getAttribute("aria-expanded"))!=="true")throw new Error("Geography with data (loc-edit-target) must start expanded");
 if(await page.evaluate(()=>trackerFor("locationProfileModal").isDirty()))throw new Error("opening edit mode alone must not mark the form dirty");
-await page.click("#locProfileAppearanceToggle"); // expand the empty Appearance module to edit it
+if(await page.evaluate(()=>document.getElementById("locProfileAppearanceModule").hidden)!==true)throw new Error("empty, never-selected Appearance must not be rendered on entering edit mode");
+await page.click("#locProfileAddSectionToggle"); // add the empty Appearance module to edit it
+await page.click(".location-thematic-add-chip:has-text(\"Внешний вид и атмосфера\")");
 await page.fill("#locProfileAtmosphere","Напряжённая тишина.");
 if(!await page.evaluate(()=>trackerFor("locationProfileModal").isDirty()))throw new Error("editing an Appearance textarea must mark the form dirty");
 const notableFeatures=page.locator("#locProfileNotableFeatures");
@@ -181,19 +196,27 @@ await page.click("#discardChanges");
   if(!afterDiscard.appearanceHidden)throw new Error("read mode after discard must still show no Appearance section");
 }
 
-// O/R. Clear-section clears the draft only (no immediate save); T. no-op edit -> no thematic patch.
+// O/R. Удалить данные раздела clears the draft only (no immediate save, confirmed inline, not a
+// modal); T. no-op edit -> no thematic patch. Replaces B3A's old always-available "Очистить
+// раздел" with the split Adaptive contract: Скрыть раздел (project-specific, no data touched) vs.
+// Удалить данные раздела (canonical, requires the inline Да/Отмена confirm) -- see the Final
+// Contract Addendum §5/§6.
 await page.click("#locationProfileEdit");
-await page.click("#locProfileGeographyClear");
+await page.click("#locProfileGeographyDeleteStart");
+if(await page.evaluate(()=>document.getElementById("locProfileGeographyDeleteConfirm").hidden))throw new Error("Удалить данные раздела must show an inline Да/Отмена confirm, not delete immediately");
+await page.click("#locProfileGeographyDeleteConfirm .location-thematic-delete-confirm-yes");
 {
   const cleared=await page.evaluate(()=>({
     terrain:document.getElementById("locProfileTerrain").value,
     climate:document.getElementById("locProfileClimate").value,
     dirty:trackerFor("locationProfileModal").isDirty(),
-    stillStoredTerrain:locationById("loc-edit-target").baseProfile?.geography?.terrain
+    stillStoredTerrain:locationById("loc-edit-target").baseProfile?.geography?.terrain,
+    moduleHidden:document.getElementById("locProfileGeographyModule").hidden
   }));
-  if(cleared.terrain||cleared.climate)throw new Error("Очистить раздел must blank every field in the module's draft");
-  if(!cleared.dirty)throw new Error("Очистить раздел must mark the form dirty");
-  if(cleared.stillStoredTerrain!=="Горы")throw new Error("Очистить раздел must not touch the stored Location until Save");
+  if(cleared.terrain||cleared.climate)throw new Error("confirmed Удалить данные раздела must blank every field in the module's draft");
+  if(!cleared.dirty)throw new Error("confirmed Удалить данные раздела must mark the form dirty");
+  if(cleared.stillStoredTerrain!=="Горы")throw new Error("Удалить данные раздела must not touch the stored Location until Save");
+  if(!cleared.moduleHidden)throw new Error("a module emptied via confirmed delete must drop out of the visible accordion list immediately");
 }
 await page.evaluate(()=>document.getElementById("locationProfileCancelEdit").click());
 await page.click("#discardChanges");
@@ -215,7 +238,8 @@ await page.click("#locationProfileEdit");
 // R: clear just "climate" (leave terrain) -> stored Geography must drop the key entirely.
 await page.fill("#locProfileClimate","");
 // Also populate Appearance (currently empty) so this save exercises both directions at once.
-await page.click("#locProfileAppearanceToggle");
+await page.click("#locProfileAddSectionToggle");
+await page.click(".location-thematic-add-chip:has-text(\"Внешний вид и атмосфера\")");
 await page.fill("#locProfileVisualDescription","Каменная кладка, поросшая мхом.");
 await page.click("#locationProfileSave");
 await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true,{timeout:3000});
@@ -235,9 +259,11 @@ await page.waitForFunction(()=>document.getElementById("locationProfileEditView"
   if(readState.geographyFacts.some(text=>text.includes("Климат")))throw new Error("cleared Climate must not still render in read mode after save");
 }
 
-// S: full-module clearing -> saved module must be entirely absent (server-side JSON null).
+// S: full-module clearing (confirmed Удалить данные раздела) -> saved module must be entirely
+// absent (server-side JSON null).
 await page.click("#locationProfileEdit");
-await page.click("#locProfileGeographyClear");
+await page.click("#locProfileGeographyDeleteStart");
+await page.click("#locProfileGeographyDeleteConfirm .location-thematic-delete-confirm-yes");
 await page.click("#locationProfileSave");
 await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true,{timeout:3000});
 {
@@ -252,9 +278,11 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 
 await page.evaluate(()=>openLocationProfile("loc-core-only"));
 await page.click("#locationProfileEdit");
-await page.click("#locProfileAppearanceToggle");
+await page.click("#locProfileAddSectionToggle");
+await page.click(".location-thematic-add-chip:has-text(\"Внешний вид и атмосфера\")");
 await page.fill("#locProfileVisualDescription","Толстый слой пыли на всём.");
-await page.click("#locProfileGeographyToggle");
+await page.click("#locProfileAddSectionToggle");
+await page.click(".location-thematic-add-chip:has-text(\"География и природа\")");
 await page.fill("#locProfileTerrain","Чердачное перекрытие");
 await page.click("#locationProfileSave");
 await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true,{timeout:3000});

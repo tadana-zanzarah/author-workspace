@@ -247,6 +247,56 @@
 }
 .location-thematic-clear:hover,.location-thematic-clear:focus-visible{color:var(--text-primary);text-decoration-color:currentColor}
 
+/* Adaptive Module Selection (Phase 1): per-module action row -- Скрыть/Убрать raздел are quiet
+   text actions (same visual weight as the old "Очистить раздел" link they replace); Удалить
+   данные раздела is deliberately the SAME quiet weight, not a heavy red button, per the accepted
+   contract ("small, secondary, de-emphasized text action... not a large red button") -- only its
+   color leans toward --danger so it still reads as the more consequential of the two. */
+.location-thematic-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);margin-top:var(--space-2)}
+.location-thematic-hide,.location-thematic-remove,.location-thematic-delete-start{
+  display:inline-block;padding:4px 0;border:0;background:transparent;
+  color:var(--text-secondary);font-size:var(--text-xs);text-decoration:underline;text-decoration-color:transparent;cursor:pointer;
+}
+.location-thematic-hide:hover,.location-thematic-hide:focus-visible,
+.location-thematic-remove:hover,.location-thematic-remove:focus-visible{color:var(--text-primary);text-decoration-color:currentColor}
+.location-thematic-delete-start{color:var(--danger)}
+.location-thematic-delete-start:hover,.location-thematic-delete-start:focus-visible{text-decoration-color:currentColor}
+.location-thematic-delete-confirm{display:inline-flex;align-items:center;gap:8px;font-size:var(--text-xs)}
+.location-thematic-delete-warning{color:var(--danger);max-width:38ch}
+.location-thematic-delete-confirm-yes,.location-thematic-delete-confirm-no{
+  padding:3px 9px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);
+  background:var(--surface-elevated);font-size:var(--text-xs);cursor:pointer;
+}
+.location-thematic-delete-confirm-yes{border-color:var(--danger);color:var(--danger);background:var(--danger-tint)}
+.location-thematic-delete-confirm-no:hover,.location-thematic-delete-confirm-no:focus-visible{background:var(--soft)}
+
+/* "+ Добавить раздел": a small inline panel, not a modal -- lists every module not currently
+   edit-visible. Phase 1 has only two catalog modules total, so this never needs a "recommended vs
+   other" grouping (see the audit's own "do not overbuild recommendation UI" guidance). A hidden,
+   populated module renders with a visibly distinct tag ("есть данные") so restoring it never
+   reads as starting from nothing. */
+.location-thematic-add{margin-top:var(--space-3);position:relative}
+.location-thematic-add-toggle{
+  display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border:1px dashed var(--border-subtle);
+  border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font-size:var(--text-sm);
+  font-weight:600;cursor:pointer;
+}
+.location-thematic-add-toggle:hover,.location-thematic-add-toggle[aria-expanded="true"]{color:var(--text-primary);border-color:var(--accent)}
+.location-thematic-add-panel{
+  margin-top:6px;padding:8px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+  background:var(--surface-elevated);display:flex;flex-wrap:wrap;gap:8px;box-shadow:0 4px 14px -6px rgba(0,0,0,.18);
+}
+.location-thematic-add-panel[hidden]{display:none}
+.location-thematic-add-chip{
+  display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border:1px solid var(--border-subtle);
+  border-radius:999px;background:var(--surface);color:var(--text-primary);font-size:var(--text-sm);cursor:pointer;
+}
+.location-thematic-add-chip:hover,.location-thematic-add-chip:focus-visible{border-color:var(--accent);background:var(--soft)}
+.location-thematic-add-chip-restore-tag{
+  font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);
+  border:1px solid var(--accent);border-radius:999px;padding:1px 6px;
+}
+
 .location-profile-summary{margin-bottom:var(--space-4)}
 .location-profile-description{margin:0;white-space:pre-wrap;line-height:1.5;font-size:var(--text-sm);color:var(--text-primary)}
 /* Understated, compact — not a big empty card — and doubles as a natural way into

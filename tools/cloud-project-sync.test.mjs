@@ -26,7 +26,7 @@ assert.equal(hydrated.characters[0].sortOrder,0,"project_characters.sort_order i
 assert.deepEqual(hydrated.locations[0],{
   id:"location-1",name:"Дом",description:"",locationId:"location-1",
   officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:null,
-  baseProfile:{},shortSummary:"",locationRevision:0
+  baseProfile:{},shortSummary:"",locationRevision:0,moduleSelection:{}
 },"a location row without any Phase B1 columns hydrates safely with default values (old cached snapshot compatibility)");
 const withCanonicalId=hydrateProjectFromCloudSnapshot({...snapshot,locations:[{id:"location-1",name:"Дом",description:"",location_id:"canonical-9"}]},local);
 assert.equal(withCanonicalId.locations[0].id,"location-1");assert.equal(withCanonicalId.locations[0].locationId,"canonical-9");
@@ -44,8 +44,22 @@ assert.deepEqual(coreIdentityHydrated.locations[0],{
   officialName:"Личный кабинет Рене Дюваль",aliases:["Кабинет","Study"],parentId:"loc-canonical-parent",
   typePreset:"room",customTypeLabel:"Рабочий кабинет",
   baseProfile:{description:"Рабочий кабинет.",shortSummary:"Тихое место для писем."},
-  shortSummary:"Тихое место для писем.",locationRevision:3
+  shortSummary:"Тихое место для писем.",locationRevision:3,moduleSelection:{}
 });
+
+// Adaptive Module Selection (Phase 1): moduleSelection hydrates from metadata.locationProfile.
+// moduleSelection, the SAME namespaced path the RPC/import write to -- never a bare
+// metadata.moduleSelection key, and defaults to {} (not undefined/null) whether metadata is
+// entirely absent or simply carries no locationProfile/moduleSelection of its own.
+const moduleSelectionSnapshot={...snapshot,locations:[{
+  id:"loc-participation-2",project_id:projectId,location_id:"loc-canonical-2",name:"Мостовая башня",description:"",
+  base_profile:{},location_revision:1,
+  metadata:{unrelatedRoot:"keepme",locationProfile:{futureSibling:"keepme2",moduleSelection:{shown:["appearanceAtmosphere"],hidden:["geography"]}}}
+}]};
+const moduleSelectionHydrated=hydrateProjectFromCloudSnapshot(moduleSelectionSnapshot,local);
+assert.deepEqual(moduleSelectionHydrated.locations[0].moduleSelection,{shown:["appearanceAtmosphere"],hidden:["geography"]});
+const noMetadataAtAllSnapshot={...snapshot,locations:[{id:"loc-participation-3",name:"Без metadata",description:"",base_profile:{},location_revision:0}]};
+assert.deepEqual(hydrateProjectFromCloudSnapshot(noMetadataAtAllSnapshot,local).locations[0].moduleSelection,{});
 
 // Character order: the JS layer trusts and preserves the RPC's `order by sort_order,id`
 // row order rather than re-deriving it from name or insertion order of the payload.

@@ -462,7 +462,7 @@
       <div class="profile-section location-thematic-editor" id="locationProfileThematicSection">
         <h3 class="profile-section-title">Дополнительные сведения</h3>
 
-        <div class="location-thematic-module">
+        <div class="location-thematic-module" id="locProfileAppearanceModule" hidden>
           <button type="button" class="location-thematic-disclosure" id="locProfileAppearanceToggle" aria-expanded="false" aria-controls="locProfileAppearanceBody" onclick="toggleLocationThematicDisclosure('appearanceAtmosphere')">
             <span class="location-thematic-disclosure-chevron" aria-hidden="true">▸</span>
             <span>Внешний вид и атмосфера</span>
@@ -490,22 +490,31 @@
                 <textarea id="locProfileLighting" rows="2"></textarea>
               </label>
               <label class="profile-field">
-                <span class="field-caption">Ощущение климата</span>
-                <textarea id="locProfileClimateFeel" rows="2" placeholder="Субъективное ощущение — не путать с «Климат» в разделе «География»"></textarea>
+                <span class="field-caption">Ощущения (необязательно)</span>
+                <textarea id="locProfileClimateFeel" rows="2" placeholder="Любое субъективное ощущение места — не только климат"></textarea>
               </label>
               <div class="profile-field full">
                 <span class="field-caption">Характерные детали</span>
                 <div class="multi-value-host" id="locProfileNotableFeatures"></div>
               </div>
             </div>
-            <button type="button" class="location-thematic-clear" id="locProfileAppearanceClear" onclick="clearLocationThematicModule('appearanceAtmosphere')">Очистить раздел «Внешний вид и атмосфера»</button>
+            <div class="location-thematic-actions" id="locProfileAppearanceActions">
+              <button type="button" class="location-thematic-hide" id="locProfileAppearanceHide" onclick="hideLocationThematicModule('appearanceAtmosphere')" hidden>Скрыть раздел</button>
+              <button type="button" class="location-thematic-remove" id="locProfileAppearanceRemove" onclick="removeEmptyLocationThematicModule('appearanceAtmosphere')" hidden>Убрать раздел</button>
+              <button type="button" class="location-thematic-delete-start" id="locProfileAppearanceDeleteStart" onclick="startDeleteLocationThematicModule('appearanceAtmosphere')" hidden>Удалить данные раздела</button>
+              <span class="location-thematic-delete-confirm" id="locProfileAppearanceDeleteConfirm" hidden>
+                <span class="location-thematic-delete-warning" id="locProfileAppearanceDeleteWarning"></span>
+                <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('appearanceAtmosphere')">Да, удалить</button>
+                <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('appearanceAtmosphere')">Отмена</button>
+              </span>
+            </div>
           </div>
         </div>
 
-        <div class="location-thematic-module">
+        <div class="location-thematic-module" id="locProfileGeographyModule" hidden>
           <button type="button" class="location-thematic-disclosure" id="locProfileGeographyToggle" aria-expanded="false" aria-controls="locProfileGeographyBody" onclick="toggleLocationThematicDisclosure('geography')">
             <span class="location-thematic-disclosure-chevron" aria-hidden="true">▸</span>
-            <span>География</span>
+            <span>География и природа</span>
           </button>
           <div id="locProfileGeographyBody" class="location-thematic-body" hidden>
             <div class="profile-editor-grid">
@@ -515,7 +524,7 @@
               </label>
               <label class="profile-field">
                 <span class="field-caption">Климат</span>
-                <textarea id="locProfileClimate" rows="2" placeholder="Объективное описание климата — не путать с «Ощущение климата»"></textarea>
+                <textarea id="locProfileClimate" rows="2" placeholder="Объективное описание климата — не путать с «Ощущения»"></textarea>
               </label>
               <label class="profile-field">
                 <span class="field-caption">Вода</span>
@@ -546,8 +555,22 @@
                 <div class="multi-value-host" id="locProfileNaturalFeatures"></div>
               </div>
             </div>
-            <button type="button" class="location-thematic-clear" id="locProfileGeographyClear" onclick="clearLocationThematicModule('geography')">Очистить раздел «География»</button>
+            <div class="location-thematic-actions" id="locProfileGeographyActions">
+              <button type="button" class="location-thematic-hide" id="locProfileGeographyHide" onclick="hideLocationThematicModule('geography')" hidden>Скрыть раздел</button>
+              <button type="button" class="location-thematic-remove" id="locProfileGeographyRemove" onclick="removeEmptyLocationThematicModule('geography')" hidden>Убрать раздел</button>
+              <button type="button" class="location-thematic-delete-start" id="locProfileGeographyDeleteStart" onclick="startDeleteLocationThematicModule('geography')" hidden>Удалить данные раздела</button>
+              <span class="location-thematic-delete-confirm" id="locProfileGeographyDeleteConfirm" hidden>
+                <span class="location-thematic-delete-warning" id="locProfileGeographyDeleteWarning"></span>
+                <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('geography')">Да, удалить</button>
+                <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('geography')">Отмена</button>
+              </span>
+            </div>
           </div>
+        </div>
+
+        <div class="location-thematic-add" id="locationProfileThematicAdd" hidden>
+          <button type="button" class="location-thematic-add-toggle" id="locProfileAddSectionToggle" aria-expanded="false" aria-haspopup="true" aria-controls="locProfileAddSectionPanel" onclick="toggleLocationModuleAddPanel()">+ Добавить раздел</button>
+          <div class="location-thematic-add-panel" id="locProfileAddSectionPanel" hidden></div>
         </div>
       </div>
 

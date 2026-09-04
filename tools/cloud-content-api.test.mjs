@@ -73,6 +73,11 @@ await api.setLocationParent("loc-canonical-1",9);
 assert.equal(calls.pop().args.target_parent_id,null,"omitting parentId means clear the parent, not leave it unspecified");
 await api.listOwnedLocations();
 assert.deepEqual(calls.pop(),{name:"list_owned_locations",args:undefined});
+await api.updateLocationModuleSelection("proj-1","loc-participation-1",5,{shown:["appearanceAtmosphere"],hidden:["geography"]});
+assert.deepEqual(calls.pop(),{name:"update_project_location_module_selection",args:{
+  target_project_id:"proj-1",target_location_id:"loc-participation-1",expected_revision:5,
+  module_selection:{shown:["appearanceAtmosphere"],hidden:["geography"]}
+}},"module selection RPC uses the PROJECT revision domain (expected_revision), not the canonical location revision");
 
 // LOCATION_REVISION_CONFLICT must survive normalization with the same shape as the established
 // CHARACTER_REVISION_CONFLICT pattern (entityId + expected/actual revision), not collapse to

@@ -72,7 +72,10 @@ function buildLocalToCloudMigrationPreview({
   // (20260904130000_location_base_profile_modules.sql) for the server-side allowlist/sanitization
   // that actually decides what survives. This plan layer does no filtering itself, only a safe
   // own-properties copy (own()), matching how character profiles are carried through above.
-  const locations=collections.locations.map(location=>({id:provenance.locations[location.id]?.cloudId,localId:location.id,name:String(location.name||""),description:String(location.description||""),shortSummary:String(location.shortSummary||""),baseProfile:own(location.baseProfile||{}),source:own(location)}));
+  // moduleSelection: Adaptive Module Selection Phase 1 -- local Locations carry this flat, same
+  // as baseProfile above (js/locations.js, contract addendum §9), forwarded here unfiltered; the
+  // backend's private.sanitize_imported_module_selection is the actual sanitizer.
+  const locations=collections.locations.map(location=>({id:provenance.locations[location.id]?.cloudId,localId:location.id,name:String(location.name||""),description:String(location.description||""),shortSummary:String(location.shortSummary||""),baseProfile:own(location.baseProfile||{}),moduleSelection:own(location.moduleSelection||{}),source:own(location)}));
   const tags=collections.tags.map(tag=>({id:provenance.tags[tag.id]?.cloudId,localId:tag.id,name:String(tag.name||""),normalizedName:normalizedName(tag.name),source:own(tag)}));
   const sceneCharacters=[],sceneRelationChanges=[];
   const scenes=collections.scenes.map((scene,index)=>{

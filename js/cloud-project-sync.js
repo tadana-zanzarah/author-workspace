@@ -92,7 +92,11 @@ function hydrateProjectFromCloudSnapshot(snapshot,localProject={}){
       officialName:row.official_name||"",aliases:Array.isArray(row.aliases)?row.aliases:[],
       parentId:row.parent_id||null,typePreset:row.type_preset||null,customTypeLabel:row.custom_type_label||null,
       baseProfile:row.base_profile||{},shortSummary:row.base_profile?.shortSummary||"",
-      locationRevision:row.location_revision==null?0:Number(row.location_revision)
+      locationRevision:row.location_revision==null?0:Number(row.location_revision),
+      // Adaptive Module Selection (Phase 1): project-specific presentation state, hydrated raw
+      // (like baseProfile above) -- js/location-module-selection.js's normalizeModuleSelection is
+      // the single place that turns this into a safe {shown:[],hidden:[]} shape on read.
+      moduleSelection:row.metadata?.locationProfile?.moduleSelection||{}
     })),
     tags:(payload.tags||[]).map(row=>({id:row.id,name:row.name})),scenes
   };

@@ -15,6 +15,7 @@ import "./characters.js";
 import "./chapters.js";
 import "./location-types.js";
 import "./location-base-profile.js";
+import "./location-module-selection.js";
 import "./location-hierarchy.js";
 import "./locations.js";
 import "./filters.js";
@@ -47,7 +48,11 @@ const editorTrackers={
     aliases:multiValueInputs.locationAliases?.getValues()||[],
     parentId:currentLocationProfileParentSelection(),
     notableFeatures:multiValueInputs.locationNotableFeatures?.getValues()||[],
-    naturalFeatures:multiValueInputs.locationNaturalFeatures?.getValues()||[]
+    naturalFeatures:multiValueInputs.locationNaturalFeatures?.getValues()||[],
+    // Adaptive Module Selection: add/show/hide/remove change locationProfileModuleSelectionDraft
+    // without necessarily touching any native control serializeForm's own scan would see (e.g.
+    // hiding a populated module changes nothing else) -- without this, Save would stay disabled.
+    moduleSelection:currentLocationProfileModuleSelectionSnapshot()
   })),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
   quickFieldModal:createDirtyTracker("quickFieldModal",()=>serializeForm("quickFieldModal")),

@@ -74,6 +74,16 @@ function createCloudContentApi(client){
     }),
     setLocationParent:(locationId,expectedLocationRevision,parentId=null)=>call("set_location_parent",{target_location_id:locationId,expected_location_revision:expectedLocationRevision,target_parent_id:parentId}),
     listOwnedLocations:()=>call("list_owned_locations"),
+    // Adaptive Module Selection (Phase 1, 20260904140000_location_adaptive_module_selection.sql):
+    // a pure project-participation mutation, gated on the PROJECT's own revision (unlike
+    // updateLocationCanonical/setLocationParent above, which use the canonical Location's own
+    // revision) -- see the Final Contract Addendum §7/§8. moduleSelection is the full new
+    // {shown:[...],hidden:[...]} value, never a partial patch. locationId here is the
+    // project_locations.id (participation id), matching updateLocation/deleteLocation's own
+    // target_location_id naming convention.
+    updateLocationModuleSelection:(projectId,locationId,expectedRevision,moduleSelection)=>call("update_project_location_module_selection",{
+      target_project_id:projectId,target_location_id:locationId,expected_revision:expectedRevision,module_selection:moduleSelection
+    }),
     createTag:(projectId,expectedRevision,{name})=>call("create_tag",{target_project_id:projectId,expected_revision:expectedRevision,tag_name:name}),
     updateTag:(projectId,tagId,expectedRevision,{name})=>call("update_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision,tag_name:name}),
     deleteTag:(projectId,tagId,expectedRevision)=>call("delete_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision}),

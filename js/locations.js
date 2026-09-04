@@ -50,9 +50,14 @@ let ownedLocationsCache=null; // {projectId, rows:Map<canonicalId,row>}
 
 function ownedLocationRowsSync(){
   if(!isCloudWorkspace()){
+    // Local mode has no canonical/participation split at all -- a local Location can only ever
+    // "be in" the one local project, so participation_count is always 1 (see the contract
+    // addendum's local-mode note: delete-safety UX's cross-project warning is structurally
+    // unreachable in local mode, not merely rare).
     return new Map(data.locations.map(l=>[l.id,{
       id:l.id,name:l.name,official_name:l.officialName||null,aliases:l.aliases||[],
-      parent_id:l.parentId||null,type_preset:l.typePreset||null,custom_type_label:l.customTypeLabel||null
+      parent_id:l.parentId||null,type_preset:l.typePreset||null,custom_type_label:l.customTypeLabel||null,
+      participation_count:1
     }]));
   }
   return ownedLocationsCache?.rows||new Map();
@@ -380,6 +385,7 @@ function renderLocationThematicChips(label,values){
 
 function renderLocationProfileAppearance(location){
   const el=document.getElementById("locationProfileAppearance");if(!el)return;
+  if(!locationModuleReadVisible(location,location.moduleSelection,"appearanceAtmosphere")){el.hidden=true;el.innerHTML="";return}
   const m=normalizeAppearanceAtmosphere(location.baseProfile?.appearanceAtmosphere);
   if(isModuleEmpty(m)){el.hidden=true;el.innerHTML="";return}
   const proseHtml=[
@@ -403,6 +409,7 @@ const LOCATION_GEOGRAPHY_VARIABLE_LABELS={terrain:"Рельеф",climate:"Кли
 
 function renderLocationProfileGeography(location){
   const el=document.getElementById("locationProfileGeography");if(!el)return;
+  if(!locationModuleReadVisible(location,location.moduleSelection,"geography")){el.hidden=true;el.innerHTML="";return}
   const m=normalizeGeography(location.baseProfile?.geography);
   if(isModuleEmpty(m)){el.hidden=true;el.innerHTML="";return}
   const proseParts=[],factEntries=[];
@@ -414,7 +421,7 @@ function renderLocationProfileGeography(location){
   factEntries.push(...[["Координаты",m.coordinates],["Площадь",m.area],["Высота",m.elevation]].filter(([,value])=>value));
   const factsHtml=renderLocationThematicFacts(factEntries);
   const chipsHtml=renderLocationThematicChips("Природные особенности",m.naturalFeatures||[]);
-  el.innerHTML=`<h3 class="location-profile-thematic-title">География</h3>${proseParts.join("")}${factsHtml}${chipsHtml}`;
+  el.innerHTML=`<h3 class="location-profile-thematic-title">География и природа</h3>${proseParts.join("")}${factsHtml}${chipsHtml}`;
   el.hidden=false;
 }
 
@@ -452,6 +459,165 @@ function toggleLocationThematicDisclosure(moduleKey){
   setLocationThematicDisclosure(moduleKey,!expanded);
 }
 
+/* ---------- Profile: Adaptive Module Selection (Phase 1) ----------
+ * Project-specific presentation state for the two existing thematic modules -- shown/hidden,
+ * layered on top of the always-derivable hasData signal. See js/location-module-selection.js for
+ * the pure state model this wires to the DOM; this section only handles rendering and the six
+ * user actions (Добавить/Показать/Скрыть/Убрать/Удалить данные раздела/Cancel-implicit).
+ *
+ * `locationProfileModuleSelectionDraft` is the ONLY piece of new draft state this phase adds --
+ * initialized from location.moduleSelection on every entry into edit mode (fresh open OR Cancel,
+ * both already funnel through syncLocationProfileEditFields -> syncLocationProfileThematicFields),
+ * and discarded (never independently persisted) on Cancel exactly like every other draft field.
+ * Module WRAPPER visibility and the add-panel's candidate list are always recomputed from this
+ * plus the current DOM field values via the pure visibility formula -- never tracked as a second,
+ * independently-mutated list that could drift out of sync with it. */
+let locationProfileModuleSelectionDraft={shown:[],hidden:[]};
+let locationProfileModuleAddPanelOpen=false;
+
+const LOCATION_THEMATIC_MODULE_IDS={
+  appearanceAtmosphere:{module:"locProfileAppearanceModule",hide:"locProfileAppearanceHide",remove:"locProfileAppearanceRemove",deleteStart:"locProfileAppearanceDeleteStart",deleteConfirm:"locProfileAppearanceDeleteConfirm",deleteWarning:"locProfileAppearanceDeleteWarning",firstField:"locProfileVisualDescription"},
+  geography:{module:"locProfileGeographyModule",hide:"locProfileGeographyHide",remove:"locProfileGeographyRemove",deleteStart:"locProfileGeographyDeleteStart",deleteConfirm:"locProfileGeographyDeleteConfirm",deleteWarning:"locProfileGeographyDeleteWarning",firstField:"locProfileTerrain"}
+};
+
+// A location-shaped object reflecting the CURRENT unsaved draft fields (not the original saved
+// location) -- hasData checks against this so the add-panel/hide-vs-delete affordances react to
+// what is actually typed right now. Deliberately only read at explicit action points (Add/Show/
+// Hide/Remove/Delete-confirm, plus edit-entry/Cancel), never on every keystroke -- an accordion
+// must never visually vanish out from under someone still typing into it.
+function locationThematicDraftLocationLike(){
+  const draft=readLocationThematicDraftFields();
+  return {baseProfile:{appearanceAtmosphere:draft.appearanceAtmosphere,geography:draft.geography}};
+}
+
+function renderLocationThematicModuleActions(moduleKey,locationLike){
+  const ids=LOCATION_THEMATIC_MODULE_IDS[moduleKey];if(!ids)return;
+  const hasData=locationModuleHasData(locationLike,moduleKey);
+  document.getElementById(ids.hide).hidden=!hasData;
+  document.getElementById(ids.remove).hidden=hasData;
+  document.getElementById(ids.deleteStart).hidden=!hasData;
+  document.getElementById(ids.deleteConfirm).hidden=true;
+}
+
+function locationThematicPickerCandidates(locationLike,visibleSet){
+  return LOCATION_MODULE_KEYS.filter(key=>!visibleSet.has(key)).map(key=>({
+    key,label:locationModuleLabel(key),hasData:locationModuleHasData(locationLike,key)
+  }));
+}
+
+function renderLocationModuleAddPanel(locationLike,visibleSet){
+  const panel=document.getElementById("locProfileAddSectionPanel");if(!panel)return;
+  const candidates=locationThematicPickerCandidates(locationLike,visibleSet);
+  panel.innerHTML=candidates.map(c=>`<button type="button" class="location-thematic-add-chip" onclick="${c.hasData?"showLocationThematicModule":"addEmptyLocationThematicModule"}('${jsq(c.key)}')">${esc(c.label)}${c.hasData?'<span class="location-thematic-add-chip-restore-tag">есть данные</span>':""}</button>`).join("");
+}
+
+function closeLocationModuleAddPanel(){
+  locationProfileModuleAddPanelOpen=false;
+  const toggle=document.getElementById("locProfileAddSectionToggle"),panel=document.getElementById("locProfileAddSectionPanel");
+  if(toggle)toggle.setAttribute("aria-expanded","false");
+  if(panel)panel.hidden=true;
+}
+
+function toggleLocationModuleAddPanel(){
+  locationProfileModuleAddPanelOpen=!locationProfileModuleAddPanelOpen;
+  const toggle=document.getElementById("locProfileAddSectionToggle"),panel=document.getElementById("locProfileAddSectionPanel");
+  if(toggle)toggle.setAttribute("aria-expanded",String(locationProfileModuleAddPanelOpen));
+  if(panel)panel.hidden=!locationProfileModuleAddPanelOpen;
+  if(locationProfileModuleAddPanelOpen)renderLocationThematicModules();
+}
+
+// Re-renders which modules are accordions right now (edit visibility: (hasData OR shown) AND NOT
+// hidden), each visible module's action-row state, and the add-panel's candidate list/visibility
+// (hidden entirely once every catalog module is already visible -- nothing left to add or
+// restore). Called after every explicit action below, never on every keystroke.
+function renderLocationThematicModules(){
+  const locationLike=locationThematicDraftLocationLike();
+  const visible=new Set(locationVisibleModules(locationLike,locationProfileModuleSelectionDraft,{mode:"edit"}));
+  for(const moduleKey of LOCATION_MODULE_KEYS){
+    const ids=LOCATION_THEMATIC_MODULE_IDS[moduleKey];
+    const isVisible=visible.has(moduleKey);
+    document.getElementById(ids.module).hidden=!isVisible;
+    if(isVisible)renderLocationThematicModuleActions(moduleKey,locationLike);
+  }
+  const addWrapper=document.getElementById("locationProfileThematicAdd");
+  const hasCandidates=LOCATION_MODULE_KEYS.some(key=>!visible.has(key));
+  if(addWrapper)addWrapper.hidden=!hasCandidates;
+  if(!hasCandidates)closeLocationModuleAddPanel();
+  else if(locationProfileModuleAddPanelOpen)renderLocationModuleAddPanel(locationLike,visible);
+}
+
+function addEmptyLocationThematicModule(moduleKey){
+  locationProfileModuleSelectionDraft=addEmptyLocationModule(locationProfileModuleSelectionDraft,moduleKey);
+  closeLocationModuleAddPanel();
+  renderLocationThematicModules();
+  setLocationThematicDisclosure(moduleKey,true);
+  syncBeforeUnload();
+  document.getElementById(LOCATION_THEMATIC_MODULE_IDS[moduleKey]?.firstField)?.focus();
+}
+function showLocationThematicModule(moduleKey){
+  locationProfileModuleSelectionDraft=showLocationModule(locationProfileModuleSelectionDraft,moduleKey);
+  closeLocationModuleAddPanel();
+  renderLocationThematicModules();
+  setLocationThematicDisclosure(moduleKey,true);
+  syncBeforeUnload();
+}
+function removeEmptyLocationThematicModule(moduleKey){
+  locationProfileModuleSelectionDraft=removeEmptyLocationModule(locationProfileModuleSelectionDraft,moduleKey);
+  renderLocationThematicModules();
+  syncBeforeUnload();
+}
+function hideLocationThematicModule(moduleKey){
+  locationProfileModuleSelectionDraft=hideLocationModule(locationProfileModuleSelectionDraft,moduleKey);
+  renderLocationThematicModules();
+  syncBeforeUnload();
+}
+
+// Correct Russian prepositional-case agreement for "используется в N проектах": singular
+// ("проекте") only when the count ends in 1 and is not 11; plural ("проектах") in every other
+// case -- prepositional plural is invariant across 2-4 vs 5+ (unlike nominative/genitive counting
+// phrases), so only this one split matters here.
+function locationParticipationCountPhrase(count){
+  const mod100=count%100,mod10=count%10;
+  const word=(mod10===1&&mod100!==11)?"проекте":"проектах";
+  return `${count} ${word}`;
+}
+
+// null = genuinely unknown (owned-location rows not loaded yet / fetch failed) -- callers must
+// treat this as the fail-safe ">1" case, never assume 1 (see confirmDeleteLocationThematicModule).
+function locationThematicParticipationCount(){
+  if(!isCloudWorkspace())return 1;
+  const location=locationById(locationProfileParticipationId);if(!location)return null;
+  const row=ownedLocationRowsSync().get(locationCanonicalId(location));
+  return row&&Number.isFinite(row.participation_count)?row.participation_count:null;
+}
+
+function locationThematicDeleteWarningText(moduleKey){
+  const label=locationModuleLabel(moduleKey),count=locationThematicParticipationCount();
+  if(count===1)return `Данные раздела «${label}» будут удалены из локации.`;
+  if(count==null)return `Не удалось определить, сколько проектов используют эту локацию. На всякий случай считайте, что данные раздела «${label}» — общие для локации — исчезнут из нескольких проектов.`;
+  return `Эта локация используется в ${locationParticipationCountPhrase(count)}. Данные раздела «${label}» общие для локации и будут удалены во всех этих проектах.`;
+}
+
+// Удалить данные раздела: a two-step inline confirm, not a modal -- swaps the action row for a
+// warning + Да/Отмена pair. Nothing is actually deleted yet; confirming only prepares the deletion
+// in the draft (see confirmDeleteLocationThematicModule) -- the real canonical write happens at
+// Save, same as every other field.
+function startDeleteLocationThematicModule(moduleKey){
+  const ids=LOCATION_THEMATIC_MODULE_IDS[moduleKey];if(!ids)return;
+  document.getElementById(ids.hide).hidden=true;
+  document.getElementById(ids.deleteStart).hidden=true;
+  document.getElementById(ids.deleteWarning).textContent=locationThematicDeleteWarningText(moduleKey);
+  document.getElementById(ids.deleteConfirm).hidden=false;
+}
+function cancelDeleteLocationThematicModule(moduleKey){
+  renderLocationThematicModuleActions(moduleKey,locationThematicDraftLocationLike());
+}
+function confirmDeleteLocationThematicModule(moduleKey){
+  clearLocationThematicModule(moduleKey);
+  locationProfileModuleSelectionDraft=deleteLocationModuleSelectionEntry(locationProfileModuleSelectionDraft,moduleKey);
+  renderLocationThematicModules();
+}
+
 // Prefills every B3A field from the Location's stored modules and sets each module's initial
 // disclosure state for this edit session (expanded iff it has meaningful data) -- called from
 // syncLocationProfileEditFields, so this also naturally re-runs (and re-derives disclosure state
@@ -479,6 +645,10 @@ function syncLocationProfileThematicFields(location){
 
   setLocationThematicDisclosure("appearanceAtmosphere",!isModuleEmpty(normalizeAppearanceAtmosphere(appearance)));
   setLocationThematicDisclosure("geography",!isModuleEmpty(normalizeGeography(geography)));
+
+  locationProfileModuleSelectionDraft=normalizeModuleSelection(location.moduleSelection);
+  closeLocationModuleAddPanel();
+  renderLocationThematicModules();
 }
 
 function readLocationThematicDraftFields(){
@@ -682,6 +852,13 @@ let locationParentPickerInstance=null,createLocationParentPickerInstance=null;
 // selection is custom state, not a native form control serializeForm() can read.
 function currentLocationProfileParentSelection(){return locationParentPickerInstance?.getSelected()??null}
 
+// Same reasoning as above, for Adaptive Module Selection: add/show/hide/remove/delete-confirm
+// change locationProfileModuleSelectionDraft (and, for delete, the draft field VALUES, which
+// serializeForm already covers) without necessarily changing any other native control the form
+// scan would see -- e.g. hiding a populated module changes nothing serializeForm reads at all.
+// Without this, Save would stay disabled after a pure selection-only change.
+function currentLocationProfileModuleSelectionSnapshot(){return normalizeModuleSelection(locationProfileModuleSelectionDraft)}
+
 function ensureLocationParentPicker(){
   if(locationParentPickerInstance)return locationParentPickerInstance;
   locationParentPickerInstance=createLocationParentPicker({
@@ -746,6 +923,15 @@ async function saveLocationProfile(){
     originalAppearance:location.baseProfile?.appearanceAtmosphere,originalGeography:location.baseProfile?.geography,
     draftAppearance:thematicDraft.appearanceAtmosphere,draftGeography:thematicDraft.geography
   });
+  // Adaptive Module Selection: normalize the draft selection against what base_profile will
+  // ACTUALLY look like after this save (a module that just gained data drops out of `shown` as
+  // redundant -- contract addendum's own worked example) before comparing it to the original
+  // selection loaded at edit-entry. moduleSelection and baseProfilePatch are two independent
+  // revision domains (project vs. canonical location -- see Save sequencing below) but this one
+  // comparison is what decides whether the project-scoped write is needed at all.
+  const resultingBaseProfile=baseProfilePatch?applyLocationBaseProfilePatch(location.baseProfile,baseProfilePatch):location.baseProfile;
+  const finalModuleSelection=dropRedundantShownEntries(locationProfileModuleSelectionDraft,{baseProfile:resultingBaseProfile});
+  const moduleSelectionChanged=saveNeedsModuleSelectionWrite(location.moduleSelection,finalModuleSelection);
   locationProfileSaveButton.beginSaving();
   try{
     if(isCloudWorkspace()){
@@ -769,6 +955,21 @@ async function saveLocationProfile(){
         trackerFor("locationProfileModal").captureInitialState();
         return;
       }
+      // Module selection last, and only if it actually changed: a genuinely different revision
+      // domain (projects.revision, via the existing project mutation queue -- update_
+      // locationCanonical/setLocationParent above never touch it) -- canonical fields land first
+      // so a validation failure there never leaves a project-scoped selection write stranded for
+      // data that didn't actually save.
+      if(moduleSelectionChanged){
+        const selectionResult=await runCloudMutation("updateLocationModuleSelection",(api,revision)=>api.updateLocationModuleSelection(cloudProjectSync.projectId,participationId,revision,normalizeModuleSelection(finalModuleSelection)),{renderAfter:false});
+        if(!selectionResult.ok){
+          locationProfileSaveButton.showStatus(`Основные поля сохранены. Не удалось сохранить выбор разделов: ${selectionResult.message||"неизвестная ошибка"}`,"error");
+          populateLocationProfileCore(participationId);
+          trackerFor("locationProfileModal").captureInitialState();
+          return;
+        }
+        data=cloudProjectSync.confirmedProject;
+      }
     }else{
       const result=commitDataChange(next=>{
         const target=next.locations.find(l=>l.id===participationId);
@@ -779,6 +980,10 @@ async function saveLocationProfile(){
           shortSummary:fields.shortSummary,description:fields.description,parentId:fields.parentId
         });
         if(baseProfilePatch)target.baseProfile=applyLocationBaseProfilePatch(target.baseProfile,baseProfilePatch);
+        if(moduleSelectionChanged){
+          const effective=moduleSelectionEffective(finalModuleSelection);
+          if(effective)target.moduleSelection=effective;else delete target.moduleSelection;
+        }
       },{renderAfter:false});
       if(!result.ok){locationProfileSaveButton.showStatus(result.userMessage||"Не удалось сохранить локацию.","error");return}
     }
@@ -875,14 +1080,18 @@ async function submitCreateLocation(){
 }
 
 Object.assign(globalThis,{locationById,locationCanonicalId,locationSceneEntries,locationAncestors,locationDescendantIds,
-  ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,
+  ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,currentLocationProfileModuleSelectionSnapshot,
   openLocationGallery,setLocationGallerySearch,setLocationGalleryTypeFilter,renderLocationGallery,deleteLocationFromGallery,
   openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,
   openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
-  toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded});
+  toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded,
+  toggleLocationModuleAddPanel,addEmptyLocationThematicModule,showLocationThematicModule,removeEmptyLocationThematicModule,
+  hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule});
 export {locationById,locationCanonicalId,locationSceneEntries,locationAncestors,locationDescendantIds,
-  ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,
+  ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,currentLocationProfileModuleSelectionSnapshot,
   openLocationGallery,setLocationGallerySearch,setLocationGalleryTypeFilter,renderLocationGallery,deleteLocationFromGallery,
   openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,
   openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
-  toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded};
+  toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded,
+  toggleLocationModuleAddPanel,addEmptyLocationThematicModule,showLocationThematicModule,removeEmptyLocationThematicModule,
+  hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule};
