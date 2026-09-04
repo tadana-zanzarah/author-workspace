@@ -258,45 +258,56 @@ end $$;
 -- ===========================================================================
 do $$
 declare
-  import_project uuid:='d2000000-0000-4000-8000-000000000002';
+  -- import_local_project_content requires an EMPTY target project (private.local_import_target_empty)
+  -- -- it models a one-time local->cloud migration per project, not a repeatable append. Each case
+  -- below therefore gets its own fresh project, mirroring how location_phase3_core_identity.sql's
+  -- Block I uses a dedicated import project rather than reusing an already-populated one.
+  import_project_l uuid:='d2000000-0000-4000-8000-000000000002';
+  import_project_m uuid:='d2000000-0000-4000-8000-000000000003';
+  import_project_n uuid:='d2000000-0000-4000-8000-000000000004';
+  import_project_o uuid:='d2000000-0000-4000-8000-000000000005';
   payload jsonb; result jsonb; canonical_id uuid;
 begin
-  insert into public.projects(id,owner_id,title,revision) values (import_project,'d1000000-0000-4000-8000-000000000001','Import Target B3A',0);
+  insert into public.projects(id,owner_id,title,revision) values
+    (import_project_l,'d1000000-0000-4000-8000-000000000001','Import Target B3A L',0),
+    (import_project_m,'d1000000-0000-4000-8000-000000000001','Import Target B3A M',0),
+    (import_project_n,'d1000000-0000-4000-8000-000000000001','Import Target B3A N',0),
+    (import_project_o,'d1000000-0000-4000-8000-000000000001','Import Target B3A O',0);
 
   -- L: pre-B2 old local snapshot -- top-level description only, no short_summary/base_profile
   -- keys on the payload item at all. Must still import safely (no error, no crash).
   payload:=jsonb_build_object(
-    'project_id',import_project::text,'source_project_id','b3a-old-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000001',
+    'project_id',import_project_l::text,'source_project_id','b3a-old-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000001',
     'characters','[]'::jsonb,'chapters','[]'::jsonb,
     'locations',jsonb_build_array(jsonb_build_object('id','d4000000-0000-4000-8000-000000000001','name','Old Cabin','description','From an old snapshot.')),
     'tags','[]'::jsonb,'scenes','[]'::jsonb,'scene_tags','[]'::jsonb,'scene_characters','[]'::jsonb,
     'initial_relations','[]'::jsonb,'scene_relation_changes','[]'::jsonb,'structural_links','[]'::jsonb,'character_images','[]'::jsonb
   );
-  result:=public.import_local_project_content(import_project,0,'d3000000-0000-4000-8000-000000000001'::uuid,'b3a-old-snapshot',payload);
+  result:=public.import_local_project_content(import_project_l,0,'d3000000-0000-4000-8000-000000000001'::uuid,'b3a-old-snapshot',payload);
   if not coalesce((result->>'ok')::boolean,false) then raise exception 'old-snapshot (description-only) import failed: %', result; end if;
-  select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000001' and project_id=import_project;
+  select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000001' and project_id=import_project_l;
   if (select base_profile->>'description' from public.locations where id=canonical_id)<>'From an old snapshot.' then raise exception 'old-snapshot description did not survive import'; end if;
   if (select base_profile ? 'shortSummary' from public.locations where id=canonical_id) then raise exception 'old snapshot fabricated a shortSummary key it never had'; end if;
 
   -- M: B2 local snapshot -- description + short_summary. Both must survive (this is the
   -- confirmed pre-existing bug this migration fixes: shortSummary was previously always dropped).
   payload:=jsonb_build_object(
-    'project_id',import_project::text,'source_project_id','b3a-b2-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000002',
+    'project_id',import_project_m::text,'source_project_id','b3a-b2-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000002',
     'characters','[]'::jsonb,'chapters','[]'::jsonb,
     'locations',jsonb_build_array(jsonb_build_object('id','d4000000-0000-4000-8000-000000000002','name','Watch Tower','description','A tall tower.','short_summary','Guards the pass.')),
     'tags','[]'::jsonb,'scenes','[]'::jsonb,'scene_tags','[]'::jsonb,'scene_characters','[]'::jsonb,
     'initial_relations','[]'::jsonb,'scene_relation_changes','[]'::jsonb,'structural_links','[]'::jsonb,'character_images','[]'::jsonb
   );
-  result:=public.import_local_project_content(import_project,(select revision from public.projects where id=import_project),'d3000000-0000-4000-8000-000000000002'::uuid,'b3a-b2-snapshot',payload);
+  result:=public.import_local_project_content(import_project_m,0,'d3000000-0000-4000-8000-000000000002'::uuid,'b3a-b2-snapshot',payload);
   if not coalesce((result->>'ok')::boolean,false) then raise exception 'B2 snapshot (description+shortSummary) import failed: %', result; end if;
-  select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000002' and project_id=import_project;
+  select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000002' and project_id=import_project_m;
   if (select base_profile->>'description' from public.locations where id=canonical_id)<>'A tall tower.' then raise exception 'B2-snapshot description did not survive import'; end if;
   if (select base_profile->>'shortSummary' from public.locations where id=canonical_id)<>'Guards the pass.' then raise exception 'B2-snapshot shortSummary did not survive import (this is the confirmed pre-existing bug)'; end if;
 
   -- N: B3A local snapshot -- description + short_summary + appearanceAtmosphere + geography, all
   -- via a base_profile object on the payload item. All four must survive.
   payload:=jsonb_build_object(
-    'project_id',import_project::text,'source_project_id','b3a-full-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000003',
+    'project_id',import_project_n::text,'source_project_id','b3a-full-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000003',
     'characters','[]'::jsonb,'chapters','[]'::jsonb,
     'locations',jsonb_build_array(jsonb_build_object(
       'id','d4000000-0000-4000-8000-000000000003','name','Sunken Temple','description','Below the waves.','short_summary','Lost to the sea.',
@@ -305,9 +316,9 @@ begin
     'tags','[]'::jsonb,'scenes','[]'::jsonb,'scene_tags','[]'::jsonb,'scene_characters','[]'::jsonb,
     'initial_relations','[]'::jsonb,'scene_relation_changes','[]'::jsonb,'structural_links','[]'::jsonb,'character_images','[]'::jsonb
   );
-  result:=public.import_local_project_content(import_project,(select revision from public.projects where id=import_project),'d3000000-0000-4000-8000-000000000003'::uuid,'b3a-full-snapshot',payload);
+  result:=public.import_local_project_content(import_project_n,0,'d3000000-0000-4000-8000-000000000003'::uuid,'b3a-full-snapshot',payload);
   if not coalesce((result->>'ok')::boolean,false) then raise exception 'B3A full snapshot import failed: %', result; end if;
-  select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000003' and project_id=import_project;
+  select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000003' and project_id=import_project_n;
   if (select base_profile->>'description' from public.locations where id=canonical_id)<>'Below the waves.' then raise exception 'B3A-snapshot description did not survive import'; end if;
   if (select base_profile->>'shortSummary' from public.locations where id=canonical_id)<>'Lost to the sea.' then raise exception 'B3A-snapshot shortSummary did not survive import'; end if;
   if (select base_profile->'appearanceAtmosphere'->>'visualDescription' from public.locations where id=canonical_id)<>'Coral-covered stone' then raise exception 'B3A-snapshot appearanceAtmosphere did not survive import'; end if;
@@ -317,7 +328,7 @@ begin
   -- value for an allowlisted key, plus an empty-object module, must all be silently dropped
   -- rather than crash the whole import or leak into the canonical row.
   payload:=jsonb_build_object(
-    'project_id',import_project::text,'source_project_id','b3a-hostile-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000004',
+    'project_id',import_project_o::text,'source_project_id','b3a-hostile-snapshot','migration_attempt_id','d3000000-0000-4000-8000-000000000004',
     'characters','[]'::jsonb,'chapters','[]'::jsonb,
     'locations',jsonb_build_array(jsonb_build_object(
       'id','d4000000-0000-4000-8000-000000000004','name','Suspicious Shack','description','Looks fine.',
@@ -331,9 +342,9 @@ begin
     'tags','[]'::jsonb,'scenes','[]'::jsonb,'scene_tags','[]'::jsonb,'scene_characters','[]'::jsonb,
     'initial_relations','[]'::jsonb,'scene_relation_changes','[]'::jsonb,'structural_links','[]'::jsonb,'character_images','[]'::jsonb
   );
-  result:=public.import_local_project_content(import_project,(select revision from public.projects where id=import_project),'d3000000-0000-4000-8000-000000000004'::uuid,'b3a-hostile-snapshot',payload);
+  result:=public.import_local_project_content(import_project_o,0,'d3000000-0000-4000-8000-000000000004'::uuid,'b3a-hostile-snapshot',payload);
   if not coalesce((result->>'ok')::boolean,false) then raise exception 'sanitization-required import unexpectedly failed instead of sanitizing: %', result; end if;
-  select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000004' and project_id=import_project;
+  select location_id into canonical_id from public.project_locations where id='d4000000-0000-4000-8000-000000000004' and project_id=import_project_o;
   if (select base_profile->'appearanceAtmosphere'->>'visualDescription' from public.locations where id=canonical_id)<>'A leaning shack' then raise exception 'valid allowlisted module was dropped alongside the invalid data'; end if;
   if (select base_profile ? 'geography' from public.locations where id=canonical_id) then raise exception 'malformed (non-object) geography value was not sanitized away'; end if;
   if (select base_profile ? 'populationCulture' from public.locations where id=canonical_id) then raise exception 'unapproved base_profile key leaked through import'; end if;
