@@ -19,9 +19,33 @@ assert.equal(hydrated.characters[0].sortOrder,0,"project_characters.sort_order i
 // Location Architecture V2 Phase 2: `id` stays the project_locations participation id (what
 // scene.locationId keys off), and a new `locationId` field exposes the canonical global
 // identity without changing the existing flat {id,name,description} shape other code depends on.
-assert.deepEqual(hydrated.locations[0],{id:"location-1",name:"Дом",description:"",locationId:"location-1"},"without a server location_id, locationId falls back to the participation id");
+// Phase B2 adds explicit normalized core-identity fields (officialName/aliases/parentId/
+// typePreset/customTypeLabel/baseProfile/shortSummary/locationRevision); a payload row that
+// carries none of the new B1 columns (old cached snapshot / pre-B1 shape) must still hydrate
+// safely with empty/default values rather than throwing or leaving fields undefined.
+assert.deepEqual(hydrated.locations[0],{
+  id:"location-1",name:"Дом",description:"",locationId:"location-1",
+  officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:null,
+  baseProfile:{},shortSummary:"",locationRevision:0
+},"a location row without any Phase B1 columns hydrates safely with default values (old cached snapshot compatibility)");
 const withCanonicalId=hydrateProjectFromCloudSnapshot({...snapshot,locations:[{id:"location-1",name:"Дом",description:"",location_id:"canonical-9"}]},local);
 assert.equal(withCanonicalId.locations[0].id,"location-1");assert.equal(withCanonicalId.locations[0].locationId,"canonical-9");
+
+// Phase B2: the full canonical core-identity + hierarchy shape hydrates through untouched.
+const coreIdentitySnapshot={...snapshot,locations:[{
+  id:"loc-participation-1",project_id:projectId,location_id:"loc-canonical-1",
+  name:"Кабинет Рене",description:"Рабочий кабинет.",official_name:"Личный кабинет Рене Дюваль",
+  aliases:["Кабинет","Study"],parent_id:"loc-canonical-parent",type_preset:"room",custom_type_label:"Рабочий кабинет",
+  base_profile:{description:"Рабочий кабинет.",shortSummary:"Тихое место для писем."},location_revision:3
+}]};
+const coreIdentityHydrated=hydrateProjectFromCloudSnapshot(coreIdentitySnapshot,local);
+assert.deepEqual(coreIdentityHydrated.locations[0],{
+  id:"loc-participation-1",name:"Кабинет Рене",description:"Рабочий кабинет.",locationId:"loc-canonical-1",
+  officialName:"Личный кабинет Рене Дюваль",aliases:["Кабинет","Study"],parentId:"loc-canonical-parent",
+  typePreset:"room",customTypeLabel:"Рабочий кабинет",
+  baseProfile:{description:"Рабочий кабинет.",shortSummary:"Тихое место для писем."},
+  shortSummary:"Тихое место для писем.",locationRevision:3
+});
 
 // Character order: the JS layer trusts and preserves the RPC's `order by sort_order,id`
 // row order rather than re-deriving it from name or insertion order of the payload.

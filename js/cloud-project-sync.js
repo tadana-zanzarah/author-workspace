@@ -82,7 +82,18 @@ function hydrateProjectFromCloudSnapshot(snapshot,localProject={}){
       notes:row.notes||"",structureKind:row.metadata?.uiStructureKind||row.structure_kind||"other",metadata:row.metadata||{},scope:row.project_id?"project":"global",revision:Number(row.revision)})),
     future:localProject.future||{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},
     chapters:[...cloudChapters,{id:UNASSIGNED_CHAPTER_ID,title:"Без главы",collapsed:false}],
-    locations:(payload.locations||[]).map(row=>({id:row.id,name:row.name,description:row.description||"",locationId:row.location_id||row.id})),
+    // Phase B2: extend the flat {id,name,description,locationId} shape (Phase A/2) with explicit
+    // normalized core-identity fields so components read location.officialName/aliases/parentId/
+    // typePreset/customTypeLabel/shortSummary/locationRevision directly instead of raw snake_case.
+    // Every new field defaults safely when absent (old cached snapshot / pre-B1 payload shape),
+    // per the Phase B2 hydration contract -- no field here can throw on a missing key.
+    locations:(payload.locations||[]).map(row=>({
+      id:row.id,name:row.name,description:row.description||"",locationId:row.location_id||row.id,
+      officialName:row.official_name||"",aliases:Array.isArray(row.aliases)?row.aliases:[],
+      parentId:row.parent_id||null,typePreset:row.type_preset||null,customTypeLabel:row.custom_type_label||null,
+      baseProfile:row.base_profile||{},shortSummary:row.base_profile?.shortSummary||"",
+      locationRevision:row.location_revision==null?0:Number(row.location_revision)
+    })),
     tags:(payload.tags||[]).map(row=>({id:row.id,name:row.name})),scenes
   };
 }
