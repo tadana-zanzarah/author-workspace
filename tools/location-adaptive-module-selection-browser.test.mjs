@@ -46,7 +46,12 @@ await page.click("#locationProfileEdit");
     addWrapperHidden:document.getElementById("locationProfileThematicAdd").hidden
   }));
   if(editState.appearanceModuleHidden||editState.geographyModuleHidden)throw new Error("1/2: legacy populated modules must be visible in Edit automatically");
-  if(!editState.addWrapperHidden)throw new Error("+ Добавить раздел must hide itself once every catalog module is already visible");
+  // B3B (governmentSociety/economy) extended the catalog to four modules -- this fixture only has
+  // appearanceAtmosphere/geography data, so governmentSociety/economy remain valid add-panel
+  // candidates and "+ Добавить раздел" must stay VISIBLE. (Before B3B, with a two-module catalog,
+  // both modules being populated meant zero candidates remained, hence hidden -- that assumption is
+  // now stale, not a product regression.)
+  if(editState.addWrapperHidden)throw new Error("+ Добавить раздел must remain visible while governmentSociety/economy are still valid unadded candidates");
 }
 await page.evaluate(()=>document.getElementById("locationProfileCancelEdit").click());
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
