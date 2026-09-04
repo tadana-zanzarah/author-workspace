@@ -8,8 +8,27 @@
 #locationsModal .modal>h2{flex:none}
 #locationsModal .modal>.modal-actions{flex:none}
 
-.location-gallery-search{
-  flex:none;display:block;margin:2px 0 var(--space-3);
+.location-gallery-toolbar{
+  flex:none;display:flex;align-items:flex-end;gap:var(--space-3);margin:2px 0 var(--space-3);
+}
+.location-gallery-search{flex:1 1 auto;min-width:0;display:block}
+.location-gallery-type-filter{flex:none;display:block;min-width:180px}
+.location-gallery-type-filter select{width:100%}
+
+/* Phase B2: small neutral identity badge for a Location's display type label (custom label
+   wins for display, preset is always what drives it when there's no custom text — see
+   js/location-types.js). Deliberately one flat neutral treatment, not per-type colors —
+   colored filter/status chips already read as confusing in this app's other surfaces. */
+.location-type-badge{
+  display:inline-flex;align-items:center;flex:none;
+  padding:2px 8px;border-radius:999px;background:var(--soft);border:1px solid var(--border-subtle);
+  font-size:var(--text-2xs);font-weight:650;color:var(--text-secondary);white-space:nowrap;
+}
+.location-type-badge-sm{padding:1px 7px}
+
+.location-card-parent{
+  font-size:var(--text-2xs);color:var(--text-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 
 .locations-grid{
@@ -84,6 +103,37 @@
 }
 .location-profile-edit-btn:hover{background:var(--soft);color:var(--text-primary)}
 
+/* Phase B2 identity intro: type badge + breadcrumb + official name + short summary + aliases,
+   read-mode-only, sitting above the (unchanged) description in .location-profile-summary. Kept
+   compact — small type scale, tight gaps — so it reads as a header strip, not a second body. */
+.location-profile-intro{
+  display:flex;flex-direction:column;gap:6px;margin-bottom:var(--space-3);
+}
+.location-profile-intro[hidden]{display:none}
+
+.location-breadcrumb{
+  display:flex;flex-wrap:wrap;align-items:center;gap:4px;
+  font-size:var(--text-xs);color:var(--text-secondary);
+}
+.location-breadcrumb-link{
+  padding:0;border:0;background:transparent;color:var(--brand-strong);
+  font-size:inherit;text-decoration:underline;text-decoration-color:transparent;cursor:pointer;
+}
+.location-breadcrumb-link:hover,.location-breadcrumb-link:focus-visible{text-decoration-color:currentColor}
+.location-breadcrumb-plain{color:var(--text-secondary)}
+.location-breadcrumb-sep{color:var(--border-subtle)}
+.location-breadcrumb-current{color:var(--text-primary);font-weight:650}
+
+.location-profile-official-name{margin:0;font-size:var(--text-sm);color:var(--text-secondary);font-style:italic}
+.location-profile-short-summary{margin:0;font-size:var(--text-sm);color:var(--text-primary);line-height:1.4}
+
+.location-profile-aliases{display:flex;flex-wrap:wrap;gap:5px}
+.location-alias-chip{
+  display:inline-flex;padding:2px 8px;border-radius:999px;
+  background:var(--soft);border:1px solid var(--border-subtle);
+  font-size:var(--text-2xs);color:var(--text-secondary);
+}
+
 .location-profile-summary{margin-bottom:var(--space-4)}
 .location-profile-description{margin:0;white-space:pre-wrap;line-height:1.5;font-size:var(--text-sm);color:var(--text-primary)}
 /* Understated, compact — not a big empty card — and doubles as a natural way into
@@ -120,6 +170,17 @@
 .location-profile-scene-title{font-weight:650;font-size:var(--text-sm);color:var(--text-primary)}
 .location-profile-scene-meta{font-size:var(--text-xs);color:var(--text-secondary)}
 
+/* ---- Parent picker (createLocationParentPicker, js/locations.js) -----
+   Reuses the existing .combobox-host/.combobox-toggle/.combobox-list chrome (see
+   css/profiles.css) — only the option-row internals here are Location-specific, since a
+   parent option shows a name plus disambiguating context (type/parent), unlike the plain
+   text options that chrome was built for. */
+.location-parent-option-name{display:block;font-size:var(--text-sm);color:var(--text-primary)}
+.location-parent-option-meta{display:block;font-size:var(--text-2xs);color:var(--text-secondary);margin-top:1px}
+.location-parent-clear-option{font-style:italic;color:var(--text-secondary)}
+
 @media(max-width:520px){
   .location-card-monogram{width:22px;height:22px;font-size:11px}
+  .location-gallery-toolbar{flex-wrap:wrap}
+  .location-gallery-type-filter{flex:1 1 100%;min-width:0}
 }

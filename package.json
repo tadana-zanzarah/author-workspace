@@ -9,6 +9,7 @@
     "test:dirty-browser": "node tools/dirty-browser.test.mjs",
     "test:manager-save-ux-browser": "node tools/manager-save-ux-browser.test.mjs",
     "test:location-gallery-profile-corrective-browser": "node tools/location-gallery-profile-corrective-browser.test.mjs",
+    "test:location-phase-b2-core-identity-browser": "node tools/location-phase-b2-core-identity-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",
     "test:cloud-browser": "node tools/cloud-browser.test.mjs",
     "test:auth-browser": "node tools/auth-browser.test.mjs",

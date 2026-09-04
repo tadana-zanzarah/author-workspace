@@ -339,7 +339,10 @@
 <div class="modal-backdrop" id="locationsModal" role="dialog" aria-modal="true" aria-labelledby="locationsModalTitle">
   <div class="modal" style="width:min(1180px,100%);height:94vh;max-height:94vh">
     <h2 id="locationsModalTitle">Локации</h2>
-    <label class="location-gallery-search"><span class="visually-hidden">Поиск локаций</span><input id="locationGallerySearch" class="search-input" placeholder="Поиск локаций: название, описание…"></label>
+    <div class="location-gallery-toolbar">
+      <label class="location-gallery-search"><span class="visually-hidden">Поиск локаций</span><input id="locationGallerySearch" class="search-input" placeholder="Поиск локаций: название, псевдонимы, описание…"></label>
+      <label class="location-gallery-type-filter" hidden><span class="visually-hidden">Фильтр по типу</span><select id="locationGalleryTypeFilter"></select></label>
+    </div>
     <div id="locationsGalleryGrid" class="locations-grid"></div>
     <div class="modal-actions">
       <button id="closeLocations" type="button">Закрыть</button>
@@ -349,15 +352,37 @@
 </div>
 
 <div class="modal-backdrop" id="createLocationModal" role="dialog" aria-modal="true" aria-labelledby="createLocationTitle">
-  <div class="modal" style="width:min(480px,100%)">
+  <div class="modal" style="width:min(520px,100%)">
     <h2 id="createLocationTitle">Новая локация</h2>
     <label style="display:block;margin-top:10px">
       <span class="field-caption">Название локации</span>
       <input id="createLocationName" data-initial-focus placeholder="Название локации">
     </label>
+    <div class="profile-editor-grid" style="margin-top:10px">
+      <label class="profile-field">
+        <span class="field-caption">Тип (необязательно)</span>
+        <select id="createLocationTypePreset"></select>
+      </label>
+      <label class="profile-field">
+        <span class="field-caption">Уточнение типа (необязательно)</span>
+        <input id="createLocationCustomTypeLabel" placeholder="Например, «Столица»">
+      </label>
+    </div>
+    <div style="display:block;margin-top:10px">
+      <span class="field-caption" id="createLocationParentCaption">Родительская локация (необязательно)</span>
+      <div class="combobox-host" id="createLocationParentHost">
+        <input id="createLocationParent" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="createLocationParentListbox" aria-labelledby="createLocationParentCaption" autocomplete="off" placeholder="Без родительской локации">
+        <button type="button" class="combobox-toggle" aria-label="Открыть список локаций" tabindex="-1">▾</button>
+        <div id="createLocationParentListbox" class="combobox-list" role="listbox" hidden></div>
+      </div>
+    </div>
+    <div style="display:block;margin-top:10px">
+      <span class="field-caption">Альтернативные названия (необязательно)</span>
+      <div class="multi-value-host" id="createLocationAliases"></div>
+    </div>
     <label style="display:block;margin-top:10px">
-      <span class="field-caption">Описание (необязательно)</span>
-      <textarea id="createLocationDescription" rows="3" placeholder="Необязательное описание"></textarea>
+      <span class="field-caption">Короткое описание (необязательно)</span>
+      <textarea id="createLocationShortSummary" rows="2" placeholder="1–2 предложения — как эта локация выглядит в общем списке"></textarea>
     </label>
     <div class="modal-actions">
       <span id="createLocationStatus" class="save-status" role="status" aria-live="polite"></span>
@@ -378,6 +403,7 @@
       <div class="location-profile-read-toolbar">
         <button type="button" class="location-profile-edit-btn" id="locationProfileEdit">✎ Редактировать</button>
       </div>
+      <div class="location-profile-intro" id="locationProfileIntro" hidden></div>
       <div class="location-profile-summary" id="locationProfileSummary"></div>
       <div class="profile-section">
         <h3 class="profile-section-title">Сцены здесь</h3>
@@ -395,6 +421,34 @@
             <span class="field-caption">Название локации</span>
             <input id="locProfileName" placeholder="Название локации">
           </label>
+          <label class="profile-field">
+            <span class="field-caption">Официальное название (необязательно)</span>
+            <input id="locProfileOfficialName" placeholder="Полное/официальное название">
+          </label>
+          <label class="profile-field">
+            <span class="field-caption">Короткое описание (необязательно)</span>
+            <input id="locProfileShortSummary" placeholder="1–2 предложения для карточки">
+          </label>
+          <label class="profile-field">
+            <span class="field-caption">Тип (необязательно)</span>
+            <select id="locProfileTypePreset"></select>
+          </label>
+          <label class="profile-field">
+            <span class="field-caption">Уточнение типа (необязательно)</span>
+            <input id="locProfileCustomTypeLabel" placeholder="Например, «Столица»">
+          </label>
+          <div class="profile-field full">
+            <span class="field-caption" id="locProfileParentCaption">Родительская локация (необязательно)</span>
+            <div class="combobox-host" id="locProfileParentHost">
+              <input id="locProfileParent" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="locProfileParentListbox" aria-labelledby="locProfileParentCaption" autocomplete="off" placeholder="Без родительской локации">
+              <button type="button" class="combobox-toggle" aria-label="Открыть список локаций" tabindex="-1">▾</button>
+              <div id="locProfileParentListbox" class="combobox-list" role="listbox" hidden></div>
+            </div>
+          </div>
+          <div class="profile-field full">
+            <span class="field-caption">Альтернативные названия (необязательно)</span>
+            <div class="multi-value-host" id="locProfileAliases"></div>
+          </div>
           <label class="profile-field full">
             <span class="field-caption">Описание</span>
             <textarea id="locProfileDescription" rows="4" placeholder="Необязательное описание — какой эта локация видится в истории"></textarea>

@@ -13,6 +13,7 @@ import "./character-links.js";
 import "./scenes.js";
 import "./characters.js";
 import "./chapters.js";
+import "./location-types.js";
 import "./locations.js";
 import "./filters.js";
 import "./filter-controls.js";
@@ -32,7 +33,14 @@ const editorTrackers={
   profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:safeOwnCopy(profileDraftPhotos),primaryPhotoId:profileDraftPrimaryPhotoId,characterLinks:safeOwnCopy(profileDraftCharacterLinks),favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
   characterLinkModal:createDirtyTracker("characterLinkModal",()=>serializeForm("characterLinkModal")),
   chaptersModal:createDirtyTracker("chaptersModal",()=>serializeForm("chaptersModal")),
-  locationProfileModal:createDirtyTracker("locationProfileModal",()=>serializeForm("locationProfileModal")),
+  // aliases (multi-value combobox clears its own <input> on every add, so its real value
+  // never shows up in serializeForm's plain input.value scan) and parentId (a custom picker,
+  // not a native form control) are passed as explicit extra state, same pattern as
+  // profileEditorModal's favorites/hobbies/photos above.
+  locationProfileModal:createDirtyTracker("locationProfileModal",()=>serializeForm("locationProfileModal",{
+    aliases:multiValueInputs.locationAliases?.getValues()||[],
+    parentId:currentLocationProfileParentSelection()
+  })),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
   quickFieldModal:createDirtyTracker("quickFieldModal",()=>serializeForm("quickFieldModal")),
   recoveryModal:createDirtyTracker("recoveryModal",()=>serializeForm("recoveryModal"))
@@ -372,6 +380,8 @@ document.getElementById("addLocation").onclick=openCreateLocationModal;
 document.getElementById("closeLocations").onclick=()=>hideModal("locationsModal");
 document.getElementById("locationsModal").onclick=e=>{if(e.target.id==="locationsModal")hideModal("locationsModal")};
 document.getElementById("locationGallerySearch").oninput=e=>setLocationGallerySearch(e.target.value);
+document.getElementById("locationGalleryTypeFilter").onchange=e=>setLocationGalleryTypeFilter(e.target.value);
+populateLocationTypePresetSelect(document.getElementById("locProfileTypePreset"));
 document.getElementById("createLocationName").oninput=updateCreateLocationSubmitState;
 document.getElementById("createLocationName").onkeydown=e=>{
   if(e.key==="Enter"){e.preventDefault();if(!document.getElementById("createLocationSubmit").disabled)document.getElementById("createLocationSubmit").click()}
