@@ -10,20 +10,22 @@
  * server independently validates and normalizes every write.
  *
  * Phase 1 shipped the first two modules (appearanceAtmosphere, geography); B3B ("Location Adaptive
- * Modules -- B3B Product Specification: Government & Society + Economy") adds governmentSociety
- * and economy the same one-line way the header above always anticipated. populationCulture/
- * historyNotes remain future work -- not catalog entries yet, per the backend allowlist's own
- * "no unvalidated write surface" principle.
+ * Modules -- B3B Product Specification: Government & Society + Economy") added governmentSociety
+ * and economy; B3C ("Location Adaptive Modules -- B3C Product Specification: Population & Culture")
+ * adds populationCulture the same one-line way the header above always anticipated. historyNotes/
+ * media/Location<->Location and Character<->Location relations remain future work -- not catalog
+ * entries yet, per the backend allowlist's own "no unvalidated write surface" principle.
  */
 import {
-  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,isModuleEmpty
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,isModuleEmpty
 } from "./location-base-profile.js";
 
 const LOCATION_MODULE_CATALOG=[
   {key:"appearanceAtmosphere",label:"Внешний вид и атмосфера"},
   {key:"geography",label:"География и природа"},
   {key:"governmentSociety",label:"Государство и общество"},
-  {key:"economy",label:"Экономика"}
+  {key:"economy",label:"Экономика"},
+  {key:"populationCulture",label:"Население и культура"}
 ];
 const LOCATION_MODULE_KEYS=LOCATION_MODULE_CATALOG.map(m=>m.key);
 const LOCATION_MODULE_LABELS=Object.fromEntries(LOCATION_MODULE_CATALOG.map(m=>[m.key,m.label]));
@@ -36,6 +38,7 @@ function locationModuleHasData(location,moduleKey){
   if(moduleKey==="geography")return !isModuleEmpty(normalizeGeography(baseProfile.geography));
   if(moduleKey==="governmentSociety")return !isModuleEmpty(normalizeGovernmentSociety(baseProfile.governmentSociety));
   if(moduleKey==="economy")return !isModuleEmpty(normalizeEconomy(baseProfile.economy));
+  if(moduleKey==="populationCulture")return !isModuleEmpty(normalizePopulationCulture(baseProfile.populationCulture));
   return false;
 }
 
@@ -56,6 +59,13 @@ const LOCATION_MODULE_TYPE_RECOMMENDATIONS={
     world:"recommend",continent:"none",country:"strong",region:"strong",settlement:"strong",
     district:"strong",street:"recommend",building:"recommend",room:"none",natural_place:"none",
     transport:"strong",other:"none"
+  },
+  // B3C recommendations, per task brief: world/continent/street/building/transport -> recommend;
+  // country/region/settlement/district -> strong; room/natural_place/other -> none.
+  populationCulture:{
+    world:"recommend",continent:"recommend",country:"strong",region:"strong",settlement:"strong",
+    district:"strong",street:"recommend",building:"recommend",room:"none",natural_place:"none",
+    transport:"recommend",other:"none"
   }
 };
 // Returns "strong" | "recommend" | "none". An unspecified/custom Location type (typePreset falsy

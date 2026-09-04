@@ -4,7 +4,7 @@
 // wholesale, cleared module -> JSON null, individual field removal drops the old field entirely.
 import assert from "node:assert/strict";
 import {
-  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,isModuleEmpty,
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,isModuleEmpty,
   buildLocationBaseProfilePatch,applyLocationBaseProfilePatch
 } from "../js/location-base-profile.js";
 
@@ -171,6 +171,65 @@ assert.deepEqual(
 
 // 20. omitting governmentSociety/economy args entirely (pre-B3B call shape) still works -- both
 // normalize to {} on both sides, so they're simply absent from the patch, never treated as changed.
+{
+  const patch=buildLocationBaseProfilePatch({
+    originalAppearance:{},originalGeography:{},
+    draftAppearance:{atmosphere:"Напряжённо"},draftGeography:{}
+  });
+  assert.ok(patch);
+  assert.deepEqual(Object.keys(patch),["appearanceAtmosphere"]);
+}
+
+// B3C: populationCulture normalization -- same generic contract, seven fields (three prose, four
+// chip lists), deliberately no numeric/statistical fields.
+
+// 21. completely empty / whitespace-only -> empty normalized module.
+assert.deepEqual(normalizePopulationCulture({}),{});
+assert.deepEqual(normalizePopulationCulture(undefined),{});
+assert.deepEqual(normalizePopulationCulture({populationCharacter:"   ",customsAndTraditions:"\t",socialNorms:""}),{});
+assert.ok(isModuleEmpty(normalizePopulationCulture({})));
+
+// 22. blank/duplicate array entries removed, case-insensitive dedupe (shared normalizeMultiValue).
+assert.deepEqual(normalizePopulationCulture({peoplesAndGroups:["","  ","Портовые грузчики","портовые грузчики"]}),{peoplesAndGroups:["Портовые грузчики"]});
+assert.deepEqual(normalizePopulationCulture({languages:["Общий","","общий"]}),{languages:["Общий"]});
+assert.deepEqual(normalizePopulationCulture({holidays:["День города","День города"]}),{holidays:["День города"]});
+assert.deepEqual(normalizePopulationCulture({beliefs:["Вера моряков","  "]}),{beliefs:["Вера моряков"]});
+
+// 23. populated populationCulture normalized: trims, keeps only non-empty fields, fixed key order.
+assert.deepEqual(
+  normalizePopulationCulture({
+    populationCharacter:"  Космополитичный порт  ",peoplesAndGroups:["Докеры","  Северная диаспора  "],
+    languages:["Общий"],customsAndTraditions:"",holidays:[],beliefs:["Вера моряков"],socialNorms:"Не свистеть на пришвартованном корабле."
+  }),
+  {populationCharacter:"Космополитичный порт",peoplesAndGroups:["Докеры","Северная диаспора"],languages:["Общий"],beliefs:["Вера моряков"],socialNorms:"Не свистеть на пришвартованном корабле."}
+);
+
+// 24. buildLocationBaseProfilePatch: populationCulture coexists with all four existing modules --
+// editing it must not disturb appearanceAtmosphere/geography/governmentSociety/economy.
+{
+  const patch=buildLocationBaseProfilePatch({
+    originalAppearance:{},originalGeography:{terrain:"Горы"},originalGovernmentSociety:{},originalEconomy:{currency:"Кроны"},originalPopulationCulture:{},
+    draftAppearance:{},draftGeography:{terrain:"Горы"},draftGovernmentSociety:{},draftEconomy:{currency:"Кроны"},draftPopulationCulture:{socialNorms:"Не шуметь ночью."}
+  });
+  assert.ok(patch);
+  assert.deepEqual(Object.keys(patch),["populationCulture"],"only the actually-changed module (populationCulture) appears in the patch");
+  assert.deepEqual(patch.populationCulture,{socialNorms:"Не шуметь ночью."});
+}
+
+// 25. clearing populationCulture to empty -> JSON null, other modules untouched/omitted.
+{
+  const patch=buildLocationBaseProfilePatch({
+    originalPopulationCulture:{socialNorms:"Не шуметь ночью."},originalEconomy:{currency:"Кроны"},
+    draftPopulationCulture:{socialNorms:"   "},draftEconomy:{currency:"Кроны"}
+  });
+  assert.ok(patch);
+  assert.equal(patch.populationCulture,null);
+  assert.ok(!("economy" in patch),"unchanged economy must not appear in the patch");
+  assert.ok(!("appearanceAtmosphere" in patch)&&!("geography" in patch)&&!("governmentSociety" in patch),"omitted args must normalize to unchanged, not spuriously appear");
+}
+
+// 26. omitting populationCulture args entirely (pre-B3C call shape) still works -- normalizes to {}
+// on both sides, so it's simply absent from the patch, never treated as changed.
 {
   const patch=buildLocationBaseProfilePatch({
     originalAppearance:{},originalGeography:{},

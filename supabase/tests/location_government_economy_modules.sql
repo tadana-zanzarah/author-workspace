@@ -95,7 +95,9 @@ end $$;
 
 -- ===========================================================================
 -- Block C: unknown module key (never allowlisted) is still rejected -- the allowlist expansion
--- must not have accidentally loosened validation into "anything goes".
+-- must not have accidentally loosened validation into "anything goes". Uses historyNotes --
+-- populationCulture shipped in B3C (20260906090000_location_population_culture_module.sql) and is
+-- no longer a valid example of an unallowlisted key.
 -- ===========================================================================
 do $$
 declare
@@ -106,9 +108,9 @@ begin
   r:=public.create_location_canonical(proj,rev,'Forbidden Ledger');
   canonical_id:=(r->'data'->>'location_id')::uuid; loc_rev:=(r->'data'->>'location_revision')::bigint;
 
-  r:=public.update_location_canonical(canonical_id,loc_rev,'Forbidden Ledger',null,'{}',null,null,'','',jsonb_build_object('populationCulture',jsonb_build_object('note','still not allowlisted')));
+  r:=public.update_location_canonical(canonical_id,loc_rev,'Forbidden Ledger',null,'{}',null,null,'','',jsonb_build_object('historyNotes',jsonb_build_object('note','still not allowlisted')));
   if coalesce((r->>'ok')::boolean,false) or r->>'code'<>'VALIDATION_ERROR' then raise exception 'C: still-unallowlisted module key was not rejected: %', r; end if;
-  if (select base_profile ? 'populationCulture' from public.locations where id=canonical_id) then raise exception 'C: unallowlisted module key leaked into base_profile'; end if;
+  if (select base_profile ? 'historyNotes' from public.locations where id=canonical_id) then raise exception 'C: unallowlisted module key leaked into base_profile'; end if;
 end $$;
 
 -- ===========================================================================
@@ -210,7 +212,6 @@ begin
         'geography',jsonb_build_object('terrain','Hills'),
         'governmentSociety',jsonb_build_object('leadership','Mayor Alvez'),
         'economy',jsonb_build_object('currency','Peso','industries',jsonb_build_array('Trade')),
-        'populationCulture',jsonb_build_object('note','not allowlisted, must be dropped'),
         'historyNotes','not-an-object'
       ),
       'module_selection',jsonb_build_object('shown',jsonb_build_array('governmentSociety','economy'),'hidden',jsonb_build_array('geography'))
@@ -230,9 +231,6 @@ begin
   end if;
   if (select base_profile->'geography'->>'terrain' from public.locations where id=canonical_id)<>'Hills' then
     raise exception 'G: geography did not survive import alongside the new modules';
-  end if;
-  if (select base_profile ? 'populationCulture' from public.locations where id=canonical_id) then
-    raise exception 'G: unallowlisted populationCulture key leaked through import';
   end if;
   if (select base_profile ? 'historyNotes' from public.locations where id=canonical_id) then
     raise exception 'G: malformed (non-object) historyNotes value was not sanitized away';

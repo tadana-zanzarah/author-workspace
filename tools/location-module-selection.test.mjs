@@ -10,13 +10,14 @@ import {
   deleteLocationModuleSelectionEntry,dropRedundantShownEntries,saveNeedsModuleSelectionWrite
 } from "../js/location-module-selection.js";
 
-// 1. Catalog is the four shipped modules (Phase 1: appearanceAtmosphere/geography; B3B:
-// governmentSociety/economy), in this fixed order, nothing more.
-assert.deepEqual(LOCATION_MODULE_KEYS,["appearanceAtmosphere","geography","governmentSociety","economy"]);
+// 1. Catalog is the five shipped modules (Phase 1: appearanceAtmosphere/geography; B3B:
+// governmentSociety/economy; B3C: populationCulture), in this fixed order, nothing more.
+assert.deepEqual(LOCATION_MODULE_KEYS,["appearanceAtmosphere","geography","governmentSociety","economy","populationCulture"]);
 assert.equal(locationModuleLabel("appearanceAtmosphere"),"Внешний вид и атмосфера");
 assert.equal(locationModuleLabel("geography"),"География и природа");
 assert.equal(locationModuleLabel("governmentSociety"),"Государство и общество");
 assert.equal(locationModuleLabel("economy"),"Экономика");
+assert.equal(locationModuleLabel("populationCulture"),"Население и культура");
 
 // 2. hasData: empty/absent baseProfile -> false for both modules.
 assert.equal(locationModuleHasData({},"appearanceAtmosphere"),false);
@@ -36,7 +37,9 @@ assert.deepEqual(normalizeModuleSelection({shown:["geography","appearanceAtmosph
 assert.deepEqual(normalizeModuleSelection({hidden:["appearanceAtmosphere","appearanceAtmosphere"]}),{shown:[],hidden:["appearanceAtmosphere"]});
 
 // 6. normalizeModuleSelection: unknown keys are dropped (frontend catalog is the allowlist here).
-assert.deepEqual(normalizeModuleSelection({shown:["populationCulture","appearanceAtmosphere"]}),{shown:["appearanceAtmosphere"],hidden:[]});
+// Uses historyNotes -- populationCulture shipped in B3C and is no longer a valid "unknown key"
+// example (see location-module-selection.js's own catalog).
+assert.deepEqual(normalizeModuleSelection({shown:["historyNotes","appearanceAtmosphere"]}),{shown:["appearanceAtmosphere"],hidden:[]});
 
 // 7. normalizeModuleSelection: malformed input never throws.
 assert.deepEqual(normalizeModuleSelection(undefined),{shown:[],hidden:[]});
@@ -93,7 +96,7 @@ assert.deepEqual(moduleSelectionEffective({shown:["geography"]}),{shown:["geogra
   const location={baseProfile:{geography:{terrain:"Горы"}}};
   const selection={hidden:["geography"]};
   const candidates=locationModulePickerCandidates(location,selection);
-  assert.deepEqual(candidates.map(c=>c.key).sort(),["appearanceAtmosphere","economy","geography","governmentSociety"]);
+  assert.deepEqual(candidates.map(c=>c.key).sort(),["appearanceAtmosphere","economy","geography","governmentSociety","populationCulture"]);
   const geo=candidates.find(c=>c.key==="geography");
   assert.equal(geo.action,"show");
   assert.equal(geo.hasData,true);
@@ -105,7 +108,7 @@ assert.deepEqual(moduleSelectionEffective({shown:["geography"]}),{shown:["geogra
   // geography's candidacy here is solely a function of selection state, not hasData).
   const emptyLocation={baseProfile:{}};
   const shownSelection={shown:["appearanceAtmosphere"]};
-  assert.deepEqual(locationModulePickerCandidates(emptyLocation,shownSelection).map(c=>c.key),["geography","governmentSociety","economy"]);
+  assert.deepEqual(locationModulePickerCandidates(emptyLocation,shownSelection).map(c=>c.key),["geography","governmentSociety","economy","populationCulture"]);
 }
 
 // 22. B3B hasData: governmentSociety/economy follow the exact same rules as the existing modules.
@@ -127,6 +130,27 @@ assert.equal(locationModuleRecommendation("governmentSociety",undefined),"none")
 assert.equal(locationModuleRecommendation("governmentSociety","some-custom-unlisted-type"),"none");
 assert.equal(locationModuleRecommendation("appearanceAtmosphere","country"),"none","Phase 1 modules have no recommendation table");
 assert.equal(locationModuleRecommendation("geography","country"),"none","Phase 1 modules have no recommendation table");
+
+// 27. B3C hasData: populationCulture follows the exact same rules as the existing modules.
+assert.equal(locationModuleHasData({baseProfile:{populationCulture:{populationCharacter:"   "}}},"populationCulture"),false);
+assert.equal(locationModuleHasData({baseProfile:{populationCulture:{socialNorms:"Не свистеть на корабле."}}},"populationCulture"),true);
+assert.equal(locationModuleHasData({baseProfile:{populationCulture:{}}},"populationCulture"),false);
+
+// 28. B3C recommendation matrix: country/region/settlement/district -> strong;
+// world/continent/street/building/transport -> recommend; room/natural_place/other -> none.
+assert.equal(locationModuleRecommendation("populationCulture","country"),"strong");
+assert.equal(locationModuleRecommendation("populationCulture","region"),"strong");
+assert.equal(locationModuleRecommendation("populationCulture","settlement"),"strong");
+assert.equal(locationModuleRecommendation("populationCulture","district"),"strong");
+assert.equal(locationModuleRecommendation("populationCulture","world"),"recommend");
+assert.equal(locationModuleRecommendation("populationCulture","continent"),"recommend");
+assert.equal(locationModuleRecommendation("populationCulture","street"),"recommend");
+assert.equal(locationModuleRecommendation("populationCulture","building"),"recommend");
+assert.equal(locationModuleRecommendation("populationCulture","transport"),"recommend");
+assert.equal(locationModuleRecommendation("populationCulture","room"),"none");
+assert.equal(locationModuleRecommendation("populationCulture","natural_place"),"none");
+assert.equal(locationModuleRecommendation("populationCulture","other"),"none");
+assert.equal(locationModuleRecommendation("populationCulture",null),"none");
 
 // 15. addEmptyLocationModule: adds to shown, removes from hidden if it was there (defensive).
 assert.deepEqual(addEmptyLocationModule({},"geography"),{shown:["geography"],hidden:[]});

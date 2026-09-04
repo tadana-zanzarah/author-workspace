@@ -410,6 +410,7 @@
       <div class="location-profile-thematic" id="locationProfileGeography" hidden></div>
       <div class="location-profile-thematic" id="locationProfileGovernmentSociety" hidden></div>
       <div class="location-profile-thematic" id="locationProfileEconomy" hidden></div>
+      <div class="location-profile-thematic" id="locationProfilePopulationCulture" hidden></div>
       <div class="profile-section">
         <h3 class="profile-section-title">Сцены здесь</h3>
         <div id="locationProfileScenes" class="location-profile-scenes"></div>
@@ -655,6 +656,55 @@
                 <span class="location-thematic-delete-warning" id="locProfileEconomyDeleteWarning"></span>
                 <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('economy')">Да, удалить</button>
                 <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('economy')">Отмена</button>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="location-thematic-module" id="locProfilePopulationCultureModule" hidden>
+          <button type="button" class="location-thematic-disclosure" id="locProfilePopulationCultureToggle" aria-expanded="false" aria-controls="locProfilePopulationCultureBody" onclick="toggleLocationThematicDisclosure('populationCulture')">
+            <span class="location-thematic-disclosure-chevron" aria-hidden="true">▸</span>
+            <span>Население и культура</span>
+          </button>
+          <div id="locProfilePopulationCultureBody" class="location-thematic-body" hidden>
+            <div class="profile-editor-grid">
+              <label class="profile-field full">
+                <span class="field-caption">Кто здесь живёт</span>
+                <textarea id="locProfilePopulationCharacter" rows="3" placeholder="Например: космополитичный порт, в основном студенты, старые местные семьи вперемешку с приезжими"></textarea>
+              </label>
+              <div class="profile-field full">
+                <span class="field-caption">Народы и сообщества</span>
+                <div class="multi-value-host" id="locProfilePeoplesAndGroups"></div>
+              </div>
+              <div class="profile-field full">
+                <span class="field-caption">Языки</span>
+                <div class="multi-value-host" id="locProfileLanguages"></div>
+              </div>
+              <label class="profile-field full">
+                <span class="field-caption">Обычаи и традиции</span>
+                <textarea id="locProfileCustomsAndTraditions" rows="3" placeholder="Повседневные обычаи, этикет, повторяющиеся практики"></textarea>
+              </label>
+              <div class="profile-field full">
+                <span class="field-caption">Праздники и важные даты</span>
+                <div class="multi-value-host" id="locProfileHolidays"></div>
+              </div>
+              <div class="profile-field full">
+                <span class="field-caption">Религии и верования</span>
+                <div class="multi-value-host" id="locProfileBeliefs"></div>
+              </div>
+              <label class="profile-field full">
+                <span class="field-caption">Нормы и табу</span>
+                <textarea id="locProfileSocialNorms" rows="3" placeholder="Неформальные ожидания, этикет, запреты и табу — формальные законы и охрана порядка относятся к разделу «Государство и общество»"></textarea>
+              </label>
+            </div>
+            <div class="location-thematic-actions" id="locProfilePopulationCultureActions">
+              <button type="button" class="location-thematic-hide" id="locProfilePopulationCultureHide" onclick="hideLocationThematicModule('populationCulture')" hidden>Скрыть раздел</button>
+              <button type="button" class="location-thematic-remove" id="locProfilePopulationCultureRemove" onclick="removeEmptyLocationThematicModule('populationCulture')" hidden>Убрать раздел</button>
+              <button type="button" class="location-thematic-delete-start" id="locProfilePopulationCultureDeleteStart" onclick="startDeleteLocationThematicModule('populationCulture')" hidden>Удалить данные раздела</button>
+              <span class="location-thematic-delete-confirm" id="locProfilePopulationCultureDeleteConfirm" hidden>
+                <span class="location-thematic-delete-warning" id="locProfilePopulationCultureDeleteWarning"></span>
+                <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('populationCulture')">Да, удалить</button>
+                <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('populationCulture')">Отмена</button>
               </span>
             </div>
           </div>

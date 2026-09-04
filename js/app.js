@@ -49,6 +49,13 @@ const editorTrackers={
     parentId:currentLocationProfileParentSelection(),
     notableFeatures:multiValueInputs.locationNotableFeatures?.getValues()||[],
     naturalFeatures:multiValueInputs.locationNaturalFeatures?.getValues()||[],
+    // B3C (populationCulture) chip fields -- same reasoning as notableFeatures/naturalFeatures
+    // above: each multi-value combobox clears its own <input> on every add, so serializeForm's
+    // plain input.value scan never sees the real chip list.
+    peoplesAndGroups:multiValueInputs.locationPeoplesAndGroups?.getValues()||[],
+    languages:multiValueInputs.locationLanguages?.getValues()||[],
+    holidays:multiValueInputs.locationHolidays?.getValues()||[],
+    beliefs:multiValueInputs.locationBeliefs?.getValues()||[],
     // Adaptive Module Selection: add/show/hide/remove change locationProfileModuleSelectionDraft
     // without necessarily touching any native control serializeForm's own scan would see (e.g.
     // hiding a populated module changes nothing else) -- without this, Save would stay disabled.

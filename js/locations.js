@@ -257,6 +257,7 @@ function populateLocationProfileCore(participationId){
   renderLocationProfileGeography(location);
   renderLocationProfileGovernmentSociety(location);
   renderLocationProfileEconomy(location);
+  renderLocationProfilePopulationCulture(location);
   renderLocationProfileScenes(participationId);
   refreshLocationHierarchyContext(location);
   return location;
@@ -471,6 +472,29 @@ function renderLocationProfileEconomy(location){
   el.hidden=false;
 }
 
+// B3C read order (spec): populationCharacter, customsAndTraditions, socialNorms (always prose --
+// unlike Geography/Government/Economy's ambiguous fields, all three are declared free-prose
+// textareas in the field contract, so there is no length threshold to apply here, same treatment
+// as Appearance's visualDescription/atmosphere) -> peoplesAndGroups, languages, beliefs, holidays
+// (chips, in that fixed order).
+function renderLocationProfilePopulationCulture(location){
+  const el=document.getElementById("locationProfilePopulationCulture");if(!el)return;
+  if(!locationModuleReadVisible(location,location.moduleSelection,"populationCulture")){el.hidden=true;el.innerHTML="";return}
+  const m=normalizePopulationCulture(location.baseProfile?.populationCulture);
+  if(isModuleEmpty(m)){el.hidden=true;el.innerHTML="";return}
+  const proseHtml=[
+    m.populationCharacter?`<p class="location-profile-thematic-prose">${esc(m.populationCharacter)}</p>`:"",
+    m.customsAndTraditions?`<p class="location-profile-thematic-prose location-profile-thematic-prose-secondary">${esc(m.customsAndTraditions)}</p>`:"",
+    m.socialNorms?`<p class="location-profile-thematic-prose location-profile-thematic-prose-secondary">${esc(m.socialNorms)}</p>`:""
+  ].join("");
+  const chipsHtml=renderLocationThematicChips("Народы и сообщества",m.peoplesAndGroups||[])
+    +renderLocationThematicChips("Языки",m.languages||[])
+    +renderLocationThematicChips("Религии и верования",m.beliefs||[])
+    +renderLocationThematicChips("Праздники и важные даты",m.holidays||[]);
+  el.innerHTML=`<h3 class="location-profile-thematic-title">Население и культура</h3>${proseHtml}${chipsHtml}`;
+  el.hidden=false;
+}
+
 function ensureLocationNotableFeaturesWidget(){
   if(multiValueInputs.locationNotableFeatures)return multiValueInputs.locationNotableFeatures;
   const host=document.getElementById("locProfileNotableFeatures");
@@ -513,12 +537,37 @@ function ensureLocationTradeConnectionsWidget(){
   multiValueInputs.locationTradeConnections=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Торговые связи",onChange:syncBeforeUnload});
   return multiValueInputs.locationTradeConnections;
 }
+function ensureLocationPeoplesAndGroupsWidget(){
+  if(multiValueInputs.locationPeoplesAndGroups)return multiValueInputs.locationPeoplesAndGroups;
+  const host=document.getElementById("locProfilePeoplesAndGroups");
+  multiValueInputs.locationPeoplesAndGroups=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Народы и сообщества",onChange:syncBeforeUnload});
+  return multiValueInputs.locationPeoplesAndGroups;
+}
+function ensureLocationLanguagesWidget(){
+  if(multiValueInputs.locationLanguages)return multiValueInputs.locationLanguages;
+  const host=document.getElementById("locProfileLanguages");
+  multiValueInputs.locationLanguages=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Языки",onChange:syncBeforeUnload});
+  return multiValueInputs.locationLanguages;
+}
+function ensureLocationHolidaysWidget(){
+  if(multiValueInputs.locationHolidays)return multiValueInputs.locationHolidays;
+  const host=document.getElementById("locProfileHolidays");
+  multiValueInputs.locationHolidays=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Праздники и важные даты",onChange:syncBeforeUnload});
+  return multiValueInputs.locationHolidays;
+}
+function ensureLocationBeliefsWidget(){
+  if(multiValueInputs.locationBeliefs)return multiValueInputs.locationBeliefs;
+  const host=document.getElementById("locProfileBeliefs");
+  multiValueInputs.locationBeliefs=createMultiValueCombobox({host,suggestions:[],values:[],placeholder:"Добавить…",label:"Религии и верования",onChange:syncBeforeUnload});
+  return multiValueInputs.locationBeliefs;
+}
 
 const LOCATION_THEMATIC_DISCLOSURE_IDS={
   appearanceAtmosphere:{toggle:"locProfileAppearanceToggle",body:"locProfileAppearanceBody"},
   geography:{toggle:"locProfileGeographyToggle",body:"locProfileGeographyBody"},
   governmentSociety:{toggle:"locProfileGovernmentSocietyToggle",body:"locProfileGovernmentSocietyBody"},
-  economy:{toggle:"locProfileEconomyToggle",body:"locProfileEconomyBody"}
+  economy:{toggle:"locProfileEconomyToggle",body:"locProfileEconomyBody"},
+  populationCulture:{toggle:"locProfilePopulationCultureToggle",body:"locProfilePopulationCultureBody"}
 };
 
 // Presentation only: never clears values, saves, or resets dirty state -- see task brief
@@ -557,7 +606,8 @@ const LOCATION_THEMATIC_MODULE_IDS={
   appearanceAtmosphere:{module:"locProfileAppearanceModule",hide:"locProfileAppearanceHide",remove:"locProfileAppearanceRemove",deleteStart:"locProfileAppearanceDeleteStart",deleteConfirm:"locProfileAppearanceDeleteConfirm",deleteWarning:"locProfileAppearanceDeleteWarning",firstField:"locProfileVisualDescription"},
   geography:{module:"locProfileGeographyModule",hide:"locProfileGeographyHide",remove:"locProfileGeographyRemove",deleteStart:"locProfileGeographyDeleteStart",deleteConfirm:"locProfileGeographyDeleteConfirm",deleteWarning:"locProfileGeographyDeleteWarning",firstField:"locProfileTerrain"},
   governmentSociety:{module:"locProfileGovernmentSocietyModule",hide:"locProfileGovernmentSocietyHide",remove:"locProfileGovernmentSocietyRemove",deleteStart:"locProfileGovernmentSocietyDeleteStart",deleteConfirm:"locProfileGovernmentSocietyDeleteConfirm",deleteWarning:"locProfileGovernmentSocietyDeleteWarning",firstField:"locProfileGovernmentForm"},
-  economy:{module:"locProfileEconomyModule",hide:"locProfileEconomyHide",remove:"locProfileEconomyRemove",deleteStart:"locProfileEconomyDeleteStart",deleteConfirm:"locProfileEconomyDeleteConfirm",deleteWarning:"locProfileEconomyDeleteWarning",firstField:"locProfileCurrency"}
+  economy:{module:"locProfileEconomyModule",hide:"locProfileEconomyHide",remove:"locProfileEconomyRemove",deleteStart:"locProfileEconomyDeleteStart",deleteConfirm:"locProfileEconomyDeleteConfirm",deleteWarning:"locProfileEconomyDeleteWarning",firstField:"locProfileCurrency"},
+  populationCulture:{module:"locProfilePopulationCultureModule",hide:"locProfilePopulationCultureHide",remove:"locProfilePopulationCultureRemove",deleteStart:"locProfilePopulationCultureDeleteStart",deleteConfirm:"locProfilePopulationCultureDeleteConfirm",deleteWarning:"locProfilePopulationCultureDeleteWarning",firstField:"locProfilePopulationCharacter"}
 };
 
 // A location-shaped object reflecting the CURRENT unsaved draft fields (not the original saved
@@ -570,7 +620,7 @@ function locationThematicDraftLocationLike(){
   return {
     baseProfile:{
       appearanceAtmosphere:draft.appearanceAtmosphere,geography:draft.geography,
-      governmentSociety:draft.governmentSociety,economy:draft.economy
+      governmentSociety:draft.governmentSociety,economy:draft.economy,populationCulture:draft.populationCulture
     },
     // Recommendation hints (see locationThematicPickerCandidates) react to the type the author is
     // CURRENTLY choosing in the still-open edit form, not the last-saved type -- same
@@ -759,10 +809,20 @@ function syncLocationProfileThematicFields(location){
   ensureLocationScarcityWidget().setValues(economy.scarcity);
   ensureLocationTradeConnectionsWidget().setValues(economy.tradeConnections);
 
+  const populationCulture=hydratePopulationCulture(location.baseProfile?.populationCulture);
+  document.getElementById("locProfilePopulationCharacter").value=populationCulture.populationCharacter;
+  ensureLocationPeoplesAndGroupsWidget().setValues(populationCulture.peoplesAndGroups);
+  ensureLocationLanguagesWidget().setValues(populationCulture.languages);
+  document.getElementById("locProfileCustomsAndTraditions").value=populationCulture.customsAndTraditions;
+  ensureLocationHolidaysWidget().setValues(populationCulture.holidays);
+  ensureLocationBeliefsWidget().setValues(populationCulture.beliefs);
+  document.getElementById("locProfileSocialNorms").value=populationCulture.socialNorms;
+
   setLocationThematicDisclosure("appearanceAtmosphere",!isModuleEmpty(normalizeAppearanceAtmosphere(appearance)));
   setLocationThematicDisclosure("geography",!isModuleEmpty(normalizeGeography(geography)));
   setLocationThematicDisclosure("governmentSociety",!isModuleEmpty(normalizeGovernmentSociety(governmentSociety)));
   setLocationThematicDisclosure("economy",!isModuleEmpty(normalizeEconomy(economy)));
+  setLocationThematicDisclosure("populationCulture",!isModuleEmpty(normalizePopulationCulture(populationCulture)));
 
   locationProfileModuleSelectionDraft=normalizeModuleSelection(location.moduleSelection);
   closeLocationModuleAddPanel();
@@ -806,6 +866,15 @@ function readLocationThematicDraftFields(){
       costOfLiving:document.getElementById("locProfileCostOfLiving").value,
       scarcity:ensureLocationScarcityWidget().getValues(),
       tradeConnections:ensureLocationTradeConnectionsWidget().getValues()
+    },
+    populationCulture:{
+      populationCharacter:document.getElementById("locProfilePopulationCharacter").value,
+      peoplesAndGroups:ensureLocationPeoplesAndGroupsWidget().getValues(),
+      languages:ensureLocationLanguagesWidget().getValues(),
+      customsAndTraditions:document.getElementById("locProfileCustomsAndTraditions").value,
+      holidays:ensureLocationHolidaysWidget().getValues(),
+      beliefs:ensureLocationBeliefsWidget().getValues(),
+      socialNorms:document.getElementById("locProfileSocialNorms").value
     }
   };
 }
@@ -814,7 +883,8 @@ const LOCATION_THEMATIC_FIELD_IDS={
   appearanceAtmosphere:["locProfileVisualDescription","locProfileAtmosphere","locProfileSounds","locProfileSmells","locProfileLighting","locProfileClimateFeel"],
   geography:["locProfileTerrain","locProfileClimate","locProfileWater","locProfileVegetation","locProfileAccess","locProfileCoordinates","locProfileArea","locProfileElevation"],
   governmentSociety:["locProfileGovernmentForm","locProfileLeadership","locProfilePoliticalSituation","locProfileLawsAndRules"],
-  economy:["locProfileCurrency","locProfileEconomicCharacter","locProfileCostOfLiving"]
+  economy:["locProfileCurrency","locProfileEconomicCharacter","locProfileCostOfLiving"],
+  populationCulture:["locProfilePopulationCharacter","locProfileCustomsAndTraditions","locProfileSocialNorms"]
 };
 
 // governmentSociety/economy (B3B) each have more than one multi-value field, unlike
@@ -824,7 +894,8 @@ const LOCATION_THEMATIC_ARRAY_WIDGETS_BY_MODULE={
   appearanceAtmosphere:[ensureLocationNotableFeaturesWidget],
   geography:[ensureLocationNaturalFeaturesWidget],
   governmentSociety:[ensureLocationSecurityForcesWidget,ensureLocationNotableInstitutionsWidget],
-  economy:[ensureLocationIndustriesWidget,ensureLocationScarcityWidget,ensureLocationTradeConnectionsWidget]
+  economy:[ensureLocationIndustriesWidget,ensureLocationScarcityWidget,ensureLocationTradeConnectionsWidget],
+  populationCulture:[ensureLocationPeoplesAndGroupsWidget,ensureLocationLanguagesWidget,ensureLocationHolidaysWidget,ensureLocationBeliefsWidget]
 };
 
 // Clears one module's fields in the DRAFT only (plain DOM state, nothing committed to
@@ -1068,8 +1139,10 @@ async function saveLocationProfile(){
   const baseProfilePatch=buildLocationBaseProfilePatch({
     originalAppearance:location.baseProfile?.appearanceAtmosphere,originalGeography:location.baseProfile?.geography,
     originalGovernmentSociety:location.baseProfile?.governmentSociety,originalEconomy:location.baseProfile?.economy,
+    originalPopulationCulture:location.baseProfile?.populationCulture,
     draftAppearance:thematicDraft.appearanceAtmosphere,draftGeography:thematicDraft.geography,
-    draftGovernmentSociety:thematicDraft.governmentSociety,draftEconomy:thematicDraft.economy
+    draftGovernmentSociety:thematicDraft.governmentSociety,draftEconomy:thematicDraft.economy,
+    draftPopulationCulture:thematicDraft.populationCulture
   });
   // Adaptive Module Selection: normalize the draft selection against what base_profile will
   // ACTUALLY look like after this save (a module that just gained data drops out of `shown` as
