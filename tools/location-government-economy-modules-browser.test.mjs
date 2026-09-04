@@ -139,7 +139,8 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 // reload, Show restores it with data intact.
 await page.evaluate(()=>openLocationProfile("loc-fresh"));
 await page.click("#locationProfileEdit");
-await page.click("#locProfileGovernmentSocietyToggle");
+// Government already has data, so its disclosure auto-expands on entry -- no toggle click needed
+// (clicking the toggle here would COLLAPSE it instead, since it starts expanded).
 await page.click("#locProfileGovernmentSocietyHide");
 await page.click("#locationProfileSave");
 await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true,{timeout:3000});
@@ -169,9 +170,9 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 // (sibling) untouched.
 await page.evaluate(()=>openLocationProfile("loc-fresh"));
 await page.click("#locationProfileEdit");
-await page.click("#locProfileEconomyToggle");
+// Economy already has data, so its disclosure auto-expands on entry -- no toggle click needed.
 await page.click("#locProfileEconomyDeleteStart");
-await page.click(".location-thematic-delete-confirm-yes");
+await page.click("#locProfileEconomyDeleteConfirm .location-thematic-delete-confirm-yes");
 await page.click("#locationProfileSave");
 await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true,{timeout:3000});
 {
@@ -189,12 +190,11 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 // geography; hidden governmentSociety must not hide appearanceAtmosphere.
 await page.evaluate(()=>openLocationProfile("loc-isolation"));
 await page.click("#locationProfileEdit");
-await page.click("#locProfileGovernmentSocietyToggle");
+// All four modules on this fixture already have data, so every disclosure auto-expands on entry
+// -- no toggle clicks needed (clicking a toggle here would COLLAPSE it instead).
 await page.fill("#locProfileLeadership","Новый регент");
-await page.click("#locProfileEconomyToggle");
 await page.click("#locProfileEconomyDeleteStart");
-await page.click(".location-thematic-delete-confirm-yes");
-await page.click("#locProfileGovernmentSocietyToggle");
+await page.click("#locProfileEconomyDeleteConfirm .location-thematic-delete-confirm-yes");
 await page.click("#locProfileGovernmentSocietyHide");
 await page.click("#locationProfileSave");
 await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true,{timeout:3000});

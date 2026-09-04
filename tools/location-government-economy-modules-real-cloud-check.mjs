@@ -142,7 +142,8 @@ try{
 
   // ================= 5: hide Government, Save/reload; Economy (sibling) unaffected =================
   await page.click("#locationProfileEdit");
-  await page.click("#locProfileGovernmentSocietyToggle");
+  // Government already has data, so its disclosure auto-expands on entry -- no toggle click
+  // needed (clicking the toggle here would COLLAPSE it instead, since it starts expanded).
   await page.click("#locProfileGovernmentSocietyHide");
   await page.click("#locationProfileSave");
   await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true,{timeout:20000});
@@ -168,7 +169,7 @@ try{
 
   // ================= 7: participation_count=1 delete wording for Economy =================
   await page.click("#locationProfileEdit");
-  await page.click("#locProfileEconomyToggle");
+  // Economy already has data, so its disclosure auto-expands on entry -- no toggle click needed.
   await page.click("#locProfileEconomyDeleteStart");
   const warningCount1=await page.evaluate(()=>document.getElementById("locProfileEconomyDeleteWarning").textContent);
   assert(warningCount1.includes("будут удалены из локации")&&!/\d+\s+проект/.test(warningCount1),`participation_count=1 must use the plain single-project wording, got: ${warningCount1}`);
