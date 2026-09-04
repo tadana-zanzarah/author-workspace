@@ -31,6 +31,7 @@ let locationGalleryTypeFilter="";
 let locationProfileParticipationId=null;
 let locationProfileMode="read";
 let locationProfileOriginalParentId=null;
+let locationProfileChildrenExpanded=false;
 let createLocationInFlight=false;
 let createLocationParentId=null;
 
@@ -245,6 +246,8 @@ function populateLocationProfileCore(participationId){
   syncLocationProfileEditFields(location);
   renderLocationProfileSummary(location);
   renderLocationProfileIntro(location,ownedLocationRowsSync());
+  locationProfileChildrenExpanded=false;
+  renderLocationProfileChildren(location);
   renderLocationProfileAppearance(location);
   renderLocationProfileGeography(location);
   renderLocationProfileScenes(participationId);
@@ -314,6 +317,47 @@ function renderLocationProfileIntro(location,rows){
   const officialNameHtml=officialName&&officialName!==location.name?`<p class="location-profile-official-name">${esc(officialName)}</p>`:"";
   el.innerHTML=`${typeLabel?`<span class="location-type-badge">${esc(typeLabel)}</span>`:""}${breadcrumbHtml}${officialNameHtml}${summaryHtml}${aliasesHtml}`;
   el.hidden=!el.innerHTML.trim();
+}
+
+/* ---------- Profile: B3A.1 child locations ("Внутри") ----------
+ * Direct project-participating children only -- see js/location-hierarchy.js for the derivation
+ * (canonical-id comparison, not participation-id) and the task brief's "WHICH CHILDREN TO SHOW" /
+ * "DIRECT CHILDREN ONLY" sections. Hidden entirely (no placeholder) when the Location is a leaf,
+ * same contract as the B3A thematic modules. Large child counts stay usable via a local
+ * show-more/collapse toggle (reset whenever the Profile opens a different Location), mirroring the
+ * sidebar's own "Показать ещё" pattern (js/render.js) rather than an inner scrollbar or pagination. */
+const LOCATION_CHILDREN_VISIBLE_COUNT=6;
+
+function renderLocationChildRow(child){
+  const name=child.name||"Без названия";
+  const typeLabel=locationDisplayTypeLabel(child);
+  const sceneCount=locationSceneEntries(child.id).length;
+  const metaParts=[typeLabel,sceneCount?`Сцен ${sceneCount}`:null].filter(Boolean);
+  const excerpt=((child.shortSummary||"").trim())||((child.description||"").trim());
+  return `<button type="button" class="location-profile-child-row" onclick="openLocationProfile('${jsq(child.id)}')" aria-label="Открыть локацию «${esc(name)}»">
+    <span class="location-profile-child-title" title="${esc(name)}">${esc(name)}</span>
+    ${metaParts.length?`<span class="location-profile-child-meta">${esc(metaParts.join(" · "))}</span>`:""}
+    ${excerpt?`<span class="location-profile-child-excerpt">${esc(excerpt)}</span>`:""}
+  </button>`;
+}
+
+function renderLocationProfileChildren(location){
+  const el=document.getElementById("locationProfileChildren");if(!el)return;
+  const children=locationDirectChildren(locationCanonicalId(location),data.locations);
+  if(!children.length){el.hidden=true;el.innerHTML="";return}
+  const visible=locationProfileChildrenExpanded?children:children.slice(0,LOCATION_CHILDREN_VISIBLE_COUNT);
+  const remaining=children.length-visible.length;
+  let moreHtml="";
+  if(remaining>0)moreHtml=`<button type="button" class="location-profile-children-more" onclick="toggleLocationProfileChildrenExpanded()">Показать ещё (${remaining})</button>`;
+  else if(locationProfileChildrenExpanded&&children.length>LOCATION_CHILDREN_VISIBLE_COUNT)moreHtml=`<button type="button" class="location-profile-children-more" onclick="toggleLocationProfileChildrenExpanded()">Свернуть</button>`;
+  el.innerHTML=`<h3 class="location-profile-thematic-title">Внутри</h3><div class="location-profile-children-list">${visible.map(renderLocationChildRow).join("")}</div>${moreHtml}`;
+  el.hidden=false;
+}
+
+function toggleLocationProfileChildrenExpanded(){
+  locationProfileChildrenExpanded=!locationProfileChildrenExpanded;
+  const location=locationById(locationProfileParticipationId);
+  if(location)renderLocationProfileChildren(location);
 }
 
 /* ---------- Profile: B3A thematic modules (Appearance & Atmosphere / Geography) ----------
@@ -835,10 +879,10 @@ Object.assign(globalThis,{locationById,locationCanonicalId,locationSceneEntries,
   openLocationGallery,setLocationGallerySearch,setLocationGalleryTypeFilter,renderLocationGallery,deleteLocationFromGallery,
   openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,
   openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
-  toggleLocationThematicDisclosure,clearLocationThematicModule});
+  toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded});
 export {locationById,locationCanonicalId,locationSceneEntries,locationAncestors,locationDescendantIds,
   ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,
   openLocationGallery,setLocationGallerySearch,setLocationGalleryTypeFilter,renderLocationGallery,deleteLocationFromGallery,
   openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,
   openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
-  toggleLocationThematicDisclosure,clearLocationThematicModule};
+  toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded};

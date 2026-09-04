@@ -153,6 +153,45 @@
   font-size:var(--text-2xs);color:var(--text-secondary);
 }
 
+/* ---- Profile: B3A.1 child locations ("Внутри") ----
+   Same editorial-section grammar as the B3A thematic modules directly below it (quiet uppercase
+   title + hairline rule via the shared .location-profile-thematic-title, hidden entirely rather
+   than a placeholder when the Location is a leaf) -- structural navigation, not a form module or
+   a nested Gallery. Rows reuse the "Сцены здесь" list grammar (title + secondary meta line)
+   further down this file rather than Gallery's card treatment, per the task brief's explicit
+   "not a large Gallery card" direction. */
+.location-profile-children{margin-bottom:var(--space-4)}
+.location-profile-children[hidden]{display:none}
+.location-profile-children-list{display:flex;flex-direction:column}
+
+.location-profile-child-row{
+  display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;min-width:0;
+  padding:9px 2px;border:0;border-bottom:1px solid var(--border-faint);
+  border-radius:0;background:transparent;cursor:pointer;
+}
+.location-profile-child-row:last-child{border-bottom:0}
+.location-profile-child-row:hover,.location-profile-child-row:focus-visible{background:var(--soft)}
+.location-profile-child-title{
+  font-weight:650;font-size:var(--text-sm);color:var(--text-primary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.location-profile-child-meta{font-size:var(--text-xs);color:var(--text-secondary)}
+.location-profile-child-excerpt{
+  font-size:var(--text-xs);color:var(--text-secondary);line-height:1.4;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+/* Same restrained text-link treatment as .sidebar-show-more (css/layout.css) -- the established
+   "Показать ещё" affordance elsewhere in the app -- restyled to this dossier's own quieter
+   grammar (matches .location-thematic-clear below) instead of the sidebar's own padding/hover
+   chrome, which was built for a narrow nav rail, not a profile section. */
+.location-profile-children-more{
+  display:inline-block;margin-top:8px;padding:0;border:0;background:transparent;
+  color:var(--brand);font-size:var(--text-xs);font-weight:650;cursor:pointer;
+  text-decoration:underline;text-decoration-color:transparent;
+}
+.location-profile-children-more:hover,.location-profile-children-more:focus-visible{text-decoration-color:currentColor}
+
 /* ---- Profile: B3A thematic modules (Appearance & Atmosphere / Geography) ----
    Read mode: sections of one editorial dossier, not separate cards -- a quiet section title
    (same grammar as .profile-section-title) plus normal spacing, no tinted background/border box.

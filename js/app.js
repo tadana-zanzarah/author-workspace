@@ -15,6 +15,7 @@ import "./characters.js";
 import "./chapters.js";
 import "./location-types.js";
 import "./location-base-profile.js";
+import "./location-hierarchy.js";
 import "./locations.js";
 import "./filters.js";
 import "./filter-controls.js";
