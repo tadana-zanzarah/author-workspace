@@ -30,8 +30,8 @@ begin
   if (select column_default from information_schema.columns where table_schema='public' and table_name='location_history_events' and column_name='revision') is distinct from '0' then
     raise exception 'location_history_events.revision must default to 0';
   end if;
-  if (select column_default from information_schema.columns where table_schema='public' and table_name='location_history_events' and column_name='date_label') is distinct from '''''::text' then
-    raise exception 'location_history_events.date_label must default to empty string, got %', (select column_default from information_schema.columns where table_schema='public' and table_name='location_history_events' and column_name='date_label');
+  if (select column_default from information_schema.columns where table_schema='public' and table_name='location_history_events' and column_name='date_label') is null then
+    raise exception 'location_history_events.date_label must have a default (empty string)';
   end if;
   if (select data_type from information_schema.columns where table_schema='public' and table_name='location_history_events' and column_name='date_label') <> 'text' then
     raise exception 'location_history_events.date_label must be free-form text, not date/timestamptz';

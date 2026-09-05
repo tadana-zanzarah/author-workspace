@@ -18,14 +18,17 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','e5000000-0000-4000-8000-000000000001',true);
 
 -- ===========================================================================
--- Block A: allowlist contains all five modules, in canonical order, existing four untouched.
+-- Block A: allowlist's first five entries are exactly these five, in canonical order, existing
+-- four untouched. A prefix-slice check (not full-array equality) so a later migration appending a
+-- sixth-or-later module (e.g. Location History's `history`) never breaks this assertion -- mirrors
+-- location_government_economy_modules.sql's own allowed[1:4] check, which anticipated exactly this.
 -- ===========================================================================
 do $$
 declare allowed text[];
 begin
   allowed:=private.location_thematic_module_keys();
-  if allowed<>array['appearanceAtmosphere','geography','governmentSociety','economy','populationCulture'] then
-    raise exception 'A: allowlist is not exactly the five expected keys in canonical order: %', allowed;
+  if allowed[1:5]<>array['appearanceAtmosphere','geography','governmentSociety','economy','populationCulture'] then
+    raise exception 'A: the first five allowlist keys are not appearanceAtmosphere/geography/governmentSociety/economy/populationCulture in that order: %', allowed;
   end if;
 end $$;
 

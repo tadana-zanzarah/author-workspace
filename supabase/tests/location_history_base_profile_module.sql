@@ -187,20 +187,26 @@ begin
   end if;
 
   -- A location with NO history key at all (every pre-H local snapshot) must import cleanly with no
-  -- history key present -- never a spurious empty object.
-  payload:=jsonb_build_object(
-    'project_id',import_project::text,'source_project_id','history-base-full-snapshot-2','migration_attempt_id','f7000000-0000-4000-8000-000000000002',
-    'characters','[]'::jsonb,'chapters','[]'::jsonb,
-    'locations',jsonb_build_array(jsonb_build_object('id','f8000000-0000-4000-8000-000000000002','name','Legacy Town','description','')),
-    'tags','[]'::jsonb,'scenes','[]'::jsonb,'scene_tags','[]'::jsonb,'scene_characters','[]'::jsonb,
-    'initial_relations','[]'::jsonb,'scene_relation_changes','[]'::jsonb,'structural_links','[]'::jsonb,'character_images','[]'::jsonb
-  );
-  result:=public.import_local_project_content(import_project,(select revision from public.projects where id=import_project),'f7000000-0000-4000-8000-000000000002'::uuid,'history-base-full-snapshot-2',payload);
-  if not coalesce((result->>'ok')::boolean,false) then raise exception 'E2: history-less legacy import failed: %', result; end if;
-  select location_id into canonical_id from public.project_locations where id='f8000000-0000-4000-8000-000000000002' and project_id=import_project;
-  if (select base_profile ? 'history' from public.locations where id=canonical_id) then
-    raise exception 'E2: a legacy import with no history field must not gain a spurious history key';
-  end if;
+  -- history key present -- never a spurious empty object. A FRESH, separate target project is
+  -- required here: import_local_project_content's own private.local_import_target_empty check
+  -- means a project that already received one import (like import_project, right above) is no
+  -- longer empty and would reject a second import attempt with TARGET_NOT_EMPTY.
+  declare import_project_2 uuid:='f6000000-0000-4000-8000-000000000003'; begin
+    insert into public.projects(id,owner_id,title,revision) values (import_project_2,'f5000000-0000-4000-8000-000000000001','Import Target History-Base Legacy',0);
+    payload:=jsonb_build_object(
+      'project_id',import_project_2::text,'source_project_id','history-base-full-snapshot-2','migration_attempt_id','f7000000-0000-4000-8000-000000000002',
+      'characters','[]'::jsonb,'chapters','[]'::jsonb,
+      'locations',jsonb_build_array(jsonb_build_object('id','f8000000-0000-4000-8000-000000000002','name','Legacy Town','description','')),
+      'tags','[]'::jsonb,'scenes','[]'::jsonb,'scene_tags','[]'::jsonb,'scene_characters','[]'::jsonb,
+      'initial_relations','[]'::jsonb,'scene_relation_changes','[]'::jsonb,'structural_links','[]'::jsonb,'character_images','[]'::jsonb
+    );
+    result:=public.import_local_project_content(import_project_2,0,'f7000000-0000-4000-8000-000000000002'::uuid,'history-base-full-snapshot-2',payload);
+    if not coalesce((result->>'ok')::boolean,false) then raise exception 'E2: history-less legacy import failed: %', result; end if;
+    select location_id into canonical_id from public.project_locations where id='f8000000-0000-4000-8000-000000000002' and project_id=import_project_2;
+    if (select base_profile ? 'history' from public.locations where id=canonical_id) then
+      raise exception 'E2: a legacy import with no history field must not gain a spurious history key';
+    end if;
+  end;
 end $$;
 
 reset role;
