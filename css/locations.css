@@ -455,6 +455,31 @@
 
 .location-media-cloud-only-note{margin-top:var(--space-2)}
 
+/* Location History -- HYBRID IMPLEMENTATION. Read-mode event list: compact vertical rows, no
+   decorative timeline (task brief "PROFILE READ -- EVENTS" / "VISUAL REVIEW"). date is visually
+   secondary, title primary, description wraps naturally. */
+.location-profile-history-events{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.location-profile-history-event{padding:6px 0;border-bottom:1px solid var(--border-faint)}
+.location-profile-history-event:last-child{border-bottom:0}
+.location-profile-history-event-date{display:block;font-size:var(--text-2xs);color:var(--text-secondary)}
+.location-profile-history-event-title{display:block;font-size:var(--text-sm);color:var(--text-primary);font-weight:650}
+.location-profile-history-event-description{margin:2px 0 0;font-size:var(--text-sm);color:var(--text-secondary);white-space:pre-wrap;overflow-wrap:anywhere}
+.location-profile-history-legends{margin:10px 0 0;font-size:var(--text-sm);color:var(--text-secondary);font-style:italic;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* Edit-mode event editor: same card shape/spacing as location-media-card, one event expanded for
+   editing at a time (task brief "PROFILE EDIT -- EVENTS"). */
+.location-history-event-cards{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.location-history-events-empty{margin:0;font-size:var(--text-sm);color:var(--text-secondary);font-style:italic}
+.location-history-event-card{
+  display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--border-subtle);
+  border-radius:var(--radius-sm);background:var(--surface-elevated);
+}
+.location-history-event-card-summary{display:flex;flex-direction:column;gap:2px}
+.location-history-event-date{font-size:var(--text-2xs);color:var(--text-secondary)}
+.location-history-event-title{font-size:var(--text-sm);color:var(--text-primary);font-weight:650}
+.location-history-event-card-editing{gap:8px}
+.location-history-add-event{margin-top:8px}
+
 @media(max-width:520px){
   .location-card-monogram{width:22px;height:22px;font-size:11px}
   .location-gallery-toolbar{flex-wrap:wrap}

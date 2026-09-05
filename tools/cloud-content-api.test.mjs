@@ -93,4 +93,39 @@ assert.notEqual(locationConflict.message,"");assert.doesNotMatch(locationConflic
 const locationSuccess=normalizeContentResult({data:{ok:true,locationRevision:4,changed:true,data:{location_id:"loc-1"}}});
 assert.equal(locationSuccess.locationRevision,4);
 
+// Location History H-events: LOCATION_HISTORY_EVENT_REVISION_CONFLICT must survive normalization
+// with a real, safe message, never collapse to UNKNOWN.
+const eventConflict=normalizeContentResult({data:{ok:false,code:"LOCATION_HISTORY_EVENT_REVISION_CONFLICT",expectedRevision:1,actualRevision:2}});
+assert.equal(eventConflict.code,"LOCATION_HISTORY_EVENT_REVISION_CONFLICT");
+assert.equal(eventConflict.actualRevision,2);
+assert.notEqual(eventConflict.message,"");assert.doesNotMatch(eventConflict.message,/UNKNOWN|Не удалось выполнить облачную операцию\./);
+
+// Location History H-events RPC argument shapes: canonical-only, target_*/event_* parameter names
+// throughout (avoids the ambiguous-column PL/pgSQL bug already caught during Location Media work --
+// see the migration header) -- pin the exact wire contract as a regression guard.
+await api.listLocationHistoryEvents("loc-1");
+assert.deepEqual(calls.pop(),{name:"list_location_history_events",args:{target_location_id:"loc-1"}});
+
+await api.createLocationHistoryEvent("loc-1",4,{eventId:"event-1",title:"Пожар",dateLabel:"около 1240 года",description:"Началось ночью.",sortOrder:0});
+assert.deepEqual(calls.pop(),{name:"create_location_history_event",args:{
+  event_id:"event-1",target_location_id:"loc-1",event_title:"Пожар",event_date_label:"около 1240 года",
+  event_description:"Началось ночью.",event_sort_order:0,event_metadata:{},expected_revision:4
+}});
+
+// createLocationHistoryEvent's dateLabel/description/sortOrder all default safely when omitted.
+await api.createLocationHistoryEvent("loc-1",4,{eventId:"event-2",title:"Без даты"});
+assert.deepEqual(calls.pop(),{name:"create_location_history_event",args:{
+  event_id:"event-2",target_location_id:"loc-1",event_title:"Без даты",event_date_label:"",
+  event_description:"",event_sort_order:0,event_metadata:{},expected_revision:4
+}});
+
+await api.updateLocationHistoryEvent("event-1",0,{title:"Новое название",dateLabel:"","description":"","sortOrder":1});
+assert.deepEqual(calls.pop(),{name:"update_location_history_event",args:{
+  target_event_id:"event-1",expected_revision:0,event_title:"Новое название",event_date_label:"",
+  event_description:"",event_sort_order:1
+}});
+
+await api.deleteLocationHistoryEvent("event-1",2);
+assert.deepEqual(calls.pop(),{name:"delete_location_history_event",args:{target_event_id:"event-1",expected_revision:2}});
+
 console.log("cloud content api tests: OK");

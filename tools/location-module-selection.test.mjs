@@ -10,14 +10,16 @@ import {
   deleteLocationModuleSelectionEntry,dropRedundantShownEntries,saveNeedsModuleSelectionWrite
 } from "../js/location-module-selection.js";
 
-// 1. Catalog is the five shipped modules (Phase 1: appearanceAtmosphere/geography; B3B:
-// governmentSociety/economy; B3C: populationCulture), in this fixed order, nothing more.
-assert.deepEqual(LOCATION_MODULE_KEYS,["appearanceAtmosphere","geography","governmentSociety","economy","populationCulture"]);
+// 1. Catalog is the six shipped modules (Phase 1: appearanceAtmosphere/geography; B3B:
+// governmentSociety/economy; B3C: populationCulture; Location History H-base: history), in this
+// fixed order, nothing more.
+assert.deepEqual(LOCATION_MODULE_KEYS,["appearanceAtmosphere","geography","governmentSociety","economy","populationCulture","history"]);
 assert.equal(locationModuleLabel("appearanceAtmosphere"),"Внешний вид и атмосфера");
 assert.equal(locationModuleLabel("geography"),"География и природа");
 assert.equal(locationModuleLabel("governmentSociety"),"Государство и общество");
 assert.equal(locationModuleLabel("economy"),"Экономика");
 assert.equal(locationModuleLabel("populationCulture"),"Население и культура");
+assert.equal(locationModuleLabel("history"),"История");
 
 // 2. hasData: empty/absent baseProfile -> false for both modules.
 assert.equal(locationModuleHasData({},"appearanceAtmosphere"),false);
@@ -96,7 +98,7 @@ assert.deepEqual(moduleSelectionEffective({shown:["geography"]}),{shown:["geogra
   const location={baseProfile:{geography:{terrain:"Горы"}}};
   const selection={hidden:["geography"]};
   const candidates=locationModulePickerCandidates(location,selection);
-  assert.deepEqual(candidates.map(c=>c.key).sort(),["appearanceAtmosphere","economy","geography","governmentSociety","populationCulture"]);
+  assert.deepEqual(candidates.map(c=>c.key).sort(),["appearanceAtmosphere","economy","geography","governmentSociety","history","populationCulture"]);
   const geo=candidates.find(c=>c.key==="geography");
   assert.equal(geo.action,"show");
   assert.equal(geo.hasData,true);
@@ -108,7 +110,7 @@ assert.deepEqual(moduleSelectionEffective({shown:["geography"]}),{shown:["geogra
   // geography's candidacy here is solely a function of selection state, not hasData).
   const emptyLocation={baseProfile:{}};
   const shownSelection={shown:["appearanceAtmosphere"]};
-  assert.deepEqual(locationModulePickerCandidates(emptyLocation,shownSelection).map(c=>c.key),["geography","governmentSociety","economy","populationCulture"]);
+  assert.deepEqual(locationModulePickerCandidates(emptyLocation,shownSelection).map(c=>c.key),["geography","governmentSociety","economy","populationCulture","history"]);
 }
 
 // 22. B3B hasData: governmentSociety/economy follow the exact same rules as the existing modules.
@@ -187,5 +189,56 @@ assert.equal(saveNeedsModuleSelectionWrite({shown:["appearanceAtmosphere","geogr
 assert.equal(saveNeedsModuleSelectionWrite({shown:["geography"]},{hidden:["geography"]}),true);
 assert.equal(saveNeedsModuleSelectionWrite(undefined,{shown:[],hidden:[]}),false);
 assert.equal(saveNeedsModuleSelectionWrite(undefined,{shown:["geography"]}),true);
+
+// ---------------------------------------------------------------------------
+// History (Location History -- HYBRID IMPLEMENTATION): the ONE module whose hasData spans base_
+// profile prose AND a separate events array -- hiding it must hide both together, per the task
+// brief ("Do NOT create a second visibility system for events").
+// ---------------------------------------------------------------------------
+
+// 29. hasData: empty prose AND no events -> false. Prose alone, events alone, or both -> true.
+assert.equal(locationModuleHasData({baseProfile:{}},"history"),false);
+assert.equal(locationModuleHasData({baseProfile:{},historyEvents:[]},"history"),false);
+assert.equal(locationModuleHasData({baseProfile:{history:{origin:"   "}},historyEvents:[]},"history"),false,"whitespace-only prose still counts as empty");
+assert.equal(locationModuleHasData({baseProfile:{history:{origin:"Основан беженцами."}}},"history"),true,"prose alone is enough");
+assert.equal(locationModuleHasData({baseProfile:{},historyEvents:[{id:"e1",title:"Пожар"}]},"history"),true,"events alone are enough, with zero prose");
+assert.equal(locationModuleHasData({baseProfile:{history:{legends:"Дракон спит под городом."}},historyEvents:[{id:"e1",title:"Пожар"}]},"history"),true,"both together");
+assert.equal(locationModuleHasData(undefined,"history"),false);
+assert.equal(locationModuleHasData({baseProfile:{history:{}},historyEvents:"not-an-array"},"history"),false,"a malformed historyEvents value must never throw or count as data");
+
+// 30. Read/edit visibility: hiding history hides the WHOLE section (prose and events together) --
+// exercised through the exact same generic visibility functions every other module uses, with no
+// history-specific branch in either of them.
+{
+  const eventsOnlyLocation={baseProfile:{},historyEvents:[{id:"e1",title:"Пожар"}]};
+  assert.equal(locationModuleReadVisible(eventsOnlyLocation,{},"history"),true,"events-only history is read-visible when not hidden");
+  assert.equal(locationModuleReadVisible(eventsOnlyLocation,{hidden:["history"]},"history"),false,"hiding history hides the events too, not just prose");
+  assert.equal(locationModuleEditVisible(eventsOnlyLocation,{hidden:["history"]},"history"),false);
+  const proseOnlyLocation={baseProfile:{history:{origin:"X"}},historyEvents:[]};
+  assert.equal(locationModuleReadVisible(proseOnlyLocation,{hidden:["history"]},"history"),false,"hiding history hides prose-only History too");
+}
+
+// 31. Catalog/candidates include history like any other module.
+{
+  const location={baseProfile:{history:{origin:"X"}}};
+  assert.deepEqual(locationVisibleModules(location,{},{mode:"edit"}),["history"]);
+}
+
+// 32. History recommendation matrix, per the implementation brief: country/region/settlement/
+// district/building -> strong; world/continent/street/natural_place/transport -> recommend;
+// room/other -> none.
+assert.equal(locationModuleRecommendation("history","country"),"strong");
+assert.equal(locationModuleRecommendation("history","region"),"strong");
+assert.equal(locationModuleRecommendation("history","settlement"),"strong");
+assert.equal(locationModuleRecommendation("history","district"),"strong");
+assert.equal(locationModuleRecommendation("history","building"),"strong");
+assert.equal(locationModuleRecommendation("history","world"),"recommend");
+assert.equal(locationModuleRecommendation("history","continent"),"recommend");
+assert.equal(locationModuleRecommendation("history","street"),"recommend");
+assert.equal(locationModuleRecommendation("history","natural_place"),"recommend");
+assert.equal(locationModuleRecommendation("history","transport"),"recommend");
+assert.equal(locationModuleRecommendation("history","room"),"none");
+assert.equal(locationModuleRecommendation("history","other"),"none");
+assert.equal(locationModuleRecommendation("history",null),"none");
 
 console.log("location-module-selection.test.mjs OK");

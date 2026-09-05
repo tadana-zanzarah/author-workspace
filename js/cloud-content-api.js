@@ -1,10 +1,11 @@
 const CONTENT_ERROR_CODES=new Set([
-  "REVISION_CONFLICT","LOCATION_REVISION_CONFLICT","NOT_FOUND","FORBIDDEN","VALIDATION_ERROR","DUPLICATE","POSITION_ERROR","DEPENDENCIES_EXIST","UNKNOWN"
+  "REVISION_CONFLICT","LOCATION_REVISION_CONFLICT","LOCATION_HISTORY_EVENT_REVISION_CONFLICT","NOT_FOUND","FORBIDDEN","VALIDATION_ERROR","DUPLICATE","POSITION_ERROR","DEPENDENCIES_EXIST","UNKNOWN"
 ]);
 
 const SAFE_MESSAGES={
   REVISION_CONFLICT:"Проект изменён в другом сеансе. Перезагрузите данные перед сохранением.",
   LOCATION_REVISION_CONFLICT:"Локация изменена в другом сеансе. Перезагрузите её перед сохранением.",
+  LOCATION_HISTORY_EVENT_REVISION_CONFLICT:"Событие истории изменено в другом сеансе. Перезагрузите локацию перед сохранением.",
   NOT_FOUND:"Объект не найден или больше недоступен.",
   FORBIDDEN:"Недостаточно прав для этой операции.",
   VALIDATION_ERROR:"Проверьте введённые данные.",
@@ -84,6 +85,24 @@ function createCloudContentApi(client){
     updateLocationModuleSelection:(projectId,locationId,expectedRevision,moduleSelection)=>call("update_project_location_module_selection",{
       target_project_id:projectId,target_location_id:locationId,expected_revision:expectedRevision,module_selection:moduleSelection
     }),
+    // Location History H-events (20260908100000_location_history_events_foundation.sql):
+    // canonical-only, gated on the Location's own revision domain exactly like updateLocationCanonical/
+    // setLocationParent above -- never a project revision, so these live here (not behind
+    // runCloudMutation's project-scoped queue) and are called directly, same as
+    // js/locations.js's Media reconciliation calls cloudState.locationMediaApi directly. CREATE/
+    // DELETE bump locations.revision (returned as `locationRevision`, already generically passed
+    // through by normalizeContentResult above); UPDATE bumps only the event's own revision, read
+    // back from `data.revision` on the returned row (no separate top-level field needed).
+    listLocationHistoryEvents:locationId=>call("list_location_history_events",{target_location_id:locationId}),
+    createLocationHistoryEvent:(locationId,expectedRevision,{eventId,title,dateLabel="",description="",sortOrder=0})=>call("create_location_history_event",{
+      event_id:eventId,target_location_id:locationId,event_title:title,event_date_label:dateLabel,
+      event_description:description,event_sort_order:sortOrder,event_metadata:{},expected_revision:expectedRevision
+    }),
+    updateLocationHistoryEvent:(eventId,expectedRevision,{title,dateLabel,description,sortOrder})=>call("update_location_history_event",{
+      target_event_id:eventId,expected_revision:expectedRevision,event_title:title,event_date_label:dateLabel,
+      event_description:description,event_sort_order:sortOrder
+    }),
+    deleteLocationHistoryEvent:(eventId,expectedRevision)=>call("delete_location_history_event",{target_event_id:eventId,expected_revision:expectedRevision}),
     createTag:(projectId,expectedRevision,{name})=>call("create_tag",{target_project_id:projectId,expected_revision:expectedRevision,tag_name:name}),
     updateTag:(projectId,tagId,expectedRevision,{name})=>call("update_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision,tag_name:name}),
     deleteTag:(projectId,tagId,expectedRevision)=>call("delete_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision}),

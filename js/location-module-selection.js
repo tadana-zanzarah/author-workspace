@@ -12,12 +12,16 @@
  * Phase 1 shipped the first two modules (appearanceAtmosphere, geography); B3B ("Location Adaptive
  * Modules -- B3B Product Specification: Government & Society + Economy") added governmentSociety
  * and economy; B3C ("Location Adaptive Modules -- B3C Product Specification: Population & Culture")
- * adds populationCulture the same one-line way the header above always anticipated. historyNotes/
- * media/Location<->Location and Character<->Location relations remain future work -- not catalog
- * entries yet, per the backend allowlist's own "no unvalidated write surface" principle.
+ * added populationCulture; "LOCATION HISTORY -- HYBRID IMPLEMENTATION" adds history the same
+ * one-line way this header always anticipated -- see locationModuleHasData's own comment for the
+ * one respect in which history is NOT an ordinary module (hasData spans base_profile prose AND the
+ * separate location_history_events table, so hiding it hides both together, never just one).
+ * Media (js/location-media.js) and Location<->Location / Character<->Location relations remain
+ * future work -- not catalog entries, per the backend allowlist's own "no unvalidated write
+ * surface" principle (Media has its own dedicated, non-adaptive Profile section instead).
  */
 import {
-  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,isModuleEmpty
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,normalizeHistory,isModuleEmpty
 } from "./location-base-profile.js";
 
 const LOCATION_MODULE_CATALOG=[
@@ -25,13 +29,25 @@ const LOCATION_MODULE_CATALOG=[
   {key:"geography",label:"География и природа"},
   {key:"governmentSociety",label:"Государство и общество"},
   {key:"economy",label:"Экономика"},
-  {key:"populationCulture",label:"Население и культура"}
+  {key:"populationCulture",label:"Население и культура"},
+  {key:"history",label:"История"}
 ];
 const LOCATION_MODULE_KEYS=LOCATION_MODULE_CATALOG.map(m=>m.key);
 const LOCATION_MODULE_LABELS=Object.fromEntries(LOCATION_MODULE_CATALOG.map(m=>[m.key,m.label]));
 
 function locationModuleLabel(moduleKey){return LOCATION_MODULE_LABELS[moduleKey]||moduleKey}
 
+// history (Location History -- HYBRID IMPLEMENTATION) is the one module where "has data" is NOT
+// just "does base_profile.history have a field filled in" -- a Location can have History with
+// nothing but events and no prose, or nothing but prose and no events. hasData is true if EITHER
+// half has content, so hiding History always hides the whole combined section (prose AND events
+// together) and showing it always shows whatever combination actually exists -- there is
+// deliberately no second, event-specific visibility system (task brief "Do NOT create a second
+// visibility system for events"). `location.historyEvents`, when present, is expected to be either
+// the real local-mode array (js/locations.js's local Location records carry it directly) or a
+// caller-supplied live draft/snapshot array (see js/locations.js's locationThematicDraftLocationLike
+// for edit mode, and its read-mode renderer for the lazily-loaded cloud case) -- this function never
+// fetches or assumes anything about ITS source, only whether it is a non-empty array.
 function locationModuleHasData(location,moduleKey){
   const baseProfile=(location&&location.baseProfile)||{};
   if(moduleKey==="appearanceAtmosphere")return !isModuleEmpty(normalizeAppearanceAtmosphere(baseProfile.appearanceAtmosphere));
@@ -39,6 +55,7 @@ function locationModuleHasData(location,moduleKey){
   if(moduleKey==="governmentSociety")return !isModuleEmpty(normalizeGovernmentSociety(baseProfile.governmentSociety));
   if(moduleKey==="economy")return !isModuleEmpty(normalizeEconomy(baseProfile.economy));
   if(moduleKey==="populationCulture")return !isModuleEmpty(normalizePopulationCulture(baseProfile.populationCulture));
+  if(moduleKey==="history")return !isModuleEmpty(normalizeHistory(baseProfile.history))||(Array.isArray(location?.historyEvents)&&location.historyEvents.length>0);
   return false;
 }
 
@@ -65,6 +82,15 @@ const LOCATION_MODULE_TYPE_RECOMMENDATIONS={
   populationCulture:{
     world:"recommend",continent:"recommend",country:"strong",region:"strong",settlement:"strong",
     district:"strong",street:"recommend",building:"recommend",room:"none",natural_place:"none",
+    transport:"recommend",other:"none"
+  },
+  // History recommendations, per the Location History implementation brief's matrix: world/
+  // continent/street/natural_place/transport -> recommend; country/region/settlement/district/
+  // building -> strong; room/other -> none. Guidance only, per this file's own header -- never
+  // auto-enables/hides/removes the module.
+  history:{
+    world:"recommend",continent:"recommend",country:"strong",region:"strong",settlement:"strong",
+    district:"strong",street:"recommend",building:"strong",room:"none",natural_place:"recommend",
     transport:"recommend",other:"none"
   }
 };

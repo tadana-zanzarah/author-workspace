@@ -17,6 +17,7 @@ import "./location-types.js";
 import "./location-base-profile.js";
 import "./location-module-selection.js";
 import "./location-media.js";
+import "./location-history-events.js";
 import "./location-hierarchy.js";
 import "./locations.js";
 import "./filters.js";
@@ -75,7 +76,12 @@ const editorTrackers={
     // pushed directly into the draft on every keystroke rather than left for serializeForm's own
     // scan -- see js/locations.js's Media section header for why a full-card-list re-render on
     // unrelated actions makes the pull-based pattern the thematic textareas use unsafe here).
-    media:currentLocationProfileMediaSnapshot()
+    media:currentLocationProfileMediaSnapshot(),
+    // Location History H-events: the events draft is custom state for the same reason media's is
+    // (see the media comment above) -- add/reorder/delete are button actions, and title/dateLabel/
+    // description are native controls that only exist in the DOM for whichever ONE event is
+    // currently expanded, so serializeForm's own scan cannot see the rest of the list.
+    historyEvents:currentLocationProfileHistoryEventsSnapshot()
   })),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
   quickFieldModal:createDirtyTracker("quickFieldModal",()=>serializeForm("quickFieldModal")),

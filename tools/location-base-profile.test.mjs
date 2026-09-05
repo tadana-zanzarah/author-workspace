@@ -4,7 +4,7 @@
 // wholesale, cleared module -> JSON null, individual field removal drops the old field entirely.
 import assert from "node:assert/strict";
 import {
-  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,isModuleEmpty,
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,normalizeHistory,hydrateHistory,isModuleEmpty,
   buildLocationBaseProfilePatch,applyLocationBaseProfilePatch
 } from "../js/location-base-profile.js";
 
@@ -245,5 +245,55 @@ assert.deepEqual(applyLocationBaseProfilePatch({description:"D"},{geography:{ter
 assert.deepEqual(applyLocationBaseProfilePatch({description:"D",appearanceAtmosphere:{atmosphere:"X"}},{geography:{terrain:"Горы"}}),{description:"D",appearanceAtmosphere:{atmosphere:"X"},geography:{terrain:"Горы"}},"a key absent from the patch must be left untouched");
 assert.deepEqual(applyLocationBaseProfilePatch(undefined,{geography:{terrain:"Горы"}}),{geography:{terrain:"Горы"}});
 assert.deepEqual(applyLocationBaseProfilePatch({description:"D"},null),{description:"D"},"a null patch must be a no-op");
+
+// ---------------------------------------------------------------------------
+// History (Location History -- HYBRID IMPLEMENTATION): three free-text fields, no arrays/chips.
+// ---------------------------------------------------------------------------
+
+// 27. empty/whitespace-only History -> empty normalized module.
+assert.deepEqual(normalizeHistory({}),{});
+assert.deepEqual(normalizeHistory(undefined),{});
+assert.deepEqual(normalizeHistory({historicalOverview:"  ",origin:"\t",legends:""}),{});
+assert.ok(isModuleEmpty(normalizeHistory({})));
+
+// 28. populated History normalized (trims, keeps only non-empty fields).
+assert.deepEqual(
+  normalizeHistory({historicalOverview:"  Основан рыбаками.  ",origin:"",legends:"Говорят, под городом спит дракон."}),
+  {historicalOverview:"Основан рыбаками.",legends:"Говорят, под городом спит дракон."}
+);
+
+// 29. hydrateHistory: full-shape hydration with safe empty defaults, never mutates the source.
+{
+  const source={historicalOverview:"X"};
+  const hydrated=hydrateHistory(source);
+  assert.deepEqual(hydrated,{historicalOverview:"X",origin:"",legends:""});
+  assert.deepEqual(source,{historicalOverview:"X"},"hydrateHistory must not mutate its input");
+}
+
+// 30. buildLocationBaseProfilePatch: history coexists with every other module -- adding history
+// leaves appearanceAtmosphere/geography/governmentSociety/economy/populationCulture untouched, and
+// omitting history args entirely (pre-H call shape) never treats it as changed.
+{
+  const patch=buildLocationBaseProfilePatch({
+    originalAppearance:{atmosphere:"Спокойно"},originalGeography:{terrain:"Горы"},originalHistory:{},
+    draftAppearance:{atmosphere:"Спокойно"},draftGeography:{terrain:"Горы"},
+    draftHistory:{historicalOverview:"Когда-то был монастырём."}
+  });
+  assert.ok(patch);
+  assert.deepEqual(Object.keys(patch),["history"],"only the actually-changed module (history) appears in the patch");
+  assert.deepEqual(patch.history,{historicalOverview:"Когда-то был монастырём."});
+}
+
+// 31. clearing history to empty (both JSON null and {} normalize the same way) -> JSON null in the
+// patch, other modules untouched/omitted.
+{
+  const patch=buildLocationBaseProfilePatch({
+    originalHistory:{origin:"Основан беженцами."},originalEconomy:{currency:"Кроны"},
+    draftHistory:{origin:"   "},draftEconomy:{currency:"Кроны"}
+  });
+  assert.ok(patch);
+  assert.equal(patch.history,null);
+  assert.ok(!("economy" in patch),"unchanged economy must not appear in the patch");
+}
 
 console.log("location-base-profile unit tests: OK");

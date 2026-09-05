@@ -35,6 +35,14 @@ const ECONOMY_ARRAY_FIELDS=["industries","scarcity","tradeConnections"];
 // peoplesAndGroups/languages/holidays/beliefs are untaxonomized chip lists.
 const POPULATION_CULTURE_TEXT_FIELDS=["populationCharacter","customsAndTraditions","socialNorms"];
 const POPULATION_CULTURE_ARRAY_FIELDS=["peoplesAndGroups","languages","holidays","beliefs"];
+// History (Location History -- HYBRID IMPLEMENTATION, prose half): three free-text fields only, no
+// arrays/chips in v1 -- historicalOverview (narrative), origin (founding/genesis), legends
+// (culturally significant but not necessarily true, kept distinct from documented history per the
+// task brief's Concept 4). Deliberately excludes formerNames (Core Identity's `aliases` already
+// covers this) and turningPoints (that's what the separate location_history_events table is for --
+// see js/location-history-events.js) -- neither is added merely because it sounds plausible.
+const HISTORY_TEXT_FIELDS=["historicalOverview","origin","legends"];
+const HISTORY_ARRAY_FIELDS=[];
 
 // Full-shape hydration: every field present with a safe empty default (string or []), regardless
 // of what the stored module actually contains -- used to prefill the edit-mode draft (the DOM
@@ -52,6 +60,7 @@ function hydrateGeography(raw){return hydrateThematicModule(raw,GEOGRAPHY_TEXT_F
 function hydrateGovernmentSociety(raw){return hydrateThematicModule(raw,GOVERNMENT_SOCIETY_TEXT_FIELDS,GOVERNMENT_SOCIETY_ARRAY_FIELDS)}
 function hydrateEconomy(raw){return hydrateThematicModule(raw,ECONOMY_TEXT_FIELDS,ECONOMY_ARRAY_FIELDS)}
 function hydratePopulationCulture(raw){return hydrateThematicModule(raw,POPULATION_CULTURE_TEXT_FIELDS,POPULATION_CULTURE_ARRAY_FIELDS)}
+function hydrateHistory(raw){return hydrateThematicModule(raw,HISTORY_TEXT_FIELDS,HISTORY_ARRAY_FIELDS)}
 
 // Clean-shape normalization for comparison/patch/display: trims strings, drops blank/duplicate
 // array entries (normalizeMultiValue -- the same dedup/order rule the multi-value widgets already
@@ -77,6 +86,7 @@ function normalizeGeography(draft){return normalizeThematicModule(draft,GEOGRAPH
 function normalizeGovernmentSociety(draft){return normalizeThematicModule(draft,GOVERNMENT_SOCIETY_TEXT_FIELDS,GOVERNMENT_SOCIETY_ARRAY_FIELDS)}
 function normalizeEconomy(draft){return normalizeThematicModule(draft,ECONOMY_TEXT_FIELDS,ECONOMY_ARRAY_FIELDS)}
 function normalizePopulationCulture(draft){return normalizeThematicModule(draft,POPULATION_CULTURE_TEXT_FIELDS,POPULATION_CULTURE_ARRAY_FIELDS)}
+function normalizeHistory(draft){return normalizeThematicModule(draft,HISTORY_TEXT_FIELDS,HISTORY_ARRAY_FIELDS)}
 
 function isModuleEmpty(normalizedModule){return Object.keys(normalizedModule||{}).length===0}
 
@@ -94,24 +104,27 @@ function buildThematicModulePatchEntry(normalizedOriginal,normalizedDraft){
 // equivalent local-mode merge (see applyLocationBaseProfilePatch). Returns null when NO module
 // actually changed -- callers must send that null through as-is ("no thematic module
 // changes this call"), never an empty object. Accepts raw-or-hydrated module shapes for both
-// original and draft (normalization happens here). governmentSociety/economy (B3B) are optional --
-// an omitted original/draft pair normalizes to {} (unchanged, omitted from the patch), so every
-// call site written before B3B keeps working unmodified.
+// original and draft (normalization happens here). governmentSociety/economy (B3B), populationCulture
+// (B3C) and history (Location History H-base) are all optional -- an omitted original/draft pair
+// normalizes to {} (unchanged, omitted from the patch), so every call site written before any of
+// them keeps working unmodified.
 function buildLocationBaseProfilePatch({
-  originalAppearance,originalGeography,originalGovernmentSociety,originalEconomy,originalPopulationCulture,
-  draftAppearance,draftGeography,draftGovernmentSociety,draftEconomy,draftPopulationCulture
+  originalAppearance,originalGeography,originalGovernmentSociety,originalEconomy,originalPopulationCulture,originalHistory,
+  draftAppearance,draftGeography,draftGovernmentSociety,draftEconomy,draftPopulationCulture,draftHistory
 }){
   const appearanceEntry=buildThematicModulePatchEntry(normalizeAppearanceAtmosphere(originalAppearance),normalizeAppearanceAtmosphere(draftAppearance));
   const geographyEntry=buildThematicModulePatchEntry(normalizeGeography(originalGeography),normalizeGeography(draftGeography));
   const governmentSocietyEntry=buildThematicModulePatchEntry(normalizeGovernmentSociety(originalGovernmentSociety),normalizeGovernmentSociety(draftGovernmentSociety));
   const economyEntry=buildThematicModulePatchEntry(normalizeEconomy(originalEconomy),normalizeEconomy(draftEconomy));
   const populationCultureEntry=buildThematicModulePatchEntry(normalizePopulationCulture(originalPopulationCulture),normalizePopulationCulture(draftPopulationCulture));
-  if(!appearanceEntry.changed&&!geographyEntry.changed&&!governmentSocietyEntry.changed&&!economyEntry.changed&&!populationCultureEntry.changed)return null;
+  const historyEntry=buildThematicModulePatchEntry(normalizeHistory(originalHistory),normalizeHistory(draftHistory));
+  if(!appearanceEntry.changed&&!geographyEntry.changed&&!governmentSocietyEntry.changed&&!economyEntry.changed&&!populationCultureEntry.changed&&!historyEntry.changed)return null;
   const patch={};
   if(appearanceEntry.changed)patch.appearanceAtmosphere=appearanceEntry.value;
   if(geographyEntry.changed)patch.geography=geographyEntry.value;
   if(governmentSocietyEntry.changed)patch.governmentSociety=governmentSocietyEntry.value;
   if(economyEntry.changed)patch.economy=economyEntry.value;
+  if(historyEntry.changed)patch.history=historyEntry.value;
   if(populationCultureEntry.changed)patch.populationCulture=populationCultureEntry.value;
   return patch;
 }
@@ -131,15 +144,15 @@ function applyLocationBaseProfilePatch(baseProfile,patch){
 }
 
 Object.assign(globalThis,{
-  hydrateAppearanceAtmosphere,hydrateGeography,hydrateGovernmentSociety,hydrateEconomy,hydratePopulationCulture,
-  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,
+  hydrateAppearanceAtmosphere,hydrateGeography,hydrateGovernmentSociety,hydrateEconomy,hydratePopulationCulture,hydrateHistory,
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,normalizeHistory,
   isModuleEmpty,buildLocationBaseProfilePatch,applyLocationBaseProfilePatch
 });
 export {
   APPEARANCE_ATMOSPHERE_TEXT_FIELDS,APPEARANCE_ATMOSPHERE_ARRAY_FIELDS,GEOGRAPHY_TEXT_FIELDS,GEOGRAPHY_ARRAY_FIELDS,
   GOVERNMENT_SOCIETY_TEXT_FIELDS,GOVERNMENT_SOCIETY_ARRAY_FIELDS,ECONOMY_TEXT_FIELDS,ECONOMY_ARRAY_FIELDS,
-  POPULATION_CULTURE_TEXT_FIELDS,POPULATION_CULTURE_ARRAY_FIELDS,
-  hydrateAppearanceAtmosphere,hydrateGeography,hydrateGovernmentSociety,hydrateEconomy,hydratePopulationCulture,
-  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,
+  POPULATION_CULTURE_TEXT_FIELDS,POPULATION_CULTURE_ARRAY_FIELDS,HISTORY_TEXT_FIELDS,HISTORY_ARRAY_FIELDS,
+  hydrateAppearanceAtmosphere,hydrateGeography,hydrateGovernmentSociety,hydrateEconomy,hydratePopulationCulture,hydrateHistory,
+  normalizeAppearanceAtmosphere,normalizeGeography,normalizeGovernmentSociety,normalizeEconomy,normalizePopulationCulture,normalizeHistory,
   isModuleEmpty,thematicModulesEqual,buildLocationBaseProfilePatch,applyLocationBaseProfilePatch
 };

@@ -412,6 +412,7 @@
       <div class="location-profile-thematic" id="locationProfileGovernmentSociety" hidden></div>
       <div class="location-profile-thematic" id="locationProfileEconomy" hidden></div>
       <div class="location-profile-thematic" id="locationProfilePopulationCulture" hidden></div>
+      <div class="location-profile-thematic" id="locationProfileHistory" hidden></div>
       <div class="profile-section">
         <h3 class="profile-section-title">Сцены здесь</h3>
         <div id="locationProfileScenes" class="location-profile-scenes"></div>
@@ -722,6 +723,44 @@
                 <span class="location-thematic-delete-warning" id="locProfilePopulationCultureDeleteWarning"></span>
                 <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('populationCulture')">Да, удалить</button>
                 <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('populationCulture')">Отмена</button>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="location-thematic-module" id="locProfileHistoryModule" hidden>
+          <button type="button" class="location-thematic-disclosure" id="locProfileHistoryToggle" aria-expanded="false" aria-controls="locProfileHistoryBody" onclick="toggleLocationThematicDisclosure('history')">
+            <span class="location-thematic-disclosure-chevron" aria-hidden="true">▸</span>
+            <span>История</span>
+          </button>
+          <div id="locProfileHistoryBody" class="location-thematic-body" hidden>
+            <div class="profile-editor-grid">
+              <label class="profile-field full">
+                <span class="field-caption">Происхождение</span>
+                <textarea id="locProfileOrigin" rows="3" placeholder="Как и почему возникла эта локация"></textarea>
+              </label>
+              <label class="profile-field full">
+                <span class="field-caption">Историческая справка</span>
+                <textarea id="locProfileHistoricalOverview" rows="4" placeholder="Что произошло с этим местом за время его существования"></textarea>
+              </label>
+              <div class="profile-field full">
+                <span class="field-caption">События</span>
+                <div id="locProfileHistoryEventsList" class="location-history-event-cards"></div>
+                <button type="button" class="location-thematic-add-toggle location-history-add-event" onclick="addLocationHistoryEventDraft()">+ Добавить событие</button>
+              </div>
+              <label class="profile-field full">
+                <span class="field-caption">Легенды и мифы</span>
+                <textarea id="locProfileLegends" rows="3" placeholder="Истории, которые считаются важными, даже если неизвестно, правдивы ли они"></textarea>
+              </label>
+            </div>
+            <div class="location-thematic-actions" id="locProfileHistoryActions">
+              <button type="button" class="location-thematic-hide" id="locProfileHistoryHide" onclick="hideLocationThematicModule('history')" hidden>Скрыть раздел</button>
+              <button type="button" class="location-thematic-remove" id="locProfileHistoryRemove" onclick="removeEmptyLocationThematicModule('history')" hidden>Убрать раздел</button>
+              <button type="button" class="location-thematic-delete-start" id="locProfileHistoryDeleteStart" onclick="startDeleteLocationThematicModule('history')" hidden>Удалить данные раздела</button>
+              <span class="location-thematic-delete-confirm" id="locProfileHistoryDeleteConfirm" hidden>
+                <span class="location-thematic-delete-warning" id="locProfileHistoryDeleteWarning"></span>
+                <button type="button" class="location-thematic-delete-confirm-yes" onclick="confirmDeleteLocationThematicModule('history')">Да, удалить</button>
+                <button type="button" class="location-thematic-delete-confirm-no" onclick="cancelDeleteLocationThematicModule('history')">Отмена</button>
               </span>
             </div>
           </div>

@@ -38,6 +38,26 @@ assert(!JSON.stringify(prepared.dbPayload).includes("aGVsbG8"));
 // produce well-formed defaults rather than undefined/omitted keys.
 assert.equal(prepared.dbPayload.locations[0].short_summary,"");
 assert.deepEqual(prepared.dbPayload.locations[0].base_profile,{});
+assert.deepEqual(prepared.dbPayload.locations[0].history_events,[],"no historyEvents field at all must produce an empty array, never undefined");
+assert.deepEqual(prepared.expectedSnapshot.location_history_events,[]);
+
+// Location History H-events: a location carrying valid historyEvents produces a nested,
+// snake_case history_events array on that SAME location's dbPayload entry (not a flat top-level
+// key -- the canonical location_id an event needs is only known server-side), and a flat
+// location_history_events list in expectedSnapshot for post-import verification.
+{
+  const withEvents=source();
+  withEvents.locations[0].historyEvents=[{id:"event-a",title:"Основание","dateLabel":"около 800 года",description:"",sortOrder:0}];
+  const previewWithEvents=buildLocalToCloudMigrationPreview({localProject:withEvents,sourceProjectId:"local-project",targetProjectId,targetProjectRevision:7,targetCloudState:{},characterDecisions:{"char-a":{action:"CREATE_NEW_GLOBAL_IDENTITY"},"char-b":{action:"CREATE_NEW_GLOBAL_IDENTITY"}}});
+  const confirmedWithEvents=confirmLocalToCloudMigrationPlan(previewWithEvents,{migrationAttemptId:attemptId});
+  const preparedWithEvents=prepareLocalToCloudMigrationExecution({confirmedPlan:confirmedWithEvents,ownerId});
+  assert.equal(preparedWithEvents.dbPayload.locations[0].history_events.length,1);
+  assert.equal(preparedWithEvents.dbPayload.locations[0].history_events[0].title,"Основание");
+  assert.equal(preparedWithEvents.dbPayload.locations[0].history_events[0].date_label,"около 800 года");
+  assert.equal(preparedWithEvents.dbPayload.locations[0].history_events[0].sort_order,0);
+  assert.equal(preparedWithEvents.expectedSnapshot.location_history_events.length,1);
+  assert.equal(preparedWithEvents.expectedSnapshot.location_history_events[0].id,preparedWithEvents.dbPayload.locations[0].history_events[0].id);
+}
 
 function fakeClient({preflight={ok:true,code:"OK"},importResult={ok:true,code:"OK",previousRevision:7,revision:8,created:{}},rpcError=null,uploadError=null,removeError=null,snapshot=null,attempt=null}={}){
   const calls=[];

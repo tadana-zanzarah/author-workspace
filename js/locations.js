@@ -63,6 +63,40 @@ const locationMediaDraftFiles=new Map(); // draft id -> File, for not-yet-upload
 let locationMediaLoadToken=0;
 let locationMediaAddPanelOpen=false;
 let locationMediaPendingKind=null;
+
+/* ---------- History Events (Location History H-events) ----------
+ * Canonical-only, draft-until-Profile-Save, same lazy-load shape as Media (list_location_history_
+ * events, one call, only for the open Location's canonical id) -- see js/location-history-events.js
+ * for the pure draft/diff model. `locationHistoryEventsOriginal` is the last-loaded persisted truth
+ * (the diff baseline); `locationProfileHistoryEventsDraft` is the mutable draft edit mode operates
+ * on. In LOCAL mode there is no separate table at all -- both are populated synchronously from
+ * location.historyEvents (see loadLocationHistoryEventsForProfile), matching how baseProfile itself
+ * already works locally. `locationHistoryEventEditingId` is which single event card (if any) is
+ * currently expanded for editing -- only one at a time, per the task brief ("Avoid displaying 10
+ * full title/date/description forms simultaneously"). */
+let locationHistoryEventsOriginal=[];
+let locationProfileHistoryEventsDraft=[];
+let locationHistoryEventsLoadToken=0;
+let locationHistoryEventEditingId=null;
+
+async function loadLocationHistoryEventsForProfile(location){
+  const token=++locationHistoryEventsLoadToken;
+  if(!isCloudWorkspace()){
+    locationHistoryEventsOriginal=normalizeLocalHistoryEvents(location.historyEvents).map(item=>normalizeHistoryEventDraftItem(item))
+      .sort((a,b)=>a.sortOrder-b.sortOrder||a.id.localeCompare(b.id));
+    resetLocationProfileHistoryEventsDraft();
+    renderLocationProfileHistory(location);
+    return;
+  }
+  const canonicalId=locationCanonicalId(location);
+  const result=await cloudProjectSync.api.listLocationHistoryEvents(canonicalId);
+  if(locationHistoryEventsLoadToken!==token||locationProfileParticipationId!==location.id)return;
+  locationHistoryEventsOriginal=result?.ok?mapHistoryEventRowsForLazyRead(result.data):[];
+  resetLocationProfileHistoryEventsDraft();
+  renderLocationProfileHistory(location);
+  const tracker=trackerFor("locationProfileModal");
+  if(tracker&&!tracker.isDirty())tracker.captureInitialState();
+}
 // locationMediaCropState ({id, draft:{x,y,zoom}} | null) lives in js/state.js, not as a local `let`
 // here -- js/app.js's crop-modal zoom/pointer-drag bindings need to read it as a bare identifier
 // (mirroring photoCropState's exact treatment for Character photos), which only resolves correctly
@@ -602,9 +636,11 @@ function populateLocationProfileCore(participationId){
   renderLocationProfileGovernmentSociety(location);
   renderLocationProfileEconomy(location);
   renderLocationProfilePopulationCulture(location);
+  renderLocationProfileHistory(location);
   renderLocationProfileScenes(participationId);
   refreshLocationHierarchyContext(location);
   loadLocationMediaForProfile(location);
+  loadLocationHistoryEventsForProfile(location);
   return location;
 }
 
@@ -635,6 +671,16 @@ function syncLocationProfileEditFields(location){
   picker.setSelected(locationProfileOriginalParentId);
   syncLocationProfileThematicFields(location);
   resetLocationProfileMediaDraft();
+  resetLocationProfileHistoryEventsDraft();
+}
+
+// Reverts the history-events draft back to the last-loaded persisted truth
+// (locationHistoryEventsOriginal) -- called on every fresh entry into edit mode AND on Cancel (both
+// funnel through syncLocationProfileEditFields), mirroring resetLocationProfileMediaDraft exactly.
+function resetLocationProfileHistoryEventsDraft(){
+  locationProfileHistoryEventsDraft=locationHistoryEventsOriginal.map(item=>({...item}));
+  locationHistoryEventEditingId=null;
+  renderLocationHistoryEventsEditor();
 }
 
 // Reverts the media draft back to the last-loaded persisted truth (locationMediaOriginal) --
@@ -853,6 +899,41 @@ function renderLocationProfilePopulationCulture(location){
   el.hidden=false;
 }
 
+// History (Location History -- HYBRID IMPLEMENTATION). Read order per the task brief: Происхождение
+// -> Историческая справка -> События -> Легенды и мифы; each subsection renders only if it has
+// content. hasData spans BOTH base_profile.history prose AND the separately-loaded event list -- the
+// ad-hoc `locationLike` object below merges the real location's baseProfile/moduleSelection with
+// whatever locationHistoryEventsOriginal currently holds (synchronous for local mode, filled in
+// asynchronously for cloud mode by loadLocationHistoryEventsForProfile, which re-calls this
+// function once it resolves) so locationModuleReadVisible's existing "hidden hides everything, no
+// data hides everything" rule applies uniformly -- no bespoke visibility logic needed here at all.
+function renderLocationProfileHistory(location){
+  const el=document.getElementById("locationProfileHistory");if(!el)return;
+  const locationLike={baseProfile:location.baseProfile,historyEvents:locationHistoryEventsOriginal};
+  if(!locationModuleReadVisible(locationLike,location.moduleSelection,"history")){el.hidden=true;el.innerHTML="";return}
+  const m=normalizeHistory(location.baseProfile?.history);
+  const originHtml=m.origin?`<p class="location-profile-thematic-prose">${esc(m.origin)}</p>`:"";
+  const overviewHtml=m.historicalOverview?`<p class="location-profile-thematic-prose location-profile-thematic-prose-secondary">${esc(m.historicalOverview)}</p>`:"";
+  const eventsHtml=renderLocationProfileHistoryEventsRead(locationHistoryEventsOriginal);
+  const legendsHtml=m.legends?`<p class="location-profile-history-legends">${esc(m.legends)}</p>`:"";
+  el.innerHTML=`<h3 class="location-profile-thematic-title">История</h3>${originHtml}${overviewHtml}${eventsHtml}${legendsHtml}`;
+  el.hidden=false;
+}
+
+// Compact vertical list, oldest-first (already the stored sort_order), date label visually
+// secondary, title primary -- no decorative timeline, description shown inline in full (see task
+// brief "do not require clicks just to read every 1-line event"; long text simply wraps, checked
+// in visual review).
+function renderLocationProfileHistoryEventsRead(events){
+  if(!events.length)return "";
+  const rows=events.map(event=>`<li class="location-profile-history-event">
+    ${event.dateLabel?`<span class="location-profile-history-event-date">${esc(event.dateLabel)}</span>`:""}
+    <span class="location-profile-history-event-title">${esc(event.title||"Без названия")}</span>
+    ${event.description?`<p class="location-profile-history-event-description">${esc(event.description)}</p>`:""}
+  </li>`).join("");
+  return `<ul class="location-profile-history-events">${rows}</ul>`;
+}
+
 function ensureLocationNotableFeaturesWidget(){
   if(multiValueInputs.locationNotableFeatures)return multiValueInputs.locationNotableFeatures;
   const host=document.getElementById("locProfileNotableFeatures");
@@ -925,7 +1006,8 @@ const LOCATION_THEMATIC_DISCLOSURE_IDS={
   geography:{toggle:"locProfileGeographyToggle",body:"locProfileGeographyBody"},
   governmentSociety:{toggle:"locProfileGovernmentSocietyToggle",body:"locProfileGovernmentSocietyBody"},
   economy:{toggle:"locProfileEconomyToggle",body:"locProfileEconomyBody"},
-  populationCulture:{toggle:"locProfilePopulationCultureToggle",body:"locProfilePopulationCultureBody"}
+  populationCulture:{toggle:"locProfilePopulationCultureToggle",body:"locProfilePopulationCultureBody"},
+  history:{toggle:"locProfileHistoryToggle",body:"locProfileHistoryBody"}
 };
 
 // Presentation only: never clears values, saves, or resets dirty state -- see task brief
@@ -965,7 +1047,8 @@ const LOCATION_THEMATIC_MODULE_IDS={
   geography:{module:"locProfileGeographyModule",hide:"locProfileGeographyHide",remove:"locProfileGeographyRemove",deleteStart:"locProfileGeographyDeleteStart",deleteConfirm:"locProfileGeographyDeleteConfirm",deleteWarning:"locProfileGeographyDeleteWarning",firstField:"locProfileTerrain"},
   governmentSociety:{module:"locProfileGovernmentSocietyModule",hide:"locProfileGovernmentSocietyHide",remove:"locProfileGovernmentSocietyRemove",deleteStart:"locProfileGovernmentSocietyDeleteStart",deleteConfirm:"locProfileGovernmentSocietyDeleteConfirm",deleteWarning:"locProfileGovernmentSocietyDeleteWarning",firstField:"locProfileGovernmentForm"},
   economy:{module:"locProfileEconomyModule",hide:"locProfileEconomyHide",remove:"locProfileEconomyRemove",deleteStart:"locProfileEconomyDeleteStart",deleteConfirm:"locProfileEconomyDeleteConfirm",deleteWarning:"locProfileEconomyDeleteWarning",firstField:"locProfileCurrency"},
-  populationCulture:{module:"locProfilePopulationCultureModule",hide:"locProfilePopulationCultureHide",remove:"locProfilePopulationCultureRemove",deleteStart:"locProfilePopulationCultureDeleteStart",deleteConfirm:"locProfilePopulationCultureDeleteConfirm",deleteWarning:"locProfilePopulationCultureDeleteWarning",firstField:"locProfilePopulationCharacter"}
+  populationCulture:{module:"locProfilePopulationCultureModule",hide:"locProfilePopulationCultureHide",remove:"locProfilePopulationCultureRemove",deleteStart:"locProfilePopulationCultureDeleteStart",deleteConfirm:"locProfilePopulationCultureDeleteConfirm",deleteWarning:"locProfilePopulationCultureDeleteWarning",firstField:"locProfilePopulationCharacter"},
+  history:{module:"locProfileHistoryModule",hide:"locProfileHistoryHide",remove:"locProfileHistoryRemove",deleteStart:"locProfileHistoryDeleteStart",deleteConfirm:"locProfileHistoryDeleteConfirm",deleteWarning:"locProfileHistoryDeleteWarning",firstField:"locProfileOrigin"}
 };
 
 // A location-shaped object reflecting the CURRENT unsaved draft fields (not the original saved
@@ -978,8 +1061,13 @@ function locationThematicDraftLocationLike(){
   return {
     baseProfile:{
       appearanceAtmosphere:draft.appearanceAtmosphere,geography:draft.geography,
-      governmentSociety:draft.governmentSociety,economy:draft.economy,populationCulture:draft.populationCulture
+      governmentSociety:draft.governmentSociety,economy:draft.economy,populationCulture:draft.populationCulture,
+      history:draft.history
     },
+    // History's hasData also spans the live events draft (see locationModuleHasData's own comment)
+    // -- reacting to the current unsaved add/remove/reorder state, same draft-reflects-live-state
+    // principle as every other field this function exposes.
+    historyEvents:locationProfileHistoryEventsDraft,
     // Recommendation hints (see locationThematicPickerCandidates) react to the type the author is
     // CURRENTLY choosing in the still-open edit form, not the last-saved type -- same
     // draft-reflects-live-state principle as every other field this function exposes.
@@ -1176,11 +1264,17 @@ function syncLocationProfileThematicFields(location){
   ensureLocationBeliefsWidget().setValues(populationCulture.beliefs);
   document.getElementById("locProfileSocialNorms").value=populationCulture.socialNorms;
 
+  const history=hydrateHistory(location.baseProfile?.history);
+  document.getElementById("locProfileOrigin").value=history.origin;
+  document.getElementById("locProfileHistoricalOverview").value=history.historicalOverview;
+  document.getElementById("locProfileLegends").value=history.legends;
+
   setLocationThematicDisclosure("appearanceAtmosphere",!isModuleEmpty(normalizeAppearanceAtmosphere(appearance)));
   setLocationThematicDisclosure("geography",!isModuleEmpty(normalizeGeography(geography)));
   setLocationThematicDisclosure("governmentSociety",!isModuleEmpty(normalizeGovernmentSociety(governmentSociety)));
   setLocationThematicDisclosure("economy",!isModuleEmpty(normalizeEconomy(economy)));
   setLocationThematicDisclosure("populationCulture",!isModuleEmpty(normalizePopulationCulture(populationCulture)));
+  setLocationThematicDisclosure("history",!isModuleEmpty(normalizeHistory(history))||locationHistoryEventsOriginal.length>0);
 
   locationProfileModuleSelectionDraft=normalizeModuleSelection(location.moduleSelection);
   closeLocationModuleAddPanel();
@@ -1233,6 +1327,11 @@ function readLocationThematicDraftFields(){
       holidays:ensureLocationHolidaysWidget().getValues(),
       beliefs:ensureLocationBeliefsWidget().getValues(),
       socialNorms:document.getElementById("locProfileSocialNorms").value
+    },
+    history:{
+      origin:document.getElementById("locProfileOrigin").value,
+      historicalOverview:document.getElementById("locProfileHistoricalOverview").value,
+      legends:document.getElementById("locProfileLegends").value
     }
   };
 }
@@ -1242,7 +1341,8 @@ const LOCATION_THEMATIC_FIELD_IDS={
   geography:["locProfileTerrain","locProfileClimate","locProfileWater","locProfileVegetation","locProfileAccess","locProfileCoordinates","locProfileArea","locProfileElevation"],
   governmentSociety:["locProfileGovernmentForm","locProfileLeadership","locProfilePoliticalSituation","locProfileLawsAndRules"],
   economy:["locProfileCurrency","locProfileEconomicCharacter","locProfileCostOfLiving"],
-  populationCulture:["locProfilePopulationCharacter","locProfileCustomsAndTraditions","locProfileSocialNorms"]
+  populationCulture:["locProfilePopulationCharacter","locProfileCustomsAndTraditions","locProfileSocialNorms"],
+  history:["locProfileOrigin","locProfileHistoricalOverview","locProfileLegends"]
 };
 
 // governmentSociety/economy (B3B) each have more than one multi-value field, unlike
@@ -1263,7 +1363,135 @@ const LOCATION_THEMATIC_ARRAY_WIDGETS_BY_MODULE={
 function clearLocationThematicModule(moduleKey){
   (LOCATION_THEMATIC_FIELD_IDS[moduleKey]||[]).forEach(id=>{const el=document.getElementById(id);if(el)el.value=""});
   (LOCATION_THEMATIC_ARRAY_WIDGETS_BY_MODULE[moduleKey]||[]).forEach(ensureWidget=>ensureWidget().setValues([]));
+  // history's hasData spans events too (see locationModuleHasData) -- "Удалить данные раздела" must
+  // clear both halves together, or the module would immediately reappear as populated via its
+  // events alone the instant the prose fields are wiped.
+  if(moduleKey==="history"){
+    locationProfileHistoryEventsDraft=[];
+    locationHistoryEventEditingId=null;
+    renderLocationHistoryEventsEditor();
+  }
   syncBeforeUnload();
+}
+
+/* ---------- Profile: History Events editor ----------
+ * Compact rows, one event expanded for editing at a time (locationHistoryEventEditingId) -- see
+ * task brief "PROFILE EDIT -- EVENTS". Every mutation here is draft-only (js/location-history-
+ * events.js's pure add/remove/reorder helpers); no RPC fires until Save (see
+ * reconcileLocationHistoryEventsDraft below). */
+
+function renderLocationHistoryEventsEditor(){
+  const container=document.getElementById("locProfileHistoryEventsList");if(!container)return;
+  const items=[...locationProfileHistoryEventsDraft].sort((a,b)=>a.sortOrder-b.sortOrder||a.id.localeCompare(b.id));
+  container.innerHTML=items.length
+    ?items.map((item,index)=>renderLocationHistoryEventCard(item,index,items.length)).join("")
+    :'<p class="location-history-events-empty">Событий пока нет.</p>';
+}
+
+function renderLocationHistoryEventCard(item,index,total){
+  if(locationHistoryEventEditingId!==item.id){
+    return `<article class="location-history-event-card" data-event-id="${esc(item.id)}">
+      <div class="location-history-event-card-summary">
+        ${item.dateLabel?`<span class="location-history-event-date">${esc(item.dateLabel)}</span>`:""}
+        <span class="location-history-event-title">${esc(item.title||"Без названия")}</span>
+      </div>
+      <div class="location-media-card-actions">
+        <button type="button" onclick="moveLocationHistoryEventDraftItem('${jsq(item.id)}','up')" ${index===0?"disabled":""} aria-label="Переместить раньше">↑</button>
+        <button type="button" onclick="moveLocationHistoryEventDraftItem('${jsq(item.id)}','down')" ${index===total-1?"disabled":""} aria-label="Переместить позже">↓</button>
+        <button type="button" onclick="startEditLocationHistoryEventDraft('${jsq(item.id)}')">Изменить</button>
+        <button type="button" class="location-media-card-delete" onclick="removeLocationHistoryEventDraftItem('${jsq(item.id)}')">Удалить</button>
+      </div>
+    </article>`;
+  }
+  return `<article class="location-history-event-card location-history-event-card-editing" data-event-id="${esc(item.id)}">
+    <label class="profile-field full">
+      <span class="field-caption">Название события</span>
+      <input value="${esc(item.title)}" oninput="updateLocationHistoryEventDraftField('${jsq(item.id)}','title',this.value)" placeholder="Например: Пожар уничтожил северное крыло">
+    </label>
+    <label class="profile-field full">
+      <span class="field-caption">Когда (в свободной форме, необязательно)</span>
+      <input value="${esc(item.dateLabel)}" oninput="updateLocationHistoryEventDraftField('${jsq(item.id)}','dateLabel',this.value)" placeholder="Например: около 1240 года, за три века до войны">
+    </label>
+    <label class="profile-field full">
+      <span class="field-caption">Описание (необязательно)</span>
+      <textarea rows="3" oninput="updateLocationHistoryEventDraftField('${jsq(item.id)}','description',this.value)" placeholder="Что произошло">${esc(item.description)}</textarea>
+    </label>
+    <div class="location-history-event-card-actions">
+      <button type="button" class="primary" onclick="finishEditLocationHistoryEventDraft()">Готово</button>
+      <button type="button" class="location-media-card-delete" onclick="removeLocationHistoryEventDraftItem('${jsq(item.id)}')">Удалить</button>
+    </div>
+  </article>`;
+}
+
+function addLocationHistoryEventDraft(){
+  const item=createDraftHistoryEvent({id:crypto.randomUUID(),sortOrder:locationProfileHistoryEventsDraft.length});
+  locationProfileHistoryEventsDraft=[...locationProfileHistoryEventsDraft,item];
+  locationHistoryEventEditingId=item.id;
+  renderLocationHistoryEventsEditor();
+  renderLocationThematicModules();
+  syncBeforeUnload();
+  document.querySelector(`#locProfileHistoryEventsList [data-event-id="${item.id}"] input`)?.focus();
+}
+function startEditLocationHistoryEventDraft(id){
+  locationHistoryEventEditingId=id;
+  renderLocationHistoryEventsEditor();
+}
+function finishEditLocationHistoryEventDraft(){
+  locationHistoryEventEditingId=null;
+  renderLocationHistoryEventsEditor();
+}
+function updateLocationHistoryEventDraftField(id,field,value){
+  locationProfileHistoryEventsDraft=locationProfileHistoryEventsDraft.map(item=>item.id===id?{...item,[field]:value}:item);
+  syncBeforeUnload();
+}
+function moveLocationHistoryEventDraftItem(id,direction){
+  locationProfileHistoryEventsDraft=reorderHistoryEventDraftItem(locationProfileHistoryEventsDraft,id,direction);
+  renderLocationHistoryEventsEditor();
+  syncBeforeUnload();
+}
+function removeLocationHistoryEventDraftItem(id){
+  if(locationHistoryEventEditingId===id)locationHistoryEventEditingId=null;
+  locationProfileHistoryEventsDraft=removeHistoryEventDraftItem(locationProfileHistoryEventsDraft,id);
+  renderLocationHistoryEventsEditor();
+  renderLocationThematicModules();
+  syncBeforeUnload();
+}
+
+// Extra-state slot for the locationProfileModal dirty-tracker (js/app.js) -- the events draft is
+// custom state (add/reorder/delete are button actions; title/dateLabel/description ARE native
+// controls but only exist in the DOM for whichever ONE event is currently expanded, so
+// serializeForm's own scan cannot see the rest), mirroring currentLocationProfileMediaSnapshot.
+function currentLocationProfileHistoryEventsSnapshot(){return locationHistoryEventsDraftSnapshot(locationProfileHistoryEventsDraft)}
+
+/* ---- Save reconciliation (History Events) ----
+ * NEW/CHANGED/REMOVED per js/location-history-events.js's diffHistoryEventsDraft, applied
+ * delete -> update -> create (planLocationHistoryEventsSaveOrder -- no primary-demotion complexity
+ * to sequence around, unlike Media). expectedRevision for create is threaded from whatever the
+ * PREVIOUS canonical-domain call in this same Save actually returned (never invented client-side),
+ * exactly like reconcileLocationMediaDraft. */
+async function reconcileLocationHistoryEventsDraft(canonicalId,startingLocationRevision){
+  const diff=diffHistoryEventsDraft(locationHistoryEventsOriginal,locationProfileHistoryEventsDraft);
+  if(!diff.toCreate.length&&!diff.toUpdate.length&&!diff.toDelete.length)return {ok:true,changed:false,locationRevision:startingLocationRevision};
+  const planned=planLocationHistoryEventsSaveOrder(diff);
+  const api=cloudProjectSync.api;
+  let locationRevision=startingLocationRevision;
+
+  for(const removed of planned.toDelete){
+    const result=await api.deleteLocationHistoryEvent(removed.id,removed.revision);
+    if(!result.ok)return {ok:false,message:result.message||"Не удалось удалить событие."};
+    if(result.locationRevision!=null)locationRevision=result.locationRevision;
+  }
+  for(const {item,before} of planned.toUpdate){
+    const result=await api.updateLocationHistoryEvent(item.id,before.revision,buildUpdateHistoryEventChanges(item));
+    if(!result.ok)return {ok:false,message:result.message||"Не удалось обновить событие."};
+  }
+  for(const item of planned.toCreate){
+    const payload=buildCreateHistoryEventPayload(item,{locationId:canonicalId,expectedRevision:locationRevision});
+    const result=await api.createLocationHistoryEvent(canonicalId,locationRevision,{eventId:payload.eventId,title:payload.title,dateLabel:payload.dateLabel,description:payload.description,sortOrder:payload.sortOrder});
+    if(!result.ok)return {ok:false,message:result.message||"Не удалось создать событие."};
+    if(result.locationRevision!=null)locationRevision=result.locationRevision;
+  }
+  return {ok:true,changed:true,locationRevision};
 }
 
 function renderLocationProfileScenes(participationId){
@@ -1493,14 +1721,19 @@ async function saveLocationProfile(){
   if(!location)return;
   const fields=readLocationEditFormFields();
   if(!fields.name){locationProfileSaveButton.showStatus("Название локации не может быть пустым.","error");return}
+  // Every History event needs a title (same rule the RPC/local model both enforce) -- checked here,
+  // before anything is sent, exactly like the Location's own name field just above.
+  if(locationProfileHistoryEventsDraft.some(item=>!item.title.trim())){
+    locationProfileSaveButton.showStatus("Название события истории не может быть пустым.","error");return;
+  }
   const thematicDraft=readLocationThematicDraftFields();
   const baseProfilePatch=buildLocationBaseProfilePatch({
     originalAppearance:location.baseProfile?.appearanceAtmosphere,originalGeography:location.baseProfile?.geography,
     originalGovernmentSociety:location.baseProfile?.governmentSociety,originalEconomy:location.baseProfile?.economy,
-    originalPopulationCulture:location.baseProfile?.populationCulture,
+    originalPopulationCulture:location.baseProfile?.populationCulture,originalHistory:location.baseProfile?.history,
     draftAppearance:thematicDraft.appearanceAtmosphere,draftGeography:thematicDraft.geography,
     draftGovernmentSociety:thematicDraft.governmentSociety,draftEconomy:thematicDraft.economy,
-    draftPopulationCulture:thematicDraft.populationCulture
+    draftPopulationCulture:thematicDraft.populationCulture,draftHistory:thematicDraft.history
   });
   // Adaptive Module Selection: normalize the draft selection against what base_profile will
   // ACTUALLY look like after this save (a module that just gained data drops out of `shown` as
@@ -1555,6 +1788,26 @@ async function saveLocationProfile(){
           data=refreshedAfterMedia.data;
         }
       }
+      // History Events next, same canonical (locations.revision) domain -- chained from whatever
+      // Media just above actually left locations.revision at (never invented client-side), same
+      // partial-success reporting contract as Media/parent/module-selection.
+      {
+        const currentLocationRevision=data.locations.find(l=>l.id===participationId)?.locationRevision??coreResult.locationRevision;
+        const historyEventsResult=await reconcileLocationHistoryEventsDraft(canonicalId,currentLocationRevision);
+        if(!historyEventsResult.ok){
+          locationProfileSaveButton.showStatus(`Основные поля сохранены. Не удалось сохранить события истории: ${historyEventsResult.message||"неизвестная ошибка"}`,"error");
+          const refreshedAfterHistoryFailure=await cloudProjectSync.reload();
+          if(refreshedAfterHistoryFailure.ok)data=refreshedAfterHistoryFailure.data;
+          populateLocationProfileCore(participationId);
+          trackerFor("locationProfileModal").captureInitialState();
+          return;
+        }
+        if(historyEventsResult.changed){
+          const refreshedAfterHistory=await cloudProjectSync.reload();
+          if(!refreshedAfterHistory.ok){locationProfileSaveButton.showStatus(refreshedAfterHistory.message||"Не удалось обновить данные после сохранения событий истории.","error");return}
+          data=refreshedAfterHistory.data;
+        }
+      }
       // Module selection last, and only if it actually changed: a genuinely different revision
       // domain (projects.revision, via the existing project mutation queue -- update_
       // locationCanonical/setLocationParent above never touch it) -- canonical fields land first
@@ -1580,6 +1833,7 @@ async function saveLocationProfile(){
           shortSummary:fields.shortSummary,description:fields.description,parentId:fields.parentId
         });
         if(baseProfilePatch)target.baseProfile=applyLocationBaseProfilePatch(target.baseProfile,baseProfilePatch);
+        target.historyEvents=buildLocalHistoryEventsForSave(locationProfileHistoryEventsDraft);
         if(moduleSelectionChanged){
           const effective=moduleSelectionEffective(finalModuleSelection);
           if(effective)target.moduleSelection=effective;else delete target.moduleSelection;
@@ -1689,7 +1943,9 @@ Object.assign(globalThis,{locationById,locationCanonicalId,locationSceneEntries,
   hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule,
   currentLocationProfileMediaSnapshot,openLocationMediaLightbox,toggleLocationMediaAddPanel,startAddLocationMedia,handleLocationMediaFileChosen,
   updateLocationMediaDraftField,setLocationMediaDraftPrimary,moveLocationMediaDraftItem,removeLocationMediaDraftItem,
-  openLocationMediaCrop,nudgeLocationMediaCrop,syncLocationMediaCropPreview,saveLocationMediaCrop,cancelLocationMediaCrop});
+  openLocationMediaCrop,nudgeLocationMediaCrop,syncLocationMediaCropPreview,saveLocationMediaCrop,cancelLocationMediaCrop,
+  currentLocationProfileHistoryEventsSnapshot,addLocationHistoryEventDraft,startEditLocationHistoryEventDraft,finishEditLocationHistoryEventDraft,
+  updateLocationHistoryEventDraftField,moveLocationHistoryEventDraftItem,removeLocationHistoryEventDraftItem});
 export {locationById,locationCanonicalId,locationSceneEntries,locationAncestors,locationDescendantIds,
   ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,currentLocationProfileModuleSelectionSnapshot,
   openLocationGallery,setLocationGallerySearch,setLocationGalleryTypeFilter,renderLocationGallery,deleteLocationFromGallery,
@@ -1700,4 +1956,6 @@ export {locationById,locationCanonicalId,locationSceneEntries,locationAncestors,
   hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule,
   currentLocationProfileMediaSnapshot,openLocationMediaLightbox,toggleLocationMediaAddPanel,startAddLocationMedia,handleLocationMediaFileChosen,
   updateLocationMediaDraftField,setLocationMediaDraftPrimary,moveLocationMediaDraftItem,removeLocationMediaDraftItem,
-  openLocationMediaCrop,nudgeLocationMediaCrop,syncLocationMediaCropPreview,saveLocationMediaCrop,cancelLocationMediaCrop};
+  openLocationMediaCrop,nudgeLocationMediaCrop,syncLocationMediaCropPreview,saveLocationMediaCrop,cancelLocationMediaCrop,
+  currentLocationProfileHistoryEventsSnapshot,addLocationHistoryEventDraft,startEditLocationHistoryEventDraft,finishEditLocationHistoryEventDraft,
+  updateLocationHistoryEventDraftField,moveLocationHistoryEventDraftItem,removeLocationHistoryEventDraftItem};

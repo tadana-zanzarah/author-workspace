@@ -75,7 +75,41 @@ function buildLocalToCloudMigrationPreview({
   // moduleSelection: Adaptive Module Selection Phase 1 -- local Locations carry this flat, same
   // as baseProfile above (js/locations.js, contract addendum §9), forwarded here unfiltered; the
   // backend's private.sanitize_imported_module_selection is the actual sanitizer.
-  const locations=collections.locations.map(location=>({id:provenance.locations[location.id]?.cloudId,localId:location.id,name:String(location.name||""),description:String(location.description||""),shortSummary:String(location.shortSummary||""),baseProfile:own(location.baseProfile||{}),moduleSelection:own(location.moduleSelection||{}),source:own(location)}));
+  // historyEvents: Location History H-events -- local Locations carry a plain location.historyEvents
+  // array (js/location-history-events.js's normalizeLocalHistoryEvents/buildLocalHistoryEventsForSave
+  // shape: id/title/dateLabel/description/sortOrder only). Each event gets its own deterministic
+  // cloud id (same plannedId scheme as every other entity) and is validated HERE, not just left for
+  // the backend to sanitize -- unlike base_profile/moduleSelection (opaque JSON the backend allowlist
+  // sanitizes generically), an event missing a title or a stable id genuinely cannot be imported
+  // meaningfully, so it is dropped with a warning (never a blocking conflict -- one malformed event
+  // must not abort the whole location, per the task brief "malformed event object should not
+  // corrupt whole import"). Nested per-location (not a top-level collection) because the canonical
+  // location_id an event needs is only known server-side, generated fresh for every import -- see
+  // the H-events migration header for why the SQL side deliberately also nests, rather than
+  // flattens, this same array.
+  const locations=collections.locations.map((location,locIndex)=>{
+    const rawEvents=Array.isArray(location.historyEvents)?location.historyEvents:[];
+    const historyEvents=[];
+    rawEvents.forEach((event,eventIndex)=>{
+      const path=`locations[${locIndex}].historyEvents[${eventIndex}]`;
+      if(!event||typeof event!=="object"||Array.isArray(event)){addWarning("INVALID_HISTORY_EVENT",path,"History event must be an object; dropped.");return}
+      const rawEventId=String(event.id||"");
+      if(!rawEventId){addWarning("MISSING_HISTORY_EVENT_ID",path,"History event has no stable ID; dropped.");return}
+      const title=String(event.title||"").trim();
+      if(!title){addWarning("MISSING_HISTORY_EVENT_TITLE",path,"History event has no title; dropped.");return}
+      historyEvents.push({
+        id:plannedId("location-history-event",rawEventId,sourceProjectId,targetProjectId).cloudId,localId:rawEventId,
+        title,dateLabel:String(event.dateLabel||""),description:String(event.description||""),
+        sortOrder:Number.isFinite(event.sortOrder)?Number(event.sortOrder):eventIndex,source:own(event)
+      });
+    });
+    return {
+      id:provenance.locations[location.id]?.cloudId,localId:location.id,name:String(location.name||""),
+      description:String(location.description||""),shortSummary:String(location.shortSummary||""),
+      baseProfile:own(location.baseProfile||{}),moduleSelection:own(location.moduleSelection||{}),
+      historyEvents,source:own(location)
+    };
+  });
   const tags=collections.tags.map(tag=>({id:provenance.tags[tag.id]?.cloudId,localId:tag.id,name:String(tag.name||""),normalizedName:normalizedName(tag.name),source:own(tag)}));
   const sceneCharacters=[],sceneRelationChanges=[];
   const scenes=collections.scenes.map((scene,index)=>{
@@ -102,7 +136,7 @@ function buildLocalToCloudMigrationPreview({
   const imageUploads=[];
   for(const mapping of characterMappings){const photos=Array.isArray(mapping.profile?.photos)?mapping.profile.photos:[];photos.forEach((photo,index)=>{const path=`profiles.${mapping.localCharacterId}.photos[${index}]`,value=String(photo?.source?.value||""),storagePath=photo?.source?.storagePath||photo?.storagePath||"",id=String(photo?.id||"");if(id)provenance.images[id]=plannedId("image",id,sourceProjectId,targetProjectId);let classification="invalid-or-missing",requirement="resolve-image";const info=dataUrlInfo(value),scope=["global","project"].includes(photo?.scope)?photo.scope:imageScopeDecisions[id]||null;if(!scope)addBlock("IMAGE_SCOPE_REQUIRED",`${path}.scope`,"Character image scope requires an explicit migration decision.",{photoId:id});if(storagePath){classification="cloud-compatible-storage";requirement="reuse-metadata"}else if(info){classification="legacy-data-url";requirement="explicit-upload";if(info.invalid)addBlock("INVALID_IMAGE_DATA_URL",path,"Legacy image data URL cannot be decoded.");else if(!IMAGE_MIMES.has(info.mimeType))addBlock("UNSUPPORTED_IMAGE_TYPE",path,`Unsupported image MIME type ${info.mimeType}.`);else if(info.bytes>MAX_CHARACTER_IMAGE_BYTES)addBlock("IMAGE_TOO_LARGE",path,`Legacy image is larger than the 3 MiB upload limit.`,{bytes:info.bytes,limit:MAX_CHARACTER_IMAGE_BYTES});else addWarning("LEGACY_IMAGE_UPLOAD_REQUIRED",path,"Legacy image requires an explicit future Storage upload.",{bytes:info.bytes,mimeType:info.mimeType})}else addBlock("INVALID_OR_MISSING_IMAGE",path,"Image has neither canonical storage metadata nor a valid legacy data URL.");imageUploads.push({localPhotoId:id,cloudImageId:provenance.images[id]?.cloudId||null,localCharacterId:mapping.localCharacterId,cloudCharacterId:mapping.cloudCharacterId,projectCharacterId:mapping.projectCharacterId,scope,scopeStatus:scope?"resolved":"requires-user-decision",classification,requirement,mimeType:info?.mimeType||photo?.mimeType||null,estimatedBytes:info?.bytes??null,withinLimit:info?.bytes==null?null:info.bytes<=MAX_CHARACTER_IMAGE_BYTES,isPrimary:mapping.profile.primaryPhotoId===id||photo?.isPrimary===true,sortOrder:Number(photo?.sortOrder??index),crop:own(photo?.crop),alt:String(photo?.alt||""),caption:String(photo?.caption||""),storagePath:storagePath||null,metadata:own(Object.fromEntries(Object.entries(photo||{}).filter(([key])=>!["id","source","crop","alt","caption","sortOrder","isPrimary"].includes(key)))),source:own(photo)})})}
   const targetNonEmpty=targetHasContent(targetCloudState);if(targetNonEmpty)addBlock("TARGET_PROJECT_NOT_EMPTY","targetCloudState","Target cloud project is non-empty; merge is unsupported and replacement requires a future explicit confirmation.",{options:["choose-another-project","explicit-future-replace"],mergeSupported:false});
-  const counts={characters:collections.characters.length,scenes:collections.scenes.length,chapters:chapters.length,locations:collections.locations.length,tags:collections.tags.length,structuralLinks:structuralLinks.length,emotionalRelations:initialRelations.length+sceneRelationChanges.length,images:imageUploads.length};
+  const counts={characters:collections.characters.length,scenes:collections.scenes.length,chapters:chapters.length,locations:collections.locations.length,tags:collections.tags.length,structuralLinks:structuralLinks.length,emotionalRelations:initialRelations.length+sceneRelationChanges.length,images:imageUploads.length,historyEvents:locations.reduce((sum,l)=>sum+l.historyEvents.length,0)};
   const entityPlan={characters:characterMappings,chapters,locations,tags,scenes,sceneCharacters,initialRelations,sceneRelationChanges,structuralLinks,images:imageUploads,projectSource:source};
   return {ready:blockingConflicts.length===0,sourceProjectId,targetProjectId,localSchemaVersion:source.version??null,expectedProjectRevision:targetProjectRevision,counts,warnings,blockingConflicts,characterMappings,imageUploads,provenance,chapterMappings:[{localId:SYSTEM_CHAPTER_ID,cloudId:null}],target:{empty:!targetNonEmpty,mergeSupported:false},entityPlan};
 }

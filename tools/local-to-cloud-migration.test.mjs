@@ -10,7 +10,7 @@ const resolved={"char-a":{action:"CREATE_NEW_GLOBAL_IDENTITY"},"char-b":{action:
 
 // 1. Empty local project.
 {
-  const result=buildLocalToCloudMigrationPreview(opts());assert.equal(result.ready,true);assert.deepEqual(result.counts,{characters:0,scenes:0,chapters:0,locations:0,tags:0,structuralLinks:0,emotionalRelations:0,images:0});
+  const result=buildLocalToCloudMigrationPreview(opts());assert.equal(result.ready,true);assert.deepEqual(result.counts,{characters:0,scenes:0,chapters:0,locations:0,tags:0,structuralLinks:0,emotionalRelations:0,images:0,historyEvents:0});
 }
 // 2, 3, 8-11. Normal mapping, system chapter, scene/participation/relation fields.
 {
@@ -93,6 +93,40 @@ assert.equal(buildLocalToCloudMigrationPreview(opts()).expectedProjectRevision,7
   const result=buildLocalToCloudMigrationPreview(opts(normal(),{characterDecisions:resolved,structuralLinkDecisions:{"link-a":"project"}}));
   assert.equal(result.entityPlan.locations[0].shortSummary,"");
   assert.deepEqual(result.entityPlan.locations[0].baseProfile,{});
+}
+
+// 21. Location History H-events: valid nested historyEvents survive into the entity plan with a
+// deterministic cloud id and preserved title/dateLabel(free-form, incl. fantasy labels)/description/
+// sortOrder; a malformed event (not an object), one missing a stable id, and one with a blank title
+// are each dropped with a WARNING (never a blocking conflict -- one bad event must not abort the
+// whole location), and counts.historyEvents reflects only the SURVIVING events.
+{
+  const data=normal();
+  data.locations[0].historyEvents=[
+    {id:"event-a",title:"Основание города","dateLabel":"около 800 года",description:"",sortOrder:0},
+    {id:"event-b",title:"Гражданская война",dateLabel:"за три века до войны",description:"Долгий период смуты.",sortOrder:1},
+    "not-an-object",
+    {title:"Без id"},
+    {id:"event-c",title:"   "}
+  ];
+  const result=buildLocalToCloudMigrationPreview(opts(data,{characterDecisions:resolved,structuralLinkDecisions:{"link-a":"project"}}));
+  assert.equal(result.ready,true,"malformed events must never block the whole import");
+  const events=result.entityPlan.locations[0].historyEvents;
+  assert.equal(events.length,2,"only the two well-formed events survive");
+  assert.equal(events[0].localId,"event-a");assert.equal(events[0].title,"Основание города");assert.equal(events[0].dateLabel,"около 800 года");assert.equal(events[0].sortOrder,0);
+  assert.equal(events[1].localId,"event-b");assert.equal(events[1].dateLabel,"за три века до войны","odd fantasy date label preserved verbatim, never parsed/rejected");
+  assert.ok(events[0].id&&events[0].id!==events[0].localId,"a deterministic cloud id must be assigned, distinct from the local id");
+  assert.equal(deterministicUuid(`local-project:${targetProjectId}:location-history-event`,"event-a"),events[0].id,"deterministic, reproducible across a retried preview");
+  assert(result.warnings.some(x=>x.code==="INVALID_HISTORY_EVENT"),"the non-object entry must warn, not block");
+  assert(result.warnings.some(x=>x.code==="MISSING_HISTORY_EVENT_ID"));
+  assert(result.warnings.some(x=>x.code==="MISSING_HISTORY_EVENT_TITLE"));
+  assert.equal(result.counts.historyEvents,2,"counts must reflect only surviving events, not the raw payload length");
+}
+// 22. A location with no historyEvents field at all (every pre-H local snapshot) must produce an
+// empty, well-formed array, never throw/undefined.
+{
+  const result=buildLocalToCloudMigrationPreview(opts(normal(),{characterDecisions:resolved,structuralLinkDecisions:{"link-a":"project"}}));
+  assert.deepEqual(result.entityPlan.locations[0].historyEvents,[]);
 }
 
 console.log("local to cloud migration preview tests passed");
