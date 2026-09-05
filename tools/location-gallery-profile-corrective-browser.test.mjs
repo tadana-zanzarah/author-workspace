@@ -11,11 +11,13 @@ const page=await context.newPage();
 page.setDefaultTimeout(5000);
 const errors=[];page.on("pageerror",error=>errors.push(error.message));page.on("console",message=>{if(message.type()==="error")errors.push(message.text())});
 
+const longName='Северо-Западный административно-исследовательский комплекс имени Александра Третьего <script>&"';
 const locations=[
   {id:"loc-empty",name:"Пустой чердак",description:""},
   {id:"loc-one",name:"Один разговор",description:"Короткая сцена у окна."},
   {id:"loc-seven",name:"Мастерская",description:""},
-  {id:"loc-many",name:"Вокзал",description:"Оживлённое место, полное прощаний."}
+  {id:"loc-many",name:"Вокзал",description:"Оживлённое место, полное прощаний."},
+  {id:"loc-longname",name:longName,description:""}
 ];
 const scenes=[
   {id:"scene-one-1",title:"Разговор у окна",date:"2026-01-01",time:"09:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"loc-one",tags:[],writingStatus:"draft",sceneText:"",included:true,status:"floating",people:{}},
@@ -147,7 +149,30 @@ const deleteOpacity=await page.evaluate(()=>{
 if(!(deleteOpacity>=0.75))throw new Error(`delete icon на Gallery card слишком бледная и может читаться как disabled, opacity: ${deleteOpacity}`);
 
 const manyResultsCount=await page.locator(".location-card").count();
-if(manyResultsCount!==4)throw new Error(`ожидалось 4 карточки без поискового запроса, найдено: ${manyResultsCount}`);
+if(manyResultsCount!==5)throw new Error(`ожидалось 5 карточек без поискового запроса, найдено: ${manyResultsCount}`);
+
+// F1: a truncated long Location name must still expose the FULL, correctly-escaped name via a
+// native title attribute (hover tooltip) -- the type badge and the Profile's own child-location
+// rows already had this; the Gallery card name itself did not. Also confirms the fix does not
+// change card layout, truncation, badge, or click behavior.
+const longNameCard=await page.evaluate(name=>{
+  const card=[...document.querySelectorAll(".location-card")].find(c=>c.querySelector(".location-card-name")?.title===name);
+  if(!card)return null;
+  const nameEl=card.querySelector(".location-card-name");
+  const cs=getComputedStyle(nameEl);
+  return {
+    titleAttr:nameEl.getAttribute("title"),
+    textContent:nameEl.textContent,
+    truncates:cs.textOverflow==="ellipsis"&&cs.overflow==="hidden"&&cs.whiteSpace==="nowrap",
+    openButtonAriaLabel:card.querySelector(".location-card-open")?.getAttribute("aria-label"),
+    hasScriptElementInName:!!nameEl.querySelector("script")
+  };
+},longName);
+if(!longNameCard)throw new Error("не найдена Gallery-карточка с полным длинным названием в атрибуте title");
+if(longNameCard.titleAttr!==longName)throw new Error(`title должен содержать полное неусечённое название локации: ${JSON.stringify(longNameCard.titleAttr)}`);
+if(longNameCard.hasScriptElementInName)throw new Error("название локации должно быть экранировано (esc), а не вставлено как сырой HTML");
+if(!longNameCard.truncates)throw new Error("визуальное усечение (ellipsis) названия карточки не должно измениться этим исправлением");
+if(!longNameCard.openButtonAriaLabel?.includes(longName))throw new Error("aria-label кнопки открытия локации должен по-прежнему содержать полное название");
 
 await page.fill("#locationGallerySearch","Вокзал");
 await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===1);
@@ -160,7 +185,7 @@ const zeroText=await page.locator("#locationsGalleryGrid").textContent();
 if(!zeroText.includes("Совпадений не найдено"))throw new Error("zero-result поиск должен ясно сообщать об отсутствии совпадений, а не выглядеть как сломанная пустая Gallery");
 
 await page.fill("#locationGallerySearch","");
-await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===4);
+await page.waitForFunction(()=>document.querySelectorAll(".location-card").length===5);
 await page.click("#closeLocations");
 
 if(errors.length)throw new Error(`Ошибки браузера: ${errors.join("; ")}`);

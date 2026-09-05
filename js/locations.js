@@ -90,8 +90,7 @@ async function loadLocationHistoryEventsForProfile(location){
   }
   const canonicalId=locationCanonicalId(location);
   const result=await cloudProjectSync.api.listLocationHistoryEvents(canonicalId);
-  if(locationHistoryEventsLoadToken!==token||locationProfileParticipationId!==location.id)return;
-  locationHistoryEventsOriginal=result?.ok?mapHistoryEventRowsForLazyRead(result.data):[];
+  const tracker=trackerFor("locationProfileModal");
   // Same "only if nothing is dirty yet" guard Media's own tracker-recapture already uses (see
   // loadLocationMediaForProfile) -- but applied to the DRAFT itself, not just the tracker snapshot.
   // This lazy fetch can resolve after the author has already entered edit mode and started adding/
@@ -99,24 +98,22 @@ async function loadLocationHistoryEventsForProfile(location){
   // draft the synchronous open already set up; overwriting that in-progress draft the instant the
   // network call finally lands would silently discard real edits under real latency (unlikely to
   // ever show up against local mode's synchronous "network", which is why this surfaced first
-  // against real production timing, not local testing).
-  const tracker=trackerFor("locationProfileModal");
-  if(!tracker||!tracker.isDirty())resetLocationProfileHistoryEventsDraft();
+  // against real production timing, not local testing). Also decides whether History's action-row/
+  // disclosure state (computed once at edit-mode entry) needs an async refresh -- see
+  // planLocationHistoryEventsAsyncResolution (js/location-history-events.js) for why both decisions
+  // are extracted into one pure, unit-tested function.
+  const plan=planLocationHistoryEventsAsyncResolution({
+    isStale:locationHistoryEventsLoadToken!==token||locationProfileParticipationId!==location.id,
+    resultOk:result?.ok,resultData:result?.data,
+    isDirty:!!(tracker&&tracker.isDirty()),mode:locationProfileMode
+  });
+  if(plan.stale)return;
+  locationHistoryEventsOriginal=plan.events;
+  if(plan.resetDraft)resetLocationProfileHistoryEventsDraft();
   renderLocationProfileHistory(location);
-  // If edit mode is already open, history's hasData (prose OR events -- see locationModuleHasData)
-  // may only just now have become knowable: the module's Hide/Remove/Delete action row was computed
-  // once at edit-mode entry, before this lazy fetch necessarily resolved, so a Location with events
-  // but no prose could otherwise show the wrong action row (e.g. "Add" instead of "Hide") until the
-  // author re-enters edit mode. Re-render is a cheap, idempotent visibility recompute either way.
-  if(locationProfileMode==="edit"){
-    renderLocationThematicModules();
-    // Same reasoning, for the accordion's own expand/collapse state (set once at edit-mode entry,
-    // in syncLocationProfileThematicFields) -- a Location whose only History content is events (no
-    // prose) must still auto-expand once those events are actually known, not stay collapsed
-    // because the fetch hadn't resolved yet when entry-time disclosure was computed.
-    if(locationHistoryEventsOriginal.length>0)setLocationThematicDisclosure("history",true);
-  }
-  if(tracker&&!tracker.isDirty())tracker.captureInitialState();
+  if(plan.refreshModules)renderLocationThematicModules();
+  if(plan.expandHistoryDisclosure)setLocationThematicDisclosure("history",true);
+  if(plan.captureInitialState&&tracker)tracker.captureInitialState();
 }
 // locationMediaCropState ({id, draft:{x,y,zoom}} | null) lives in js/state.js, not as a local `let`
 // here -- js/app.js's crop-modal zoom/pointer-drag bindings need to read it as a bare identifier
@@ -565,7 +562,7 @@ function renderLocationGallery(){
       <button type="button" class="location-card-open" onclick="openLocationProfile('${jsq(participationId)}')" aria-label="Открыть локацию «${esc(location.name||"без названия")}»">
         <span class="location-card-identity">
           <span class="location-card-monogram" aria-hidden="true" data-cover-path="${coverInfo.hasCover?esc(coverInfo.storagePath):""}">${coverHtml}</span>
-          <span class="location-card-name">${esc(location.name||"Без названия")}</span>
+          <span class="location-card-name" title="${esc(location.name||"Без названия")}">${esc(location.name||"Без названия")}</span>
           ${typeLabel?`<span class="location-type-badge location-type-badge-sm" title="${esc(typeLabel)}">${esc(typeLabel)}</span>`:""}
         </span>
         ${parentRow?`<span class="location-card-parent">в «${esc(parentRow.name||"")}»</span>`:""}

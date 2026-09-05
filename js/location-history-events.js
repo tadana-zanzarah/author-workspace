@@ -141,17 +141,40 @@ function locationHistoryEventsDraftSnapshot(draft){
   return (draft||[]).map(item=>({...item,metadata:{...item.metadata}}));
 }
 
+// The lazy cloud fetch (loadLocationHistoryEventsForProfile, js/locations.js) can resolve well
+// after it started -- the author may have entered edit mode, or started editing (dirtying the
+// Profile modal's tracker), while it was still in flight. This is the exact decision that fetch
+// resolution must make, extracted as a pure function so the two race conditions it exists to
+// prevent (a resolved fetch clobbering an in-progress draft; History's action-row/disclosure
+// staying stale after edit mode was entered before the fetch resolved) are unit-testable without
+// a DOM. `isStale` covers both of loadLocationHistoryEventsForProfile's existing staleness checks
+// (load token superseded by a newer call, or the Profile modal itself switched to a different
+// Location) -- either means this resolution must be a no-op.
+function planLocationHistoryEventsAsyncResolution({isStale,resultOk,resultData,isDirty,mode}){
+  if(isStale)return {stale:true};
+  const events=resultOk?mapHistoryEventRowsForLazyRead(resultData):[];
+  const resetDraft=!isDirty;
+  const refreshModules=mode==="edit";
+  return {
+    stale:false,events,resetDraft,refreshModules,
+    expandHistoryDisclosure:refreshModules&&events.length>0,
+    captureInitialState:!isDirty
+  };
+}
+
 Object.assign(globalThis,{
   normalizeHistoryEventDraftItem,hydrateLocationHistoryEventRow,mapHistoryEventRowsForLazyRead,
   normalizeLocalHistoryEvents,buildLocalHistoryEventsForSave,
   createDraftHistoryEvent,removeHistoryEventDraftItem,reorderHistoryEventDraftItem,
   diffHistoryEventsDraft,planLocationHistoryEventsSaveOrder,
-  buildCreateHistoryEventPayload,buildUpdateHistoryEventChanges,locationHistoryEventsDraftSnapshot
+  buildCreateHistoryEventPayload,buildUpdateHistoryEventChanges,locationHistoryEventsDraftSnapshot,
+  planLocationHistoryEventsAsyncResolution
 });
 export {
   normalizeHistoryEventDraftItem,hydrateLocationHistoryEventRow,mapHistoryEventRowsForLazyRead,
   normalizeLocalHistoryEvents,buildLocalHistoryEventsForSave,
   createDraftHistoryEvent,removeHistoryEventDraftItem,reorderHistoryEventDraftItem,
   historyEventFieldsEqual,diffHistoryEventsDraft,planLocationHistoryEventsSaveOrder,
-  buildCreateHistoryEventPayload,buildUpdateHistoryEventChanges,locationHistoryEventsDraftSnapshot
+  buildCreateHistoryEventPayload,buildUpdateHistoryEventChanges,locationHistoryEventsDraftSnapshot,
+  planLocationHistoryEventsAsyncResolution
 };
