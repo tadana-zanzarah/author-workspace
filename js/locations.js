@@ -92,9 +92,30 @@ async function loadLocationHistoryEventsForProfile(location){
   const result=await cloudProjectSync.api.listLocationHistoryEvents(canonicalId);
   if(locationHistoryEventsLoadToken!==token||locationProfileParticipationId!==location.id)return;
   locationHistoryEventsOriginal=result?.ok?mapHistoryEventRowsForLazyRead(result.data):[];
-  resetLocationProfileHistoryEventsDraft();
-  renderLocationProfileHistory(location);
+  // Same "only if nothing is dirty yet" guard Media's own tracker-recapture already uses (see
+  // loadLocationMediaForProfile) -- but applied to the DRAFT itself, not just the tracker snapshot.
+  // This lazy fetch can resolve after the author has already entered edit mode and started adding/
+  // editing events against the (possibly stale-from-a-previous-Location, possibly still-empty)
+  // draft the synchronous open already set up; overwriting that in-progress draft the instant the
+  // network call finally lands would silently discard real edits under real latency (unlikely to
+  // ever show up against local mode's synchronous "network", which is why this surfaced first
+  // against real production timing, not local testing).
   const tracker=trackerFor("locationProfileModal");
+  if(!tracker||!tracker.isDirty())resetLocationProfileHistoryEventsDraft();
+  renderLocationProfileHistory(location);
+  // If edit mode is already open, history's hasData (prose OR events -- see locationModuleHasData)
+  // may only just now have become knowable: the module's Hide/Remove/Delete action row was computed
+  // once at edit-mode entry, before this lazy fetch necessarily resolved, so a Location with events
+  // but no prose could otherwise show the wrong action row (e.g. "Add" instead of "Hide") until the
+  // author re-enters edit mode. Re-render is a cheap, idempotent visibility recompute either way.
+  if(locationProfileMode==="edit"){
+    renderLocationThematicModules();
+    // Same reasoning, for the accordion's own expand/collapse state (set once at edit-mode entry,
+    // in syncLocationProfileThematicFields) -- a Location whose only History content is events (no
+    // prose) must still auto-expand once those events are actually known, not stay collapsed
+    // because the fetch hadn't resolved yet when entry-time disclosure was computed.
+    if(locationHistoryEventsOriginal.length>0)setLocationThematicDisclosure("history",true);
+  }
   if(tracker&&!tracker.isDirty())tracker.captureInitialState();
 }
 // locationMediaCropState ({id, draft:{x,y,zoom}} | null) lives in js/state.js, not as a local `let`
