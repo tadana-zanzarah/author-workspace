@@ -15,6 +15,7 @@
     "test:location-government-economy-modules-browser": "node tools/location-government-economy-modules-browser.test.mjs",
     "test:location-population-culture-browser": "node tools/location-population-culture-browser.test.mjs",
     "test:location-media-profile-browser": "node tools/location-media-profile-browser.test.mjs",
+    "test:location-media-gallery-cover-browser": "node tools/location-media-gallery-cover-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",
     "test:cloud-browser": "node tools/cloud-browser.test.mjs",
     "test:auth-browser": "node tools/auth-browser.test.mjs",

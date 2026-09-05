@@ -239,8 +239,36 @@ function locationMediaDraftSnapshot(draft){
   }));
 }
 
+/* ---- Gallery cover (B4C) ----
+ * Canonical primary PHOTO only, sourced entirely from get_project_content's own bounded
+ * primary_photo projection -- the server-side correlated subquery already restricts this to
+ * media_kind='photo', is_primary=true, project_location_id is null, deleted_at is null (see the
+ * B4A migration header). This module therefore never re-derives "is this a photo / is this
+ * primary / is this canonical" eligibility from a full media list -- there IS no full media list
+ * in the Gallery's hydration payload to derive it from, by design (loading one would be the exact
+ * N+1 the B4A/B4C audits both ruled out). These two functions only decide how to RENDER whatever
+ * already arrived: what to sign, and what a signing attempt's outcome means for the card. */
+
+// hasCover:false whenever primaryPhoto is absent (no primary photo, a map/floorplan/other-only
+// Location, or a primary photo whose backing row was deleted and the project has since been
+// reloaded -- a deleted photo is never still present in a fresh primary_photo projection).
+function locationGalleryCoverInfo(location){
+  const photo=location?.primaryPhoto;
+  if(!photo?.storagePath)return {hasCover:false,storagePath:null,alt:""};
+  return {hasCover:true,storagePath:photo.storagePath,alt:photo.alt||""};
+}
+
+// Pure mapping from a cloud-location-media-api signedUrl() result to a render outcome. "cover"
+// only on a genuine ok:true with a real url string; any failure (network error, missing/deleted
+// object, malformed response) resolves to "fallback" -- the existing monogram letter stays
+// visible, never a broken <img>.
+function resolveGalleryCoverOutcome(signedResult){
+  return (signedResult?.ok&&signedResult?.url)?"cover":"fallback";
+}
+
 Object.assign(globalThis,{
   LOCATION_MEDIA_KIND_CATALOG,LOCATION_MEDIA_KINDS,locationMediaKindLabel,locationMediaKindPrimaryLabel,isValidLocationMediaKind,isCropApplicableKind,
+  locationGalleryCoverInfo,resolveGalleryCoverOutcome,
   normalizeMediaDraftItem,hydrateLocationMediaRow,mapMediaRowsForLazyRead,mapSignedUrlsOntoDraft,
   createDraftMediaItem,groupMediaByKind,primaryOfKind,setDraftPrimary,removeDraftItem,reorderDraftItem,
   diffLocationMediaDraft,planLocationMediaSaveOrder,buildCreateMediaPayload,buildUpdateMediaChanges,
@@ -248,6 +276,7 @@ Object.assign(globalThis,{
 });
 export {
   LOCATION_MEDIA_KIND_CATALOG,LOCATION_MEDIA_KINDS,locationMediaKindLabel,locationMediaKindPrimaryLabel,isValidLocationMediaKind,isCropApplicableKind,
+  locationGalleryCoverInfo,resolveGalleryCoverOutcome,
   normalizeMediaDraftItem,hydrateLocationMediaRow,mapMediaRowsForLazyRead,mapSignedUrlsOntoDraft,
   createDraftMediaItem,groupMediaByKind,primaryOfKind,setDraftPrimary,removeDraftItem,reorderDraftItem,
   diffLocationMediaDraft,planLocationMediaSaveOrder,buildCreateMediaPayload,buildUpdateMediaChanges,

@@ -73,8 +73,15 @@
 .location-card-identity{display:flex;align-items:center;gap:8px;min-width:0}
 .location-card-monogram{
   flex:none;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
-  background:var(--brand-tint);color:var(--brand-strong);font-weight:700;font-size:12px;
+  background:var(--brand-tint);color:var(--brand-strong);font-weight:700;font-size:12px;overflow:hidden;
 }
+/* B4C Gallery cover: same 26px circle as the plain-letter monogram (see the older "Corrective
+   pass" note above -- a full-width image band was already tried and rejected for reading as an
+   empty placeholder). The fallback letter and a signed cover <img> are never both visible: the
+   letter renders first (zero network wait), and js/locations.js's renderLocationGalleryCovers()
+   only swaps in an <img> once a real signed URL actually resolves -- overflow:hidden above clips
+   it to the circle exactly like the letter is already visually contained. */
+.location-card-monogram img{width:100%;height:100%;object-fit:cover;display:block}
 .location-card-name{
   font-size:var(--text-md);font-weight:700;color:var(--text-primary);line-height:1.3;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:64px;

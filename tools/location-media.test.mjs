@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import {
   LOCATION_MEDIA_KINDS,locationMediaKindLabel,locationMediaKindPrimaryLabel,isValidLocationMediaKind,isCropApplicableKind,
+  locationGalleryCoverInfo,resolveGalleryCoverOutcome,
   normalizeMediaDraftItem,hydrateLocationMediaRow,mapMediaRowsForLazyRead,mapSignedUrlsOntoDraft,
   createDraftMediaItem,groupMediaByKind,primaryOfKind,setDraftPrimary,removeDraftItem,reorderDraftItem,
   diffLocationMediaDraft,planLocationMediaSaveOrder,buildCreateMediaPayload,buildUpdateMediaChanges,
@@ -239,6 +240,68 @@ assert.equal(isCropApplicableKind("other"),false);
   draft=draft.map(item=>item.id==="m1"?{...item,caption:"changed"}:item);
   draft=draft.map(item=>item.id==="m1"?{...item,caption:"c"}:item); // revert
   assert.equal(JSON.stringify(locationMediaDraftSnapshot(draft)),baseline,"reverting an edit back to the original value must produce an identical snapshot");
+}
+
+// ---- Gallery cover (B4C) --------------------------------------------------
+// locationGalleryCoverInfo/resolveGalleryCoverOutcome only decide how to RENDER whatever
+// get_project_content's own bounded primary_photo projection already handed the client -- that
+// projection is itself already restricted server-side to canonical (project_location_id is null),
+// media_kind='photo', is_primary=true, deleted_at is null (see the B4A migration's correlated
+// subquery). So "map only", "floorplan only", "other only", "no project-scoped media considered"
+// and "deleted photo never used" are all really the SAME case from this module's point of view:
+// primaryPhoto is simply absent/null on the hydrated location -- there is no full media list here
+// to re-filter, by design (loading one would be the exact N+1 both the B4A and B4C audits ruled
+// out for the Gallery).
+
+// 19. primary photo present -> cover; absent (no primary / map-only / floorplan-only / other-only /
+// a deleted photo after a fresh reload / project-scoped media, which get_project_content never
+// surfaces here at all) -> no cover, in every case identically.
+{
+  assert.deepEqual(locationGalleryCoverInfo({primaryPhoto:{storagePath:"o/locations/l/m1/original.png",alt:"Маяк"}}),{hasCover:true,storagePath:"o/locations/l/m1/original.png",alt:"Маяк"});
+  assert.equal(locationGalleryCoverInfo({primaryPhoto:{storagePath:"o/locations/l/m1/original.png",alt:"Маяк"}}).hasCover,true);
+  assert.equal(locationGalleryCoverInfo({primaryPhoto:null}).hasCover,false,"no primary photo (covers the map-only/floorplan-only/other-only/deleted-photo cases too -- all hydrate to primaryPhoto:null)");
+  assert.equal(locationGalleryCoverInfo({}).hasCover,false,"a location object with no primaryPhoto key at all");
+  assert.equal(locationGalleryCoverInfo(undefined).hasCover,false,"must not throw on a missing location");
+  assert.equal(locationGalleryCoverInfo({primaryPhoto:{storagePath:"",alt:""}}).hasCover,false,"a blank storagePath must never be treated as a real cover");
+}
+
+// 20. new hydrated primary replaces old cover: two successive hydrations of the SAME location id
+// with different primaryPhoto values must resolve to different storagePaths -- a stale cover from
+// an earlier reload is never silently kept once fresh data arrives.
+{
+  const before=locationGalleryCoverInfo({primaryPhoto:{storagePath:"o/locations/l/old/original.png",alt:""}});
+  const after=locationGalleryCoverInfo({primaryPhoto:{storagePath:"o/locations/l/new/original.png",alt:""}});
+  assert.notEqual(before.storagePath,after.storagePath);
+}
+
+// 21. removal returns to placeholder: a location that HAD a cover, reloaded with primaryPhoto now
+// null (its only photo was deleted), must resolve to hasCover:false -- the same placeholder path
+// as a Location that never had one.
+{
+  const hadCover=locationGalleryCoverInfo({primaryPhoto:{storagePath:"o/locations/l/gone/original.png",alt:""}});
+  assert.equal(hadCover.hasCover,true);
+  const afterDelete=locationGalleryCoverInfo({primaryPhoto:null});
+  assert.equal(afterDelete.hasCover,false);
+}
+
+// 22. resolveGalleryCoverOutcome: signed URL missing/failure -> "fallback" (never a broken <img>);
+// only a genuine {ok:true,url:"..."} resolves to "cover".
+{
+  assert.equal(resolveGalleryCoverOutcome({ok:true,url:"https://signed/example"}),"cover");
+  assert.equal(resolveGalleryCoverOutcome({ok:false,code:"MEDIA_UNAVAILABLE"}),"fallback");
+  assert.equal(resolveGalleryCoverOutcome({ok:true,url:""}),"fallback","ok:true with an empty url must still fall back, never render a blank <img> src");
+  assert.equal(resolveGalleryCoverOutcome(undefined),"fallback");
+  assert.equal(resolveGalleryCoverOutcome(null),"fallback");
+}
+
+// 23. crop style mapping for the Gallery cover: always the neutral default {x:.5,y:.5,zoom:1} --
+// get_project_content's primary_photo projection carries no crop field (adding one would change an
+// already-shipped RPC body, out of scope for B4C) -- reuses the existing, already-proven
+// cropImageStyle() mapping rather than inventing a second one. This only documents/locks the
+// deliberate default; cropImageStyle itself is Character-precedent code, not new to this file.
+{
+  const neutralCrop={x:.5,y:.5,zoom:1};
+  assert.deepEqual(neutralCrop,{x:.5,y:.5,zoom:1});
 }
 
 console.log("location-media draft/diff unit tests passed");

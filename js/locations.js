@@ -493,10 +493,23 @@ function renderLocationGallery(){
     const typeLabel=locationDisplayTypeLabel(location);
     const parentRow=location.parentId?rows.get(location.parentId):null;
     const excerpt=((location.shortSummary||"").trim())||((location.description||"").trim());
+    // Gallery cover (B4C): same 26px circular slot the monogram already occupies -- see the
+    // "Corrective pass" comment on .location-card-monogram in css/locations.css for why this
+    // deliberately stays small (a full-width image band was already tried and rejected here for
+    // reading as an empty placeholder). The monogram letter is always rendered as the fallback
+    // node underneath; a signed cover <img>, if one resolves, layers on top of it asynchronously
+    // (renderLocationGalleryCovers below) -- so a signing failure or a Location with no primary
+    // photo at all silently keeps today's exact monogram, never a broken image. Canonical primary
+    // photo only (get_project_content's existing bounded primary_photo projection) -- never a
+    // map/floorplan/other fallback, never project-scoped media.
+    const coverInfo=locationGalleryCoverInfo(location);
+    const coverHtml=coverInfo.hasCover
+      ?`<span class="location-card-cover-fallback">${esc(monogram)}</span>`
+      :esc(monogram);
     return `<article class="location-card" data-location-id="${esc(participationId)}">
       <button type="button" class="location-card-open" onclick="openLocationProfile('${jsq(participationId)}')" aria-label="Открыть локацию «${esc(location.name||"без названия")}»">
         <span class="location-card-identity">
-          <span class="location-card-monogram" aria-hidden="true">${esc(monogram)}</span>
+          <span class="location-card-monogram" aria-hidden="true" data-cover-path="${coverInfo.hasCover?esc(coverInfo.storagePath):""}">${coverHtml}</span>
           <span class="location-card-name">${esc(location.name||"Без названия")}</span>
           ${typeLabel?`<span class="location-type-badge location-type-badge-sm" title="${esc(typeLabel)}">${esc(typeLabel)}</span>`:""}
         </span>
@@ -510,6 +523,35 @@ function renderLocationGallery(){
       </div>
     </article>`;
   }).join("");
+  renderLocationGalleryCovers();
+}
+
+// Async cover enhancement: bounded to the cards that actually have a canonical primary photo
+// (get_project_content already supplied that metadata as part of the ONE project-content request
+// -- no per-card list_location_media call, no full media load). Each signed URL goes through
+// cloudState.locationMediaApi's own existing cache (js/cloud-location-media-api.js, B4A/B4B) rather
+// than a second parallel cache -- repeated Gallery renders (search/filter keystrokes) therefore
+// never re-sign a path that's still fresh. A signing failure leaves the fallback letter exactly as
+// it already rendered synchronously above -- no broken <img>, no layout shift either way, since the
+// wrapper is always the same 26px circle regardless of which child ends up visible.
+async function renderLocationGalleryCovers(){
+  const grid=document.getElementById("locationsGalleryGrid");if(!grid)return;
+  const nodes=[...grid.querySelectorAll(".location-card-monogram[data-cover-path]")].filter(el=>el.dataset.coverPath);
+  await Promise.all(nodes.map(async el=>{
+    const path=el.dataset.coverPath;
+    const signed=await cloudState.locationMediaApi?.signedUrl(path);
+    if(resolveGalleryCoverOutcome(signed)!=="cover"||!grid.contains(el))return; // failure, or the Gallery re-rendered while awaiting
+    if(el.querySelector("img"))return; // already enhanced by an earlier overlapping render
+    const img=document.createElement("img");
+    img.src=signed.url;img.alt="";
+    // No crop offset here: get_project_content's primary_photo projection is metadata-only
+    // (id/storage_path/mime_type/alt, no crop -- adding it would change an already-shipped RPC's
+    // body, which B4C's scope explicitly excludes). Centered object-fit:cover is the exact
+    // DEFAULT crop {x:.5,y:.5,zoom:1} every photo starts from, so this only visibly differs from
+    // the Profile's own cropped rendering for a photo the author explicitly re-cropped off-center.
+    img.style.cssText=cropImageStyle({x:.5,y:.5,zoom:1});
+    el.replaceChildren(img);
+  }));
 }
 
 /* ---------- Shared delete (Gallery + Profile) ---------- */
