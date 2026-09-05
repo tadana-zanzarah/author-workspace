@@ -286,12 +286,19 @@ begin
     end if;
   end if;
 
+  -- Table-aliased (t.*) throughout this WHERE clause: create_location_media's own parameter names
+  -- (location_id, project_location_id, media_kind, is_primary) are identical to location_media's
+  -- column names, and an unqualified bare reference to any of them is genuinely ambiguous to
+  -- plpgsql (confirmed by disposable CI: "column reference \"location_id\" is ambiguous ... could
+  -- refer to either a PL/pgSQL variable or a table column") -- ambiguous regardless of which side
+  -- of the comparison the caller "means", so every bare column reference needs the alias, not just
+  -- the ones that happened to be reported first.
   if create_location_media.is_primary then
-    update public.location_media set is_primary=false,revision=revision+1
-    where location_id=create_location_media.location_id
-      and project_location_id is not distinct from create_location_media.project_location_id
-      and media_kind=create_location_media.media_kind
-      and is_primary and deleted_at is null;
+    update public.location_media t set is_primary=false,revision=t.revision+1
+    where t.location_id=create_location_media.location_id
+      and t.project_location_id is not distinct from create_location_media.project_location_id
+      and t.media_kind=create_location_media.media_kind
+      and t.is_primary and t.deleted_at is null;
   end if;
 
   insert into public.location_media(id,location_id,project_location_id,storage_path,mime_type,media_kind,crop,alt,caption,sort_order,is_primary,metadata)
