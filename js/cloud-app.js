@@ -3,6 +3,7 @@ import {createCloudApi} from "./cloud-api.js";
 import {createCloudContentApi} from "./cloud-content-api.js";
 import {createCloudCharacterApi} from "./cloud-character-api.js";
 import {createCloudCharacterImageApi} from "./cloud-character-image-api.js";
+import {createCloudLocationMediaApi} from "./cloud-location-media-api.js";
 import {createCloudProjectSync} from "./cloud-project-sync.js";
 import {activateCloudWorkspace,hasLegacyWorkspace,getLastOpenProjectId,setLastOpenProjectId} from "./workspace-storage.js";
 import {AUTH_MESSAGES,authErrorMessage,authReturnUrl,inspectAuthReturn} from "./auth-flow.js";
@@ -411,7 +412,7 @@ async function initializeCloudApp(){
       if(!startupLoadInfo?.blocked)showStorageMessage("Локальный режим: рабочее пространство доступно без облачного аккаунта. Уберите ?local=1, чтобы открыть облачный вход.","warning");
       return;
     }
-    cloudState.client=client;cloudState.api=createCloudApi(client);cloudState.contentApi=createCloudContentApi(client);cloudState.characterApi=createCloudCharacterApi(client);cloudState.imageApi=createCloudCharacterImageApi(client,{getUserId:async()=>cloudState.session?.user?.id});cloudState.migrationUi=createLocalToCloudMigrationUi({cloudState,openCloudProject,loadDashboard});bindUi();
+    cloudState.client=client;cloudState.api=createCloudApi(client);cloudState.contentApi=createCloudContentApi(client);cloudState.characterApi=createCloudCharacterApi(client);cloudState.imageApi=createCloudCharacterImageApi(client,{getUserId:async()=>cloudState.session?.user?.id});cloudState.locationMediaApi=createCloudLocationMediaApi(client,{getUserId:async()=>cloudState.session?.user?.id});cloudState.migrationUi=createLocalToCloudMigrationUi({cloudState,openCloudProject,loadDashboard});bindUi();
     const authReturn=inspectAuthReturn(location.href);
     cloudState.api.onAuthStateChange((session,event)=>{
       cloudState.authRevision++;

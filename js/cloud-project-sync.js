@@ -96,7 +96,13 @@ function hydrateProjectFromCloudSnapshot(snapshot,localProject={}){
       // Adaptive Module Selection (Phase 1): project-specific presentation state, hydrated raw
       // (like baseProfile above) -- js/location-module-selection.js's normalizeModuleSelection is
       // the single place that turns this into a safe {shown:[],hidden:[]} shape on read.
-      moduleSelection:row.metadata?.locationProfile?.moduleSelection||{}
+      moduleSelection:row.metadata?.locationProfile?.moduleSelection||{},
+      // Location Media B4A: lean canonical primary-photo metadata only (id/storagePath/mimeType/
+      // alt) from get_project_content's own bounded per-location projection -- never a signed URL
+      // here (a signed URL is a transient runtime value, not canonical data; see AGENTS.md). No
+      // consumer renders this yet (B4A has no Gallery/Profile media UI) -- this only proves the
+      // read-model plumbing so B4C can sign it lazily when the Gallery actually needs a cover.
+      primaryPhoto:row.primary_photo?{id:row.primary_photo.id,storagePath:row.primary_photo.storage_path,mimeType:row.primary_photo.mime_type,alt:row.primary_photo.alt||""}:null
     })),
     tags:(payload.tags||[]).map(row=>({id:row.id,name:row.name})),scenes
   };

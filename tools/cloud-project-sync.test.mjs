@@ -26,7 +26,7 @@ assert.equal(hydrated.characters[0].sortOrder,0,"project_characters.sort_order i
 assert.deepEqual(hydrated.locations[0],{
   id:"location-1",name:"Дом",description:"",locationId:"location-1",
   officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:null,
-  baseProfile:{},shortSummary:"",locationRevision:0,moduleSelection:{}
+  baseProfile:{},shortSummary:"",locationRevision:0,moduleSelection:{},primaryPhoto:null
 },"a location row without any Phase B1 columns hydrates safely with default values (old cached snapshot compatibility)");
 const withCanonicalId=hydrateProjectFromCloudSnapshot({...snapshot,locations:[{id:"location-1",name:"Дом",description:"",location_id:"canonical-9"}]},local);
 assert.equal(withCanonicalId.locations[0].id,"location-1");assert.equal(withCanonicalId.locations[0].locationId,"canonical-9");
@@ -44,8 +44,19 @@ assert.deepEqual(coreIdentityHydrated.locations[0],{
   officialName:"Личный кабинет Рене Дюваль",aliases:["Кабинет","Study"],parentId:"loc-canonical-parent",
   typePreset:"room",customTypeLabel:"Рабочий кабинет",
   baseProfile:{description:"Рабочий кабинет.",shortSummary:"Тихое место для писем."},
-  shortSummary:"Тихое место для писем.",locationRevision:3,moduleSelection:{}
+  shortSummary:"Тихое место для писем.",locationRevision:3,moduleSelection:{},primaryPhoto:null
 });
+
+// Location Media B4A: get_project_content's lean primary_photo projection hydrates to a small
+// metadata-only object (never a signed URL -- that stays a lazy, B4C-time concern), and stays
+// null when absent (the common case: most Locations have no canonical primary photo yet).
+const primaryPhotoSnapshot={...snapshot,locations:[{
+  id:"loc-participation-4",project_id:projectId,location_id:"loc-canonical-4",name:"Маяк",description:"",
+  base_profile:{},location_revision:0,
+  primary_photo:{id:"media-1",storage_path:"owner/locations/loc-canonical-4/media-1/original.jpg",mime_type:"image/jpeg",alt:"Маяк на закате"}
+}]};
+const primaryPhotoHydrated=hydrateProjectFromCloudSnapshot(primaryPhotoSnapshot,local);
+assert.deepEqual(primaryPhotoHydrated.locations[0].primaryPhoto,{id:"media-1",storagePath:"owner/locations/loc-canonical-4/media-1/original.jpg",mimeType:"image/jpeg",alt:"Маяк на закате"});
 
 // Adaptive Module Selection (Phase 1): moduleSelection hydrates from metadata.locationProfile.
 // moduleSelection, the SAME namespaced path the RPC/import write to -- never a bare
