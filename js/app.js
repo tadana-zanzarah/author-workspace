@@ -49,6 +49,15 @@ const editorTrackers={
     parentId:currentLocationProfileParentSelection(),
     notableFeatures:multiValueInputs.locationNotableFeatures?.getValues()||[],
     naturalFeatures:multiValueInputs.locationNaturalFeatures?.getValues()||[],
+    // B3B (governmentSociety/economy) chip fields -- same reasoning as notableFeatures/
+    // naturalFeatures above: each multi-value combobox clears its own <input> on every add, so
+    // serializeForm's plain input.value scan never sees the real chip list. These five were
+    // missed when B3B shipped (corrective fix, found while wiring B3C's own chip fields in below).
+    securityForces:multiValueInputs.locationSecurityForces?.getValues()||[],
+    notableInstitutions:multiValueInputs.locationNotableInstitutions?.getValues()||[],
+    industries:multiValueInputs.locationIndustries?.getValues()||[],
+    scarcity:multiValueInputs.locationScarcity?.getValues()||[],
+    tradeConnections:multiValueInputs.locationTradeConnections?.getValues()||[],
     // B3C (populationCulture) chip fields -- same reasoning as notableFeatures/naturalFeatures
     // above: each multi-value combobox clears its own <input> on every add, so serializeForm's
     // plain input.value scan never sees the real chip list.

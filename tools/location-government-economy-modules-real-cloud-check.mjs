@@ -410,7 +410,12 @@ try{
         base_profile:{
           governmentSociety:{leadership:`Imported Leader ${token}`},
           economy:{currency:`Imported Coin ${token}`},
-          populationCulture:{note:"not allowlisted, must be dropped"},
+          // media -- NOT populationCulture, which B3C (20260906090000_location_population_
+          // culture_module.sql) allowlisted after this test was originally written -- see a
+          // still-unallowlisted key with an otherwise-valid object shape, proving key rejection
+          // specifically (distinct from historyNotes below, which proves malformed-VALUE
+          // rejection for a key that's also still unallowlisted).
+          media:{note:"not allowlisted, must be dropped"},
           historyNotes:"not-an-object"
         }
       }],
@@ -429,7 +434,7 @@ try{
   canonicalLocationIds.push(importedLocation?.locationId);
   assert(importedLocation?.baseProfile?.governmentSociety?.leadership===`Imported Leader ${token}`,"imported governmentSociety must survive with the exact value");
   assert(importedLocation?.baseProfile?.economy?.currency===`Imported Coin ${token}`,"imported economy must survive with the exact value");
-  assert(!("populationCulture" in (importedLocation?.baseProfile||{})),"unallowlisted populationCulture must be dropped by import sanitization");
+  assert(!("media" in (importedLocation?.baseProfile||{})),"unallowlisted media key must be dropped by import sanitization");
   assert(!("historyNotes" in (importedLocation?.baseProfile||{})),"malformed (non-object) historyNotes must be dropped by import sanitization");
   report.test31_33_localCloudImport={ok:true};
 
