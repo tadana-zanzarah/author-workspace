@@ -350,8 +350,110 @@
 .location-parent-option-meta{display:block;font-size:var(--text-2xs);color:var(--text-secondary);margin-top:1px}
 .location-parent-clear-option{font-style:italic;color:var(--text-secondary)}
 
+/* ---- Location Media B4B: Profile Read section --------------------------------------------
+   A calm reference section, not an image-management dashboard -- see task brief "PROFILE READ
+   UX". Grouped by kind in the fixed catalog order (photo, map, floorplan, other); an empty
+   group never renders (js/location-media.js groupMediaByKind already drops it). The primary
+   photo gets a moderately-sized hero treatment (never full-modal-width -- it must not dominate
+   the whole Profile the way it would as a page-filling cover); every other photo is a compact
+   thumbnail in the same row. Maps/floorplans/other render as a contain-fit grid -- never
+   cropped, legibility over uniform tiling. */
+.location-profile-media{margin-bottom:var(--space-4)}
+.location-profile-media[hidden]{display:none}
+.location-media-group{margin-top:var(--space-3)}
+.location-media-group:first-of-type{margin-top:0}
+.location-media-group-title{
+  margin:0 0 var(--space-2);padding-bottom:6px;
+  font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;
+  color:var(--text-secondary);border-bottom:1px solid var(--border-faint);
+}
+
+.location-media-hero-row{display:flex;align-items:flex-start;gap:10px}
+.location-media-hero{
+  flex:none;width:220px;max-width:46%;aspect-ratio:4/3;border-radius:var(--radius-md);
+  overflow:hidden;border:1px solid var(--border-subtle);background:var(--soft);padding:0;cursor:pointer;
+}
+.location-media-hero img{width:100%;height:100%;object-fit:cover;display:block}
+.location-media-hero:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px}
+.location-media-thumb-rail{flex:1 1 auto;min-width:0;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start}
+.location-media-thumb{
+  flex:none;width:64px;height:64px;border-radius:var(--radius-sm);overflow:hidden;
+  border:1px solid var(--border-subtle);background:var(--soft);padding:0;cursor:pointer;position:relative;
+}
+.location-media-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.location-media-thumb:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px}
+
+.location-media-visual-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.location-media-visual-item{display:flex;flex-direction:column;gap:4px}
+.location-media-visual-button{
+  display:block;width:100%;aspect-ratio:4/3;border-radius:var(--radius-md);overflow:hidden;
+  border:1px solid var(--border-subtle);background:var(--surface-elevated);padding:2px;cursor:pointer;
+}
+.location-media-visual-button img{width:100%;height:100%;object-fit:contain;display:block}
+.location-media-visual-button:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px}
+.location-media-visual-caption{font-size:var(--text-2xs);color:var(--text-secondary);overflow-wrap:anywhere}
+.location-media-primary-mark{
+  position:absolute;top:2px;right:2px;font-size:9px;line-height:1;color:#fff;
+  text-shadow:0 0 2px rgba(0,0,0,.85),0 0 2px rgba(0,0,0,.85);
+}
+.location-media-unavailable{
+  display:flex;align-items:center;justify-content:center;width:100%;height:100%;
+  font-size:var(--text-2xs);color:var(--text-secondary);text-align:center;padding:4px;
+}
+
+/* ---- Location Media B4B: Profile Edit section ---------------------------------------------
+   One compact card per media item -- thumbnail + kind badge + caption/alt fields + a small
+   action row, never a per-item accordion (task brief "compact media card", not a
+   questionnaire). Kind is shown as a read-only badge for every item here: an existing row's
+   kind is immutable (update_location_media has no media_kind parameter) and a brand-new row's
+   kind was already chosen in the add flow before its file picker even opened. */
+.location-media-editor{margin-top:var(--space-4)}
+.location-media-editor-groups{display:flex;flex-direction:column;gap:var(--space-3)}
+.location-media-editor-group-title{
+  margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;
+  color:var(--text-secondary);
+}
+.location-media-editor-cards{display:flex;flex-direction:column;gap:8px}
+.location-media-card{
+  display:flex;gap:10px;padding:8px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+  background:var(--surface-elevated);
+}
+.location-media-card-preview{flex:none;width:84px}
+.location-media-card-thumb{
+  display:block;width:84px;height:64px;border-radius:var(--radius-sm);overflow:hidden;
+  border:1px solid var(--border-subtle);background:var(--soft);padding:0;cursor:pointer;position:relative;
+}
+.location-media-card-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.location-media-card[data-kind="map"] .location-media-card-thumb img,
+.location-media-card[data-kind="floorplan"] .location-media-card-thumb img,
+.location-media-card[data-kind="other"] .location-media-card-thumb img{object-fit:contain}
+.location-media-card-thumb:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px}
+.location-media-card-fields{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px}
+.location-media-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.location-media-card-caption,.location-media-card-alt{
+  width:100%;font-size:var(--text-xs);padding:4px 6px;border:1px solid var(--border-subtle);
+  border-radius:var(--radius-sm);background:var(--surface);color:var(--text-primary);resize:vertical;
+}
+.location-media-card-caption{min-height:34px}
+.location-media-card-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px}
+.location-media-card-actions button{
+  display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border-subtle);
+  border-radius:var(--radius-sm);background:var(--surface);color:var(--text-secondary);font-size:11px;cursor:pointer;
+}
+.location-media-card-actions button:hover,.location-media-card-actions button:focus-visible{color:var(--text-primary);border-color:var(--accent)}
+.location-media-card-actions button.is-primary-active{color:var(--accent);border-color:var(--accent);font-weight:650}
+.location-media-card-actions button.location-media-card-delete{color:var(--danger)}
+.location-media-card-actions button.location-media-card-delete:hover,.location-media-card-actions button.location-media-card-delete:focus-visible{border-color:var(--danger)}
+.location-media-card-actions button:disabled{opacity:.4;cursor:default}
+
+.location-media-cloud-only-note{margin-top:var(--space-2)}
+
 @media(max-width:520px){
   .location-card-monogram{width:22px;height:22px;font-size:11px}
   .location-gallery-toolbar{flex-wrap:wrap}
   .location-gallery-type-filter{flex:1 1 100%;min-width:0}
+  .location-media-hero{width:150px}
+  .location-media-card{flex-direction:column}
+  .location-media-card-preview{width:100%}
+  .location-media-card-thumb{width:100%;height:120px}
 }

@@ -406,6 +406,7 @@
       <div class="location-profile-intro" id="locationProfileIntro" hidden></div>
       <div class="location-profile-summary" id="locationProfileSummary"></div>
       <div class="location-profile-children" id="locationProfileChildren" hidden></div>
+      <div class="location-profile-media" id="locationProfileMedia" hidden></div>
       <div class="location-profile-thematic" id="locationProfileAppearance" hidden></div>
       <div class="location-profile-thematic" id="locationProfileGeography" hidden></div>
       <div class="location-profile-thematic" id="locationProfileGovernmentSociety" hidden></div>
@@ -460,6 +461,22 @@
             <textarea id="locProfileDescription" rows="4" placeholder="Необязательное описание — какой эта локация видится в истории"></textarea>
           </label>
         </div>
+      </div>
+
+      <div class="profile-section location-media-editor" id="locationProfileMediaEditor">
+        <h3 class="profile-section-title">Медиа</h3>
+        <div id="locationProfileMediaGroups" class="location-media-editor-groups"></div>
+        <div class="location-thematic-add" id="locationMediaAddWrapper">
+          <button type="button" class="location-thematic-add-toggle" id="locMediaAddToggle" aria-expanded="false" aria-haspopup="true" aria-controls="locMediaAddPanel" onclick="toggleLocationMediaAddPanel()">+ Добавить медиа</button>
+          <div class="location-thematic-add-panel" id="locMediaAddPanel" hidden>
+            <button type="button" class="location-thematic-add-chip" onclick="startAddLocationMedia('photo')">Фото</button>
+            <button type="button" class="location-thematic-add-chip" onclick="startAddLocationMedia('map')">Карта</button>
+            <button type="button" class="location-thematic-add-chip" onclick="startAddLocationMedia('floorplan')">План</button>
+            <button type="button" class="location-thematic-add-chip" onclick="startAddLocationMedia('other')">Другое</button>
+          </div>
+        </div>
+        <input id="locMediaFileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="visually-hidden-input">
+        <p class="profile-note" id="locationMediaCloudOnlyNote" hidden>Медиа локаций доступны только в облачном режиме — локальный проект продолжает работать без этого раздела.</p>
       </div>
 
       <div class="profile-section location-thematic-editor" id="locationProfileThematicSection">
@@ -1164,6 +1181,32 @@
     <img id="photoLightboxImage" alt="Оригинальное изображение персонажа">
     <p id="photoLightboxCaption" class="profile-note"></p>
     <div class="modal-actions"><button id="closePhotoLightbox" type="button">Закрыть</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="locationMediaCropModal" role="dialog" aria-modal="true" aria-labelledby="locationMediaCropTitle" aria-describedby="locationMediaCropHelp">
+  <div class="modal photo-crop-modal">
+    <h2 id="locationMediaCropTitle">Кадрирование фото</h2>
+    <p id="locationMediaCropHelp" class="profile-note">Перетащите изображение или используйте кнопки направления. Масштаб меняется ползунком.</p>
+    <div class="photo-crop-viewport" id="locationMediaCropViewport"><img id="locationMediaCropImage" alt="Предпросмотр кадрирования"></div>
+    <label for="locationMediaCropZoom">Масштаб</label>
+    <input id="locationMediaCropZoom" type="range" min="1" max="4" step="0.05" value="1">
+    <div class="photo-nudges" aria-label="Смещение изображения">
+      <button type="button" aria-label="Сместить вверх" onclick="nudgeLocationMediaCrop(0,-.03)">↑</button>
+      <button type="button" aria-label="Сместить влево" onclick="nudgeLocationMediaCrop(-.03,0)">←</button>
+      <button type="button" aria-label="Сместить вниз" onclick="nudgeLocationMediaCrop(0,.03)">↓</button>
+      <button type="button" aria-label="Сместить вправо" onclick="nudgeLocationMediaCrop(.03,0)">→</button>
+    </div>
+    <div class="modal-actions"><button id="cancelLocationMediaCrop" type="button">Отмена</button><button id="saveLocationMediaCrop" class="primary" type="button">Сохранить кадрирование</button></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="locationMediaLightboxModal" role="dialog" aria-modal="true" aria-labelledby="locationMediaLightboxTitle" aria-describedby="locationMediaLightboxCaption">
+  <div class="modal photo-lightbox-modal">
+    <h2 id="locationMediaLightboxTitle">Просмотр изображения</h2>
+    <img id="locationMediaLightboxImage" alt="">
+    <p id="locationMediaLightboxCaption" class="profile-note"></p>
+    <div class="modal-actions"><button id="closeLocationMediaLightbox" type="button">Закрыть</button></div>
   </div>
 </div>
 

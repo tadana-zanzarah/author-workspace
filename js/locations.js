@@ -1,3 +1,5 @@
+import {validateLocationMediaFile} from "./cloud-location-media-api.js";
+
 /* Location Gallery + Location Profile.
  *
  * Identity naming contract (see Location Architecture V2 Phase 2/3 migrations):
@@ -36,6 +38,306 @@ let createLocationInFlight=false;
 let createLocationParentId=null;
 
 const locationProfileSaveButton=createSaveButtonController("locationProfileSave","locationProfileModal",{statusId:"locationProfileStatus"});
+
+/* ---------- Media (B4B) ----------
+ * Canonical-only, draft-until-Profile-Save, cloud-only -- see js/location-media.js (pure draft/
+ * diff logic) and js/cloud-location-media-api.js (B4A's already-live RPC/Storage adapter, backend
+ * unchanged by this phase). `locationMediaOriginal` is the last-loaded persisted truth for the
+ * open canonical Location (the diff baseline); `locationProfileMediaDraft` is the mutable draft
+ * edit mode operates on -- both reset together on every fresh Profile open/reload.
+ *
+ * Full media for the open Location is fetched lazily (list_location_media, one call, only for
+ * THIS Location) -- never as part of project hydration/get_project_content, preserving the B4A
+ * non-N+1 read-path design. `locationMediaLoadToken` guards a slow, now-stale fetch (the user
+ * closed this Profile and opened a different one, or the project reloaded) from clobbering newer
+ * state when it finally resolves.
+ *
+ * ASYNC/DIRTY-TRACKER RACE: the Profile modal opens synchronously (existing UX: instant open); the
+ * dirty-tracker's baseline is captured synchronously too (openLocationProfileNow), before media has
+ * actually arrived. loadLocationMediaForProfile re-captures that baseline once media resolves --
+ * but only if nothing is dirty yet, so a real in-flight edit elsewhere in the Profile (astronomically
+ * unlikely inside the sub-second fetch window, but not impossible) is never silently reset to clean. */
+let locationMediaOriginal=[];
+let locationProfileMediaDraft=[];
+const locationMediaDraftFiles=new Map(); // draft id -> File, for not-yet-uploaded items only
+let locationMediaLoadToken=0;
+let locationMediaAddPanelOpen=false;
+let locationMediaPendingKind=null;
+// locationMediaCropState ({id, draft:{x,y,zoom}} | null) lives in js/state.js, not as a local `let`
+// here -- js/app.js's crop-modal zoom/pointer-drag bindings need to read it as a bare identifier
+// (mirroring photoCropState's exact treatment for Character photos), which only resolves correctly
+// across module boundaries for state registered via state.js's Object.defineProperty(globalThis,...).
+
+function locationMediaUnavailableHtml(){return '<span class="location-media-unavailable">Недоступно</span>'}
+
+async function loadLocationMediaForProfile(location){
+  const token=++locationMediaLoadToken;
+  if(!isCloudWorkspace()){
+    locationMediaOriginal=[];locationProfileMediaDraft=[];locationMediaDraftFiles.clear();
+    renderLocationProfileMedia();renderLocationProfileMediaEditor();
+    return;
+  }
+  const canonicalId=locationCanonicalId(location);
+  const result=await cloudState.locationMediaApi?.listMedia(canonicalId,null);
+  if(locationMediaLoadToken!==token||locationProfileParticipationId!==location.id)return;
+  if(!result?.ok){
+    locationMediaOriginal=[];locationProfileMediaDraft=[];
+    renderLocationProfileMedia();renderLocationProfileMediaEditor();
+    return;
+  }
+  const hydrated=mapMediaRowsForLazyRead(result.data);
+  const paths=[...new Set(hydrated.filter(item=>item.source.kind==="storage").map(item=>item.source.storagePath))];
+  const signedPairs=await Promise.all(paths.map(async path=>{
+    const signed=await cloudState.locationMediaApi.signedUrl(path);
+    return [path,signed.ok?signed.url:null];
+  }));
+  if(locationMediaLoadToken!==token||locationProfileParticipationId!==location.id)return;
+  const signedUrlByPath=Object.fromEntries(signedPairs.filter(([,url])=>url));
+  const withUrls=mapSignedUrlsOntoDraft(hydrated,signedUrlByPath);
+  locationMediaOriginal=withUrls;
+  locationProfileMediaDraft=withUrls.map(item=>({...item}));
+  locationMediaDraftFiles.clear();
+  renderLocationProfileMedia();
+  renderLocationProfileMediaEditor();
+  const tracker=trackerFor("locationProfileModal");
+  if(tracker&&!tracker.isDirty())tracker.captureInitialState();
+}
+
+/* ---- Read mode ---- */
+
+function renderLocationProfileMedia(){
+  const el=document.getElementById("locationProfileMedia");if(!el)return;
+  const groups=groupMediaByKind(locationMediaOriginal);
+  if(!groups.length){el.hidden=true;el.innerHTML="";return}
+  el.innerHTML=groups.map(renderLocationMediaReadGroup).join("");
+  el.hidden=false;
+}
+function renderLocationMediaReadGroup(group){
+  if(group.kind==="photo"){
+    const primary=group.items.find(item=>item.isPrimary)||group.items[0];
+    const rest=group.items.filter(item=>item.id!==primary.id);
+    const heroImg=primary.source.value?`<img src="${esc(primary.source.value)}" alt="${esc(primary.alt||"")}">`:locationMediaUnavailableHtml();
+    const railHtml=rest.map(item=>`<button type="button" class="location-media-thumb" aria-label="Открыть фото" onclick="openLocationMediaLightbox('${jsq(item.id)}')">${item.source.value?`<img src="${esc(item.source.value)}" alt="${esc(item.alt||"")}">`:locationMediaUnavailableHtml()}</button>`).join("");
+    const captionHtml=primary.caption?`<p class="location-media-visual-caption">${esc(primary.caption)}</p>`:"";
+    return `<div class="location-media-group">
+      <h3 class="location-media-group-title">${esc(group.label)}</h3>
+      <div class="location-media-hero-row">
+        <button type="button" class="location-media-hero" aria-label="Открыть фото" onclick="openLocationMediaLightbox('${jsq(primary.id)}')">${heroImg}</button>
+        ${rest.length?`<div class="location-media-thumb-rail">${railHtml}</div>`:""}
+      </div>
+      ${captionHtml}
+    </div>`;
+  }
+  const showPrimaryMark=group.items.length>1;
+  const itemsHtml=group.items.map(item=>{
+    const img=item.source.value?`<img src="${esc(item.source.value)}" alt="${esc(item.alt||"")}">`:locationMediaUnavailableHtml();
+    const captionHtml=item.caption?`<span class="location-media-visual-caption">${esc(item.caption)}</span>`:"";
+    return `<div class="location-media-visual-item">
+      <button type="button" class="location-media-visual-button" aria-label="Открыть изображение" onclick="openLocationMediaLightbox('${jsq(item.id)}')">${img}${item.isPrimary&&showPrimaryMark?'<span class="location-media-primary-mark" aria-hidden="true">★</span>':""}</button>
+      ${captionHtml}
+    </div>`;
+  }).join("");
+  return `<div class="location-media-group">
+    <h3 class="location-media-group-title">${esc(group.label)}</h3>
+    <div class="location-media-visual-grid">${itemsHtml}</div>
+  </div>`;
+}
+
+function openLocationMediaLightbox(id){
+  const item=locationProfileMediaDraft.find(i=>i.id===id)||locationMediaOriginal.find(i=>i.id===id);
+  if(!item)return;
+  const img=document.getElementById("locationMediaLightboxImage");
+  img.src=item.source.value||"";img.alt=item.alt||"";
+  document.getElementById("locationMediaLightboxCaption").textContent=item.caption||"";
+  showModal("locationMediaLightboxModal");
+}
+
+/* ---- Edit mode ---- */
+
+function renderLocationProfileMediaEditor(){
+  const container=document.getElementById("locationProfileMediaGroups");if(!container)return;
+  const addWrapper=document.getElementById("locationMediaAddWrapper");
+  const note=document.getElementById("locationMediaCloudOnlyNote");
+  if(!isCloudWorkspace()){
+    container.innerHTML="";
+    if(addWrapper)addWrapper.hidden=true;
+    if(note)note.hidden=false;
+    return;
+  }
+  if(note)note.hidden=true;
+  if(addWrapper)addWrapper.hidden=false;
+  const groups=groupMediaByKind(locationProfileMediaDraft);
+  container.innerHTML=groups.map(renderLocationMediaEditorGroup).join("");
+}
+function renderLocationMediaEditorGroup(group){
+  return `<div class="location-media-editor-group">
+    <h4 class="location-media-editor-group-title">${esc(group.label)}</h4>
+    <div class="location-media-editor-cards">${group.items.map(renderLocationMediaEditorCard).join("")}</div>
+  </div>`;
+}
+function renderLocationMediaEditorCard(item){
+  const cropApplicable=isCropApplicableKind(item.mediaKind);
+  const thumbImg=item.source.value?`<img src="${esc(item.source.value)}" alt="">`:locationMediaUnavailableHtml();
+  const primaryLabel=locationMediaKindPrimaryLabel(item.mediaKind);
+  return `<article class="location-media-card" data-media-id="${esc(item.id)}" data-kind="${esc(item.mediaKind)}">
+    <div class="location-media-card-preview">
+      <button type="button" class="location-media-card-thumb" aria-label="Просмотреть" onclick="openLocationMediaLightbox('${jsq(item.id)}')">${thumbImg}${item.isPrimary?'<span class="location-media-primary-mark" aria-hidden="true">★</span>':""}</button>
+    </div>
+    <div class="location-media-card-fields">
+      <div class="location-media-card-top"><span class="location-type-badge">${esc(locationMediaKindLabel(item.mediaKind))}</span></div>
+      <textarea class="location-media-card-caption" data-draft-id="${esc(item.id)}" placeholder="Подпись (необязательно)" rows="2" aria-label="Подпись" oninput="updateLocationMediaDraftField('${jsq(item.id)}','caption',this.value)">${esc(item.caption)}</textarea>
+      <input class="location-media-card-alt" data-draft-id="${esc(item.id)}" placeholder="Альтернативный текст (необязательно)" aria-label="Альтернативный текст" value="${esc(item.alt)}" oninput="updateLocationMediaDraftField('${jsq(item.id)}','alt',this.value)">
+      <div class="location-media-card-actions">
+        ${cropApplicable?`<button type="button" onclick="openLocationMediaCrop('${jsq(item.id)}')">Кадрировать</button>`:""}
+        <button type="button" class="${item.isPrimary?"is-primary-active":""}" ${item.isPrimary?"disabled":""} onclick="setLocationMediaDraftPrimary('${jsq(item.id)}')">${item.isPrimary?"★ "+esc(primaryLabel):esc(primaryLabel)}</button>
+        <button type="button" onclick="moveLocationMediaDraftItem('${jsq(item.id)}','up')" aria-label="Переместить раньше">↑</button>
+        <button type="button" onclick="moveLocationMediaDraftItem('${jsq(item.id)}','down')" aria-label="Переместить позже">↓</button>
+        <button type="button" class="location-media-card-delete" onclick="removeLocationMediaDraftItem('${jsq(item.id)}')">Удалить</button>
+      </div>
+    </div>
+  </article>`;
+}
+
+function updateLocationMediaDraftField(id,field,value){
+  const item=locationProfileMediaDraft.find(i=>i.id===id);if(!item)return;
+  item[field]=value;
+  syncBeforeUnload();
+}
+function setLocationMediaDraftPrimary(id){
+  locationProfileMediaDraft=setDraftPrimary(locationProfileMediaDraft,id);
+  renderLocationProfileMediaEditor();syncBeforeUnload();
+}
+function moveLocationMediaDraftItem(id,direction){
+  locationProfileMediaDraft=reorderDraftItem(locationProfileMediaDraft,id,direction);
+  renderLocationProfileMediaEditor();syncBeforeUnload();
+}
+// "Remove" here means "drop from the draft" -- never an immediate production delete (task brief
+// "DELETE UX"). No confirmation prompt, mirroring the Character photo precedent (removeActiveProfilePhoto)
+// exactly: draft removal is non-destructive until Profile Save, so a confirm dialog would be noise.
+function removeLocationMediaDraftItem(id){
+  const item=locationProfileMediaDraft.find(i=>i.id===id);
+  if(item?.source?.kind==="pending"&&item.source.value)URL.revokeObjectURL(item.source.value);
+  locationMediaDraftFiles.delete(id);
+  locationProfileMediaDraft=removeDraftItem(locationProfileMediaDraft,id);
+  renderLocationProfileMediaEditor();syncBeforeUnload();
+}
+
+function toggleLocationMediaAddPanel(){
+  locationMediaAddPanelOpen=!locationMediaAddPanelOpen;
+  const toggle=document.getElementById("locMediaAddToggle"),panel=document.getElementById("locMediaAddPanel");
+  if(toggle)toggle.setAttribute("aria-expanded",String(locationMediaAddPanelOpen));
+  if(panel)panel.hidden=!locationMediaAddPanelOpen;
+}
+function closeLocationMediaAddPanel(){
+  locationMediaAddPanelOpen=false;
+  const toggle=document.getElementById("locMediaAddToggle"),panel=document.getElementById("locMediaAddPanel");
+  if(toggle)toggle.setAttribute("aria-expanded","false");
+  if(panel)panel.hidden=true;
+}
+function startAddLocationMedia(kind){
+  if(!isValidLocationMediaKind(kind))return;
+  locationMediaPendingKind=kind;
+  closeLocationMediaAddPanel();
+  const input=document.getElementById("locMediaFileInput");
+  if(input){input.value="";input.click()}
+}
+function handleLocationMediaFileChosen(event){
+  const file=event.target.files?.[0];
+  event.target.value="";
+  if(!file||!locationMediaPendingKind)return;
+  const kind=locationMediaPendingKind;locationMediaPendingKind=null;
+  const validation=validateLocationMediaFile(file);
+  if(!validation.ok){locationProfileSaveButton.showStatus(validation.message,"error");return}
+  const objectUrl=URL.createObjectURL(file);
+  const sameKind=locationProfileMediaDraft.filter(item=>item.mediaKind===kind);
+  // A real UUID, not the pure module's placeholder-id fallback: this id becomes the actual
+  // create_location_media media_id (and the Storage path segment) at Save time. The first item of
+  // a kind becomes its primary automatically -- mirrors the Character precedent exactly
+  // (profileDraftPrimaryPhotoId ||= photo.id on the first photo) -- so a Location with exactly one
+  // photo/map/floorplan never needs an extra explicit "make primary" click before it can act as
+  // that kind's cover.
+  const draftItem=createDraftMediaItem({id:crypto.randomUUID(),mediaKind:kind,objectUrl,sortOrder:sameKind.length,isPrimary:!primaryOfKind(locationProfileMediaDraft,kind)});
+  locationMediaDraftFiles.set(draftItem.id,file);
+  locationProfileMediaDraft=[...locationProfileMediaDraft,draftItem];
+  renderLocationProfileMediaEditor();
+  syncBeforeUnload();
+}
+
+/* ---- Crop (photo only; reuses the Character crop math, cropImageStyle, js/characters.js) ---- */
+
+function openLocationMediaCrop(id){
+  const item=locationProfileMediaDraft.find(i=>i.id===id);
+  if(!item||!isCropApplicableKind(item.mediaKind))return;
+  locationMediaCropState={id,draft:{...item.crop}};
+  document.getElementById("locationMediaCropImage").src=item.source.value||"";
+  syncLocationMediaCropPreview();
+  showModal("locationMediaCropModal",{initialFocus:"#locationMediaCropZoom"});
+}
+function syncLocationMediaCropPreview(){
+  const crop=locationMediaCropState?.draft;if(!crop)return;
+  document.getElementById("locationMediaCropImage").style.cssText=cropImageStyle(crop);
+  document.getElementById("locationMediaCropZoom").value=crop.zoom;
+}
+function nudgeLocationMediaCrop(dx,dy){
+  if(!locationMediaCropState)return;
+  locationMediaCropState.draft.x=Math.max(0,Math.min(1,locationMediaCropState.draft.x-dx));
+  locationMediaCropState.draft.y=Math.max(0,Math.min(1,locationMediaCropState.draft.y-dy));
+  syncLocationMediaCropPreview();
+}
+function saveLocationMediaCrop(){
+  if(!locationMediaCropState)return;
+  const {id,draft}=locationMediaCropState;
+  locationProfileMediaDraft=locationProfileMediaDraft.map(item=>item.id===id?{...item,crop:{...draft}}:item);
+  locationMediaCropState=null;
+  renderLocationProfileMediaEditor();
+  forceHideModal("locationMediaCropModal");
+  syncBeforeUnload();
+}
+function cancelLocationMediaCrop(){locationMediaCropState=null;forceHideModal("locationMediaCropModal")}
+
+/* ---- Save reconciliation ----
+ * NEW/CHANGED/REMOVED per js/location-media.js's diffLocationMediaDraft, applied in the safe order
+ * planLocationMediaSaveOrder computes (delete -> update[non-primary-setting first, primary-setting
+ * last] -> create). expectedRevision for create/delete is threaded from whatever the PREVIOUS
+ * canonical-domain call in this same Save actually returned (never invented client-side) -- see
+ * that module's header for why this ordering is what keeps every expected_revision value fresh. */
+async function reconcileLocationMediaDraft(canonicalId,startingLocationRevision){
+  const diff=diffLocationMediaDraft(locationMediaOriginal,locationProfileMediaDraft);
+  if(!diff.toCreate.length&&!diff.toUpdate.length&&!diff.toDelete.length)return {ok:true,changed:false,locationRevision:startingLocationRevision};
+  const planned=planLocationMediaSaveOrder(diff);
+  const api=cloudState.locationMediaApi;
+  let locationRevision=startingLocationRevision;
+
+  for(const removed of planned.toDelete){
+    const result=await api.deleteMedia(removed.id,removed.revision);
+    if(!result.ok)return {ok:false,message:result.message||"Не удалось удалить медиа."};
+    if(result.locationRevision!=null)locationRevision=result.locationRevision;
+  }
+  for(const {item,before} of planned.toUpdate){
+    const result=await api.updateMedia(item.id,before.revision,buildUpdateMediaChanges(item));
+    if(!result.ok)return {ok:false,message:result.message||"Не удалось обновить медиа."};
+  }
+  for(const item of planned.toCreate){
+    const file=locationMediaDraftFiles.get(item.id);
+    if(!file)continue;
+    const result=await api.uploadMedia({
+      locationId:canonicalId,mediaId:item.id,file,
+      media:{id:item.id,mediaKind:item.mediaKind,crop:item.crop,alt:item.alt,caption:item.caption},
+      expectedRevision:locationRevision,isPrimary:item.isPrimary,sortOrder:item.sortOrder
+    });
+    if(!result.ok)return {ok:false,message:result.orphaned?"Изображение не сохранено; загруженный объект отмечен для ручной очистки.":(result.message||"Не удалось загрузить медиа.")};
+    if(result.locationRevision!=null)locationRevision=result.locationRevision;
+    locationMediaDraftFiles.delete(item.id);
+    URL.revokeObjectURL(item.source.value);
+  }
+  return {ok:true,changed:true,locationRevision};
+}
+
+// Extra-state slot for the locationProfileModal dirty-tracker (js/app.js) -- the media draft is
+// custom state, not a set of native form controls serializeForm's own scan can read (see this
+// file's B4B Media header comment for why caption/alt inputs are pushed into the draft directly
+// rather than relying on that scan).
+function currentLocationProfileMediaSnapshot(){return locationMediaDraftSnapshot(locationProfileMediaDraft)}
 
 /* ---------- Owned-location hierarchy cache ----------
  * A single owner-scoped fetch (list_owned_locations) backs both the parent picker and the
@@ -260,6 +562,7 @@ function populateLocationProfileCore(participationId){
   renderLocationProfilePopulationCulture(location);
   renderLocationProfileScenes(participationId);
   refreshLocationHierarchyContext(location);
+  loadLocationMediaForProfile(location);
   return location;
 }
 
@@ -289,6 +592,19 @@ function syncLocationProfileEditFields(location){
   picker.setRows(ownedLocationRowsSync());
   picker.setSelected(locationProfileOriginalParentId);
   syncLocationProfileThematicFields(location);
+  resetLocationProfileMediaDraft();
+}
+
+// Reverts the media draft back to the last-loaded persisted truth (locationMediaOriginal) --
+// called on every fresh entry into edit mode AND on Cancel (both funnel through
+// syncLocationProfileEditFields, same as every other field), so Cancel discards media edits with
+// zero Storage/DB side effects, exactly like every other draft field.
+function resetLocationProfileMediaDraft(){
+  for(const url of collectPendingObjectUrls(locationProfileMediaDraft))URL.revokeObjectURL(url);
+  locationMediaDraftFiles.clear();
+  locationProfileMediaDraft=locationMediaOriginal.map(item=>({...item}));
+  closeLocationMediaAddPanel();
+  renderLocationProfileMediaEditor();
 }
 
 function renderLocationProfileSummary(location){
@@ -1176,6 +1492,27 @@ async function saveLocationProfile(){
         trackerFor("locationProfileModal").captureInitialState();
         return;
       }
+      // Media next, still the canonical (locations.revision) domain -- chained from whatever the
+      // core/parent calls above actually returned, via the just-reloaded location's own revision
+      // (never invented client-side). A failure here is reported the same partial-success way as
+      // parent/module-selection: core fields already saved and kept, Profile stays in edit mode.
+      {
+        const currentLocationRevision=data.locations.find(l=>l.id===participationId)?.locationRevision??coreResult.locationRevision;
+        const mediaResult=await reconcileLocationMediaDraft(canonicalId,currentLocationRevision);
+        if(!mediaResult.ok){
+          locationProfileSaveButton.showStatus(`Основные поля сохранены. Не удалось сохранить медиа: ${mediaResult.message||"неизвестная ошибка"}`,"error");
+          const refreshedAfterMediaFailure=await cloudProjectSync.reload();
+          if(refreshedAfterMediaFailure.ok)data=refreshedAfterMediaFailure.data;
+          populateLocationProfileCore(participationId);
+          trackerFor("locationProfileModal").captureInitialState();
+          return;
+        }
+        if(mediaResult.changed){
+          const refreshedAfterMedia=await cloudProjectSync.reload();
+          if(!refreshedAfterMedia.ok){locationProfileSaveButton.showStatus(refreshedAfterMedia.message||"Не удалось обновить данные после сохранения медиа.","error");return}
+          data=refreshedAfterMedia.data;
+        }
+      }
       // Module selection last, and only if it actually changed: a genuinely different revision
       // domain (projects.revision, via the existing project mutation queue -- update_
       // locationCanonical/setLocationParent above never touch it) -- canonical fields land first
@@ -1307,7 +1644,10 @@ Object.assign(globalThis,{locationById,locationCanonicalId,locationSceneEntries,
   openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
   toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded,
   toggleLocationModuleAddPanel,addEmptyLocationThematicModule,showLocationThematicModule,removeEmptyLocationThematicModule,
-  hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule});
+  hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule,
+  currentLocationProfileMediaSnapshot,openLocationMediaLightbox,toggleLocationMediaAddPanel,startAddLocationMedia,handleLocationMediaFileChosen,
+  updateLocationMediaDraftField,setLocationMediaDraftPrimary,moveLocationMediaDraftItem,removeLocationMediaDraftItem,
+  openLocationMediaCrop,nudgeLocationMediaCrop,syncLocationMediaCropPreview,saveLocationMediaCrop,cancelLocationMediaCrop});
 export {locationById,locationCanonicalId,locationSceneEntries,locationAncestors,locationDescendantIds,
   ownedLocationRowsSync,loadOwnedLocationRows,invalidateOwnedLocationsCache,currentLocationProfileParentSelection,currentLocationProfileModuleSelectionSnapshot,
   openLocationGallery,setLocationGallerySearch,setLocationGalleryTypeFilter,renderLocationGallery,deleteLocationFromGallery,
@@ -1315,4 +1655,7 @@ export {locationById,locationCanonicalId,locationSceneEntries,locationAncestors,
   openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
   toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded,
   toggleLocationModuleAddPanel,addEmptyLocationThematicModule,showLocationThematicModule,removeEmptyLocationThematicModule,
-  hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule};
+  hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule,
+  currentLocationProfileMediaSnapshot,openLocationMediaLightbox,toggleLocationMediaAddPanel,startAddLocationMedia,handleLocationMediaFileChosen,
+  updateLocationMediaDraftField,setLocationMediaDraftPrimary,moveLocationMediaDraftItem,removeLocationMediaDraftItem,
+  openLocationMediaCrop,nudgeLocationMediaCrop,syncLocationMediaCropPreview,saveLocationMediaCrop,cancelLocationMediaCrop};

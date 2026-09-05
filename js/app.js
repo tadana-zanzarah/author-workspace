@@ -16,6 +16,7 @@ import "./chapters.js";
 import "./location-types.js";
 import "./location-base-profile.js";
 import "./location-module-selection.js";
+import "./location-media.js";
 import "./location-hierarchy.js";
 import "./locations.js";
 import "./filters.js";
@@ -68,7 +69,13 @@ const editorTrackers={
     // Adaptive Module Selection: add/show/hide/remove change locationProfileModuleSelectionDraft
     // without necessarily touching any native control serializeForm's own scan would see (e.g.
     // hiding a populated module changes nothing else) -- without this, Save would stay disabled.
-    moduleSelection:currentLocationProfileModuleSelectionSnapshot()
+    moduleSelection:currentLocationProfileModuleSelectionSnapshot(),
+    // Location Media B4B: the whole media draft is custom state (add/primary/reorder/delete/crop
+    // are button actions, never native form controls; caption/alt ARE native controls but are
+    // pushed directly into the draft on every keystroke rather than left for serializeForm's own
+    // scan -- see js/locations.js's Media section header for why a full-card-list re-render on
+    // unrelated actions makes the pull-based pattern the thematic textareas use unsafe here).
+    media:currentLocationProfileMediaSnapshot()
   })),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
   quickFieldModal:createDirtyTracker("quickFieldModal",()=>serializeForm("quickFieldModal")),
@@ -707,6 +714,23 @@ document.getElementById("photoLightboxModal").onclick=e=>{if(e.target.id==="phot
   const viewport=document.getElementById("photoCropViewport");let pointer=null;
   viewport.onpointerdown=e=>{pointer={id:e.pointerId,x:e.clientX,y:e.clientY};viewport.setPointerCapture(e.pointerId)};
   viewport.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId||!photoCropState)return;const rect=viewport.getBoundingClientRect();nudgePhotoCrop((e.clientX-pointer.x)/rect.width,(e.clientY-pointer.y)/rect.height);pointer.x=e.clientX;pointer.y=e.clientY};
+  viewport.onpointerup=viewport.onpointercancel=()=>{pointer=null};
+}
+
+// Location Media B4B: crop/lightbox bindings, mirroring the Character photo bindings immediately
+// above exactly (same modal-manager/backdrop-click/pointer-drag mechanics, separate DOM elements
+// so the two features never share mutable crop/lightbox state).
+document.getElementById("locMediaFileInput").onchange=handleLocationMediaFileChosen;
+document.getElementById("locationMediaCropZoom").oninput=e=>{if(locationMediaCropState){locationMediaCropState.draft.zoom=Number(e.target.value);syncLocationMediaCropPreview()}};
+document.getElementById("saveLocationMediaCrop").onclick=saveLocationMediaCrop;
+document.getElementById("cancelLocationMediaCrop").onclick=cancelLocationMediaCrop;
+document.getElementById("locationMediaCropModal").onclick=e=>{if(e.target.id==="locationMediaCropModal")cancelLocationMediaCrop()};
+document.getElementById("closeLocationMediaLightbox").onclick=()=>forceHideModal("locationMediaLightboxModal");
+document.getElementById("locationMediaLightboxModal").onclick=e=>{if(e.target.id==="locationMediaLightboxModal")forceHideModal("locationMediaLightboxModal")};
+{
+  const viewport=document.getElementById("locationMediaCropViewport");let pointer=null;
+  viewport.onpointerdown=e=>{pointer={id:e.pointerId,x:e.clientX,y:e.clientY};viewport.setPointerCapture(e.pointerId)};
+  viewport.onpointermove=e=>{if(!pointer||pointer.id!==e.pointerId||!locationMediaCropState)return;const rect=viewport.getBoundingClientRect();nudgeLocationMediaCrop((e.clientX-pointer.x)/rect.width,(e.clientY-pointer.y)/rect.height);pointer.x=e.clientX;pointer.y=e.clientY};
   viewport.onpointerup=viewport.onpointercancel=()=>{pointer=null};
 }
 
