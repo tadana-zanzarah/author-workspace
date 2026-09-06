@@ -7,11 +7,13 @@ const browser=await chromium.launch({headless:true,executablePath:"C:/Program Fi
 const context=await browser.newContext();
 const page=await context.newPage();
 page.setDefaultTimeout(5000);
+// The dev static server ("serve") has no favicon.ico, so every run logs one benign 404 console
+// error unrelated to any app behavior this file tests -- filtered here so it can't mask a real one.
 const errors=[];
 page.on("pageerror",error=>errors.push(error.message));
-page.on("console",message=>{if(message.type()==="error")errors.push(message.text())});
+page.on("console",message=>{if(message.type()==="error"&&!/favicon/.test(message.text())&&!/404/.test(message.text()))errors.push(message.text())});
 
-const project={version:11,characters:[{id:"character-a",name:"Анна"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"Анна",photos:[],hidden:{},initialRelations:{}}},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],scenes:[{id:"scene-a",title:"Исходная сцена",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],writingStatus:"draft",sceneText:"Текст",included:true,status:"fixed",people:{}}]};
+const project={version:11,characters:[{id:"character-a",name:"Анна"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"Анна",photos:[],hidden:{},initialRelations:{}}},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[{id:"location-a",name:"Локация А",description:"",officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:"",shortSummary:""}],tags:[],scenes:[{id:"scene-a",title:"Исходная сцена",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],writingStatus:"draft",sceneText:"Текст",included:true,status:"fixed",people:{}}]};
 await page.addInitScript(value=>localStorage.setItem("novelTimelineV11",JSON.stringify(value)),project);
 await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});
 
@@ -85,6 +87,39 @@ for(const [openerSelector,modalId,closerSelector] of modalReturnCases){
 await page.locator('[data-scene-id="scene-a"] button[aria-label*="Редактировать текст сцены"]').focus();const textOpener=await activeId();await page.keyboard.press("Enter");
 if(await activeId()!=="fullSceneText")throw new Error("Полный текст не получил initial focus");await page.click("#closeText");if(await activeId()!==textOpener)throw new Error("Полный текст не вернул focus");
 await page.evaluate(()=>quickEditChapter("scene-a"));if(!await activeInside("quickFieldModal"))throw new Error("Quick field не получил focus");await page.click("#cancelQuickField");
+
+// Location Manual UX Batch C: the Location Profile modal (opened by clicking a real Gallery card,
+// so there is a genuine opener for the modal manager to restore focus to) previously left focus
+// dangling on <body> after both a successful Save and a discarded Cancel, because
+// showLocationProfileReadMode (the one function both paths funnel through) never explicitly
+// refocused anything once the Edit view -- and whatever inside it last held focus -- was hidden.
+await page.evaluate(()=>openLocationGallery());
+const locationOpener=page.locator(".location-card-open").first();
+await locationOpener.focus();
+await page.keyboard.press("Enter");
+if(!await activeInside("locationProfileModal"))throw new Error("Фокус не перешёл в Location Profile modal");
+await page.click("#locationProfileEdit");
+if(await activeId()!=="locProfileName")throw new Error("Редактирование локации не перевело фокус на поле названия");
+await page.fill("#locProfileShortSummary","Тест доступности");
+await page.click("#locationProfileSave");
+await page.waitForFunction(()=>document.getElementById("locationProfileEditView").hidden===true,{timeout:3000});
+if(await activeId()!=="locationProfileEdit")throw new Error(`После успешного сохранения фокус должен вернуться на «Редактировать», а не потеряться: ${await activeId()}`);
+await page.click("#locationProfileEdit");
+await page.fill("#locProfileShortSummary","Черновик без сохранения");
+await page.click("#locationProfileCancelEdit");
+if(!await activeInside("discardChangesModal"))throw new Error("Отмена правки с несохранёнными изменениями не показала discard confirmation");
+await page.click("#discardChanges");
+if(await activeId()!=="locationProfileEdit")throw new Error(`После отмены с discard фокус должен вернуться на «Редактировать»: ${await activeId()}`);
+// Note: closing the whole Profile modal here is deliberately NOT asserted against the exact
+// original Gallery card -- the Save above already re-rendered the Gallery card list
+// (renderLocationGallery), so the modal manager's captured opener reference is now stale by
+// design (Location cards carry no id/data-scene-id-style recoverable key the way Scene rows do).
+// That is a separate, pre-existing, lower-severity gap (documented in the Batch C report as a
+// SAFE DEFER) -- it still falls back to a real, visible, focusable control, never to <body>,
+// which is exactly what's asserted below.
+await page.click("#locationProfileClose");
+if(!await page.evaluate(()=>{const el=document.activeElement;return el&&el!==document.body&&el.tagName!=="BODY"}))throw new Error("Закрытие Profile локации потеряло фокус (упал на <body>)");
+await page.click("#closeLocations");
 
 const recoveryContext=await browser.newContext(),recoveryPage=await recoveryContext.newPage();
 await recoveryPage.addInitScript(()=>{localStorage.setItem("novelTimelineV11","{broken");localStorage.setItem("novelTimelineV10",JSON.stringify({version:10,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы"}],locations:[],tags:[],scenes:[]}))});

@@ -1603,10 +1603,18 @@ function renderLocationProfileScenes(participationId){
   }).join("");
 }
 
+// Location Manual UX Batch C: every return to Read (Cancel+discard AND a successful Save both
+// funnel through this one function) left the DOM's focused element (locProfileName, Save, a
+// module action, ...) behind inside the now-`hidden` Edit view -- the browser has nowhere to keep
+// focus in that case and silently drops it to <body>, stranding a keyboard user with no visible
+// focus indicator anywhere in the still-open modal. Mirrors showLocationProfileEditMode's own
+// explicit focus() on entry (there: locProfileName) with the Read view's own natural primary
+// control -- the same element the modal already uses as initialFocus when first opened.
 function showLocationProfileReadMode(){
   locationProfileMode="read";
   document.getElementById("locationProfileReadView").hidden=false;
   document.getElementById("locationProfileEditView").hidden=true;
+  document.getElementById("locationProfileEdit")?.focus();
 }
 
 function showLocationProfileEditMode(){
