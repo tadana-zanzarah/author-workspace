@@ -74,6 +74,17 @@ const locationMediaDraftFiles=new Map(); // draft id -> File, for not-yet-upload
 let locationMediaLoadToken=0;
 let locationMediaAddPanelOpen=false;
 let locationMediaPendingKind=null;
+// Location Manual UX final polish #5C: UNKNOWN/LOADING must never look like LOADED EMPTY --
+// renderLocationProfileMedia previously judged everything purely from locationMediaOriginal's
+// length, so "no media yet because the fetch hasn't resolved" and "genuinely no media" both
+// rendered as the same hidden, empty section (also the root of #5B's layout jump -- nothing
+// reserved the space Media would occupy once it arrived). "loading" is only ever entered for a
+// genuine Location switch (see resetLocationProfileLazyChildState) and cleared the moment that
+// Location's own fetch settles (see loadLocationMediaForProfile) -- a same-Location refresh (e.g.
+// the post-Save reopen) never re-enters it, so already-loaded content is never replaced by a
+// skeleton. Local mode has no async gap at all (see AGENTS.md "no local binary Media persistence")
+// and goes straight to "loaded".
+let locationMediaLoadStatus="loaded"; // "loading" | "loaded" | "error"
 
 /* ---------- History Events (Location History H-events) ----------
  * Canonical-only, draft-until-Profile-Save, same lazy-load shape as Media (list_location_history_
@@ -137,6 +148,7 @@ async function loadLocationMediaForProfile(location){
   const token=++locationMediaLoadToken;
   if(!isCloudWorkspace()){
     locationMediaOriginal=[];locationProfileMediaDraft=[];locationMediaDraftFiles.clear();
+    locationMediaLoadStatus="loaded";
     renderLocationProfileMedia();renderLocationProfileMediaEditor();
     return;
   }
@@ -168,6 +180,9 @@ async function loadLocationMediaForProfile(location){
   });
   if(plan.stale)return;
   locationMediaOriginal=plan.media;
+  // A resolved fetch always leaves "loading" behind, whether or not it succeeded -- an error
+  // gets its own restrained state (see renderLocationProfileMedia), never an eternal skeleton.
+  locationMediaLoadStatus=result?.ok?"loaded":"error";
   if(plan.resetDraft){
     for(const url of collectPendingObjectUrls(locationProfileMediaDraft))URL.revokeObjectURL(url);
     locationMediaDraftFiles.clear();
@@ -180,8 +195,31 @@ async function loadLocationMediaForProfile(location){
 
 /* ---- Read mode ---- */
 
+// Location Manual UX final polish #5B/#5C: a lightweight, restrained loading state occupies the
+// Media position while its fetch is pending (never a fake thumbnail) -- kept quiet enough to read
+// as "not resolved yet", not as actual content. Reserves real vertical space so lower Profile
+// sections don't visibly shift once Media actually arrives (see .location-media-skeleton in
+// css/locations.css); the outer modal's own height no longer depends on this either (#5A).
+function locationMediaLoadingPlaceholderHtml(){
+  return `<div class="location-media-group location-media-loading" role="status">
+    <h3 class="location-media-group-title">Медиа</h3>
+    <span class="visually-hidden">Загрузка медиа…</span>
+    <div class="location-media-skeleton" aria-hidden="true">
+      <span class="location-media-skeleton-block"></span>
+      <span class="location-media-skeleton-block"></span>
+    </div>
+  </div>`;
+}
+function locationMediaErrorPlaceholderHtml(){
+  return `<div class="location-media-group location-media-error-state" role="status">
+    <h3 class="location-media-group-title">Медиа</h3>
+    <p class="location-media-load-error">Не удалось загрузить медиа.</p>
+  </div>`;
+}
 function renderLocationProfileMedia(){
   const el=document.getElementById("locationProfileMedia");if(!el)return;
+  if(locationMediaLoadStatus==="loading"){el.innerHTML=locationMediaLoadingPlaceholderHtml();el.hidden=false;return}
+  if(locationMediaLoadStatus==="error"){el.innerHTML=locationMediaErrorPlaceholderHtml();el.hidden=false;return}
   const groups=groupMediaByKind(locationMediaOriginal);
   if(!groups.length){el.hidden=true;el.innerHTML="";return}
   el.innerHTML=groups.map(renderLocationMediaReadGroup).join("");
@@ -679,6 +717,11 @@ async function deleteLocationFromGallery(participationId){
 function resetLocationProfileLazyChildState(){
   locationMediaOriginal=[];
   locationHistoryEventsOriginal=[];
+  // Cloud mode has a real async gap before this Location's own Media resolves -- render the
+  // loading placeholder now, synchronously, so there is never a frame where the section looks
+  // like "loaded, no media" before the fetch has even started. Local mode resolves synchronously
+  // (see loadLocationMediaForProfile's own local-mode branch), so it goes straight to "loaded".
+  locationMediaLoadStatus=isCloudWorkspace()?"loading":"loaded";
   renderLocationProfileMedia();
 }
 
@@ -834,14 +877,26 @@ const LOCATION_CHILDREN_VISIBLE_COUNT=6;
 // single compact line even for a long name; the title's `title=""` attribute keeps the full name
 // reachable on hover/focus when the CSS layer truncates it. Keeps direct-child-only scene count
 // (never the B5 subtree count -- see the task brief's explicit "do not aggregate grandchildren").
+//
+// Location Manual UX final polish #3: type and scene-count used to be joined into one "·"-
+// separated string ("Помещение" vs "Помещение · Сцен 2"), so rows with and without scenes read as
+// different lengths -- a "comb" effect. Type and scene-count now render as two separate stable
+// slots (see .location-profile-child-type/-scenes in css/locations.css) so the right edge stays
+// steady whether or not a child has scenes; zero renders as a restrained "—" instead of just
+// omitting the slot. No new pluralization helper -- "Сцен N" stays the same invariant wording
+// used everywhere else in the app (см. "Сцен здесь"/"Сцен внутри"), just given a fixed slot.
 function renderLocationChildRow(child){
   const name=child.name||"Без названия";
   const typeLabel=locationDisplayTypeLabel(child);
   const sceneCount=locationSceneEntries(child.id).length;
-  const metaParts=[typeLabel,sceneCount?`Сцен ${sceneCount}`:null].filter(Boolean);
-  return `<button type="button" class="location-profile-child-row" onclick="openLocationProfile('${jsq(child.id)}')" aria-label="Открыть локацию «${esc(name)}»">
+  const sceneLabel=sceneCount?`Сцен ${sceneCount}`:"—";
+  const ariaSceneSuffix=sceneCount?`, сцен: ${sceneCount}`:"";
+  return `<button type="button" class="location-profile-child-row" onclick="openLocationProfile('${jsq(child.id)}')" aria-label="Открыть локацию «${esc(name)}»${esc(ariaSceneSuffix)}">
     <span class="location-profile-child-title" title="${esc(name)}">${esc(name)}</span>
-    ${metaParts.length?`<span class="location-profile-child-meta">${esc(metaParts.join(" · "))}</span>`:""}
+    <span class="location-profile-child-meta">
+      <span class="location-profile-child-type">${esc(typeLabel||"")}</span>
+      <span class="location-profile-child-scenes">${esc(sceneLabel)}</span>
+    </span>
   </button>`;
 }
 
@@ -1206,12 +1261,43 @@ function closeLocationModuleAddPanel(){
   if(panel)panel.hidden=true;
 }
 
+// Location Manual UX final polish #2: "+ Добавить раздел" opened the catalog correctly all
+// along, but with no scroll feedback -- a catalog inserted below the visible portion of
+// .location-profile-scroll looked like nothing happened, and the user had to discover it by
+// scrolling blind. Only the explicit toggle-to-open action calls this (never hydration, never
+// re-opening the Profile, never a recommendation-state re-render), and it targets the CATALOG
+// itself, not a module selected afterward -- addEmptyLocationThematicModule/
+// showLocationThematicModule already handle revealing/focusing the selected module and are left
+// untouched (see their own calls to setLocationThematicDisclosure/focus).
+function revealLocationModuleAddPanel(panel){
+  if(!panel)return;
+  const scroller=panel.closest(".location-profile-scroll");
+  if(!scroller)return;
+  const scrollerRect=scroller.getBoundingClientRect();
+  const panelRect=panel.getBoundingClientRect();
+  const topOffset=panelRect.top-scrollerRect.top;
+  const bottomOffset=panelRect.bottom-scrollerRect.top;
+  // Case A: already comfortably visible in full -- no pointless movement.
+  if(topOffset>=0&&bottomOffset<=scrollerRect.height)return;
+  // Case B/C: reveal the catalog's START with a small breathing-room margin (also keeps a
+  // sliver of the "+ Добавить раздел" button itself visible above it) -- never attempts to also
+  // fit the bottom of a catalog taller than the remaining viewport.
+  const margin=12;
+  const maxScrollTop=Math.max(0,scroller.scrollHeight-scroller.clientHeight);
+  const targetScrollTop=Math.max(0,Math.min(scroller.scrollTop+topOffset-margin,maxScrollTop));
+  const reduceMotion=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  scroller.scrollTo({top:targetScrollTop,behavior:reduceMotion?"auto":"smooth"});
+}
+
 function toggleLocationModuleAddPanel(){
   locationProfileModuleAddPanelOpen=!locationProfileModuleAddPanelOpen;
   const toggle=document.getElementById("locProfileAddSectionToggle"),panel=document.getElementById("locProfileAddSectionPanel");
   if(toggle)toggle.setAttribute("aria-expanded",String(locationProfileModuleAddPanelOpen));
   if(panel)panel.hidden=!locationProfileModuleAddPanelOpen;
-  if(locationProfileModuleAddPanelOpen)renderLocationThematicModules();
+  if(locationProfileModuleAddPanelOpen){
+    renderLocationThematicModules();
+    revealLocationModuleAddPanel(panel);
+  }
 }
 
 // Re-renders which modules are accordions right now (edit visibility: (hasData OR shown) AND NOT
@@ -2048,7 +2134,7 @@ Object.assign(globalThis,{locationById,locationCanonicalId,locationSceneEntries,
   openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,
   openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
   toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded,
-  toggleLocationModuleAddPanel,addEmptyLocationThematicModule,showLocationThematicModule,removeEmptyLocationThematicModule,
+  toggleLocationModuleAddPanel,revealLocationModuleAddPanel,addEmptyLocationThematicModule,showLocationThematicModule,removeEmptyLocationThematicModule,
   hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule,
   currentLocationProfileMediaSnapshot,openLocationMediaLightbox,toggleLocationMediaAddPanel,startAddLocationMedia,handleLocationMediaFileChosen,
   updateLocationMediaDraftField,setLocationMediaDraftPrimary,moveLocationMediaDraftItem,removeLocationMediaDraftItem,
@@ -2061,7 +2147,7 @@ export {locationById,locationCanonicalId,locationSceneEntries,locationAncestors,
   openLocationProfile,openLocationEntity,enterLocationProfileEdit,cancelLocationProfileEdit,saveLocationProfile,deleteLocationFromProfile,
   openCreateLocationModal,updateCreateLocationSubmitState,submitCreateLocation,populateLocationTypePresetSelect,
   toggleLocationThematicDisclosure,clearLocationThematicModule,toggleLocationProfileChildrenExpanded,
-  toggleLocationModuleAddPanel,addEmptyLocationThematicModule,showLocationThematicModule,removeEmptyLocationThematicModule,
+  toggleLocationModuleAddPanel,revealLocationModuleAddPanel,addEmptyLocationThematicModule,showLocationThematicModule,removeEmptyLocationThematicModule,
   hideLocationThematicModule,startDeleteLocationThematicModule,cancelDeleteLocationThematicModule,confirmDeleteLocationThematicModule,
   currentLocationProfileMediaSnapshot,openLocationMediaLightbox,toggleLocationMediaAddPanel,startAddLocationMedia,handleLocationMediaFileChosen,
   updateLocationMediaDraftField,setLocationMediaDraftPrimary,moveLocationMediaDraftItem,removeLocationMediaDraftItem,

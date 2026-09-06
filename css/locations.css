@@ -20,7 +20,18 @@
    LARGEST viewport before its address bar/chrome collapses, then visibly mismatch the page once
    scrolling changes that) -- the `vh` line is a fallback for browsers with no `dvh` support and stays
    in effect there since an unsupported value is simply ignored, never applied. */
+/* Location Manual UX final polish #5: max-height alone (no `height`) let the modal shrink-wrap
+   to whatever synchronous content it had at the moment it opened -- a sparse Location opened
+   compact, then visibly grew when async Media/History resolved and inserted content below the
+   fold. #charsModal already sets an explicit `height` alongside its `max-height` (see
+   index.html's inline style on that modal) for exactly this reason; Location's own modal never
+   had the matching `height` rule. Setting it here makes Read and Edit Profile claim the same
+   stable, viewport-constrained workspace height from the moment they open -- async content below
+   changes ONLY inside .location-profile-scroll (flex:1 1 auto, min-height:0), never this outer
+   box. dvh (real, current visual viewport) preferred over vh, same fallback convention as the
+   max-height pair below it. */
 .location-profile-modal{
+  height:94vh;height:94dvh;
   max-height:94vh;max-height:94dvh;
   display:flex;flex-direction:column;overflow:hidden;
 }
@@ -209,7 +220,17 @@
   font-weight:650;font-size:var(--text-sm);color:var(--text-primary);flex:1 1 auto;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
 }
-.location-profile-child-meta{font-size:var(--text-xs);color:var(--text-secondary);flex:0 0 auto;white-space:nowrap}
+/* Location Manual UX final polish #3: type + scene-count each get a stable slot instead of one
+   variable-length "·"-joined string, so the right edge holds steady across rows regardless of
+   whether a child has scenes (see renderLocationChildRow in js/locations.js). Same overall
+   height/row as before -- this only restructures the single meta span into two inline slots. */
+.location-profile-child-meta{
+  font-size:var(--text-xs);color:var(--text-secondary);flex:0 0 auto;
+  display:flex;align-items:baseline;gap:8px;white-space:nowrap;
+}
+.location-profile-child-type{overflow:hidden;text-overflow:ellipsis;max-width:16ch}
+.location-profile-child-type:empty{max-width:0}
+.location-profile-child-scenes{flex:0 0 auto;min-width:5.5ch;text-align:right}
 
 /* Same restrained text-link treatment as .sidebar-show-more (css/layout.css) -- the established
    "Показать ещё" affordance elsewhere in the app -- restyled to this dossier's own quieter
@@ -401,6 +422,22 @@
   font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;
   color:var(--text-secondary);border-bottom:1px solid var(--border-faint);
 }
+
+/* Location Manual UX final polish #5B: reserves roughly the same footprint as a real hero+rail
+   photo group (see .location-media-hero below) so the Profile's lower sections shift as little as
+   possible once real Media (or a "no media" empty result) replaces this -- secondary protection
+   only, the outer modal's own height no longer depends on this either way (#5A). Quiet, no fake
+   thumbnails -- a quiet shimmer, not a spinner, and neutralized by the app-wide
+   prefers-reduced-motion rule in css/base.css like every other animation. */
+.location-media-skeleton{display:flex;align-items:flex-start;gap:10px;margin-top:2px}
+.location-media-skeleton-block{
+  border-radius:var(--radius-md);background:linear-gradient(90deg,var(--soft) 25%,var(--border-faint) 37%,var(--soft) 63%);
+  background-size:400% 100%;animation:location-media-skeleton-shimmer 1.6s ease infinite;
+}
+.location-media-skeleton-block:first-child{width:220px;max-width:46%;aspect-ratio:4/3}
+.location-media-skeleton-block:last-child{flex:1 1 auto;min-width:0;max-width:120px;aspect-ratio:1/1}
+@keyframes location-media-skeleton-shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+.location-media-load-error{color:var(--text-secondary);font-size:var(--text-sm)}
 
 .location-media-hero-row{display:flex;align-items:flex-start;gap:10px}
 .location-media-hero{

@@ -20,6 +20,7 @@
     "test:location-media-gallery-cover-browser": "node tools/location-media-gallery-cover-browser.test.mjs",
     "test:location-history-browser": "node tools/location-history-browser.test.mjs",
     "test:location-manual-ux-batch-a-browser": "node tools/location-manual-ux-batch-a-browser.test.mjs",
+    "test:location-final-visual-polish-browser": "node tools/location-final-visual-polish-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",
     "test:cloud-browser": "node tools/cloud-browser.test.mjs",
     "test:auth-browser": "node tools/auth-browser.test.mjs",

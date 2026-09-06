@@ -195,9 +195,17 @@
      accent-color recolors the native track+thumb in every browser that
      matters here without touching focus/keyboard behavior. */
   input[type="range"]{accent-color:var(--brand-strong)}
+  /* Location Manual UX final polish: was outline:3px/offset:2px (5px of ring
+     per side) -- on compact two-column fields (e.g. Location's Звуки/Запахи/
+     Освещение, same .profile-editor-grid Character uses) that read as an
+     oversized "double border" and could bleed into the adjacent column or
+     clip against the modal edge. 2px/1px (3px per side) keeps the ring
+     clearly visible -- still above the 2px WCAG 2.4.11 minimum, same
+     high-contrast color -- without the bulk. No control changes size either
+     way; outline never participates in layout. */
   :where(button,input,textarea,select,summary,a,[tabindex]):focus-visible{
-    outline:3px solid var(--focus-ring);
-    outline-offset:2px;
+    outline:2px solid var(--focus-ring);
+    outline-offset:1px;
     border-radius:var(--radius-sm);
   }
   .hint{color:var(--text-secondary);font-size:13px}
