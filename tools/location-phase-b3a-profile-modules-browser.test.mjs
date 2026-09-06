@@ -91,7 +91,10 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 await page.evaluate(()=>openLocationProfile("loc-both"));
 {
   const state=await page.evaluate(()=>{
-    const view=document.getElementById("locationProfileReadView");
+    // Location Manual UX Batch A issue #11: read-view content now lives one level deeper, inside
+    // .location-profile-scroll (the single scroll region the modal-scroll fix introduced) --
+    // relative order is unchanged, only the direct-children container to walk is different.
+    const view=document.getElementById("locationProfileReadView").querySelector(".location-profile-scroll");
     const ids=["locationProfileSummary","locationProfileAppearance","locationProfileGeography"].map(id=>document.getElementById(id));
     const order=ids.map(el=>Array.prototype.indexOf.call(view.children,el)).every((pos,i,arr)=>i===0||pos>arr[i-1]);
     const scenesSection=[...view.querySelectorAll(".profile-section")].find(s=>s.querySelector("#locationProfileScenes"));

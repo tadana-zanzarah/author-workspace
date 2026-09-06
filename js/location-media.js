@@ -222,6 +222,35 @@ function collectPendingObjectUrls(items){
   return (items||[]).filter(item=>item.source?.kind==="pending"&&item.source.value).map(item=>item.source.value);
 }
 
+// Location Manual UX Batch A (issue #1, "false dirty after successful Save"): mirrors
+// planLocationHistoryEventsAsyncResolution (js/location-history-events.js) exactly, for the SAME
+// two race conditions -- a resolved fetch must never clobber an in-progress edit, and the
+// dirty-tracker's baseline must only ever be recaptured against a dirty check taken BEFORE the
+// fresh data is applied, never after. The caller (loadLocationMediaForProfile, js/locations.js)
+// still owns the actual two-stage network fetch (list, then per-path signed-URL lookup) -- this
+// function only decides what to DO with whatever that fetch already produced, exactly like its
+// History counterpart only decides what to do with an already-resolved listLocationHistoryEvents
+// result. `resultData`, when `resultOk`, is the already-hydrated-and-signed media array (the
+// caller's own `withUrls`), not raw RPC rows -- there is no per-file mapping step left to redo here.
+//
+// PREVIOUS BUG this replaces: the old code applied the fresh media to locationMediaOriginal AND
+// locationProfileMediaDraft unconditionally, then checked `tracker.isDirty()` AFTER that mutation
+// to decide whether to recapture the baseline. Checking dirty state after the mutation compares
+// the just-arrived fresh data against a baseline captured before it arrived -- which almost always
+// reads as "dirty" purely because the data changed, not because the user edited anything,
+// permanently stranding the tracker in a dirty state with no later recapture trigger. It also
+// unconditionally overwrote the draft even while the user had genuinely started editing it mid-fetch,
+// silently discarding real in-progress edits. Gating BOTH the draft reset and the recapture on an
+// `isDirty` read taken before either happens fixes both: a genuinely dirty draft is left completely
+// alone (only the diff baseline `locationMediaOriginal` advances to the new server truth, mirroring
+// History's own `events` field), and a genuinely clean Profile gets both its draft AND its tracker
+// baseline correctly refreshed to match.
+function planLocationMediaAsyncResolution({isStale,resultOk,resultData,isDirty}){
+  if(isStale)return {stale:true};
+  const media=resultOk?resultData:[];
+  return {stale:false,media,resetDraft:!isDirty,captureInitialState:!isDirty};
+}
+
 // Dirty-tracker snapshot: the draft array is already JSON-safe (no File objects inline -- see this
 // file's header), so this is mostly a defensive shallow-safe copy for the extra-state slot passed
 // to serializeForm, mirroring profileEditorModal's `photos:safeOwnCopy(profileDraftPhotos)` exactly.
@@ -272,7 +301,7 @@ Object.assign(globalThis,{
   normalizeMediaDraftItem,hydrateLocationMediaRow,mapMediaRowsForLazyRead,mapSignedUrlsOntoDraft,
   createDraftMediaItem,groupMediaByKind,primaryOfKind,setDraftPrimary,removeDraftItem,reorderDraftItem,
   diffLocationMediaDraft,planLocationMediaSaveOrder,buildCreateMediaPayload,buildUpdateMediaChanges,
-  collectPendingObjectUrls,locationMediaDraftSnapshot
+  collectPendingObjectUrls,locationMediaDraftSnapshot,planLocationMediaAsyncResolution
 });
 export {
   LOCATION_MEDIA_KIND_CATALOG,LOCATION_MEDIA_KINDS,locationMediaKindLabel,locationMediaKindPrimaryLabel,isValidLocationMediaKind,isCropApplicableKind,
@@ -280,5 +309,5 @@ export {
   normalizeMediaDraftItem,hydrateLocationMediaRow,mapMediaRowsForLazyRead,mapSignedUrlsOntoDraft,
   createDraftMediaItem,groupMediaByKind,primaryOfKind,setDraftPrimary,removeDraftItem,reorderDraftItem,
   diffLocationMediaDraft,planLocationMediaSaveOrder,buildCreateMediaPayload,buildUpdateMediaChanges,
-  collectPendingObjectUrls,locationMediaDraftSnapshot
+  collectPendingObjectUrls,locationMediaDraftSnapshot,planLocationMediaAsyncResolution
 };

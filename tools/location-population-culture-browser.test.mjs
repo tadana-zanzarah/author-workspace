@@ -58,7 +58,10 @@ const freshPage=async()=>{
 await page.evaluate(()=>openLocationProfile("loc-pop-culture"));
 {
   const state=await page.evaluate(()=>{
-    const view=document.getElementById("locationProfileReadView");
+    // Location Manual UX Batch A issue #11: read-view content now lives one level deeper, inside
+    // .location-profile-scroll (the single scroll region the modal-scroll fix introduced) --
+    // relative order is unchanged, only the direct-children container to walk is different.
+    const view=document.getElementById("locationProfileReadView").querySelector(".location-profile-scroll");
     const econ=document.getElementById("locationProfileEconomy");
     const pop=document.getElementById("locationProfilePopulationCulture");
     const scenesSection=[...view.querySelectorAll(".profile-section")].find(s=>s.querySelector("#locationProfileScenes"));

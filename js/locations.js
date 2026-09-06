@@ -56,7 +56,18 @@ const locationProfileSaveButton=createSaveButtonController("locationProfileSave"
  * dirty-tracker's baseline is captured synchronously too (openLocationProfileNow), before media has
  * actually arrived. loadLocationMediaForProfile re-captures that baseline once media resolves --
  * but only if nothing is dirty yet, so a real in-flight edit elsewhere in the Profile (astronomically
- * unlikely inside the sub-second fetch window, but not impossible) is never silently reset to clean. */
+ * unlikely inside the sub-second fetch window, but not impossible) is never silently reset to clean.
+ * The dirty check itself MUST be read before the fresh media is applied, never after (checking after
+ * compares the just-arrived data against a now-stale baseline, which almost always reads as dirty and
+ * permanently strands the tracker -- Location Manual UX Batch A issue #1) -- see
+ * planLocationMediaAsyncResolution (js/location-media.js) for the single pure decision point this
+ * delegates to, mirroring History's own already-correct planLocationHistoryEventsAsyncResolution.
+ *
+ * IDENTITY BOUNDARY (Batch A issue #2): switching the Profile to a DIFFERENT Location synchronously
+ * clears locationMediaOriginal/locationHistoryEventsOriginal and re-renders the (now empty) read-mode
+ * Media section BEFORE this function's caller (populateLocationProfileCore) kicks off the new
+ * Location's own fetch -- see resetLocationProfileLazyChildState -- so the previous Location's Media/
+ * History can never render under the new Location's Profile, even for one frame. */
 let locationMediaOriginal=[];
 let locationProfileMediaDraft=[];
 const locationMediaDraftFiles=new Map(); // draft id -> File, for not-yet-uploaded items only
@@ -131,28 +142,40 @@ async function loadLocationMediaForProfile(location){
   }
   const canonicalId=locationCanonicalId(location);
   const result=await cloudState.locationMediaApi?.listMedia(canonicalId,null);
+  // Stale check BEFORE the (potentially slow, per-path) signing round trip below -- purely an
+  // efficiency short-circuit (skip signing entirely for a fetch nobody needs any more). The plan
+  // function re-checks staleness itself right before it is called, which is what actually gates
+  // every state mutation this function makes.
   if(locationMediaLoadToken!==token||locationProfileParticipationId!==location.id)return;
-  if(!result?.ok){
-    locationMediaOriginal=[];locationProfileMediaDraft=[];
-    renderLocationProfileMedia();renderLocationProfileMediaEditor();
-    return;
+  let resultData=[];
+  if(result?.ok){
+    const hydrated=mapMediaRowsForLazyRead(result.data);
+    const paths=[...new Set(hydrated.filter(item=>item.source.kind==="storage").map(item=>item.source.storagePath))];
+    const signedPairs=await Promise.all(paths.map(async path=>{
+      const signed=await cloudState.locationMediaApi.signedUrl(path);
+      return [path,signed.ok?signed.url:null];
+    }));
+    const signedUrlByPath=Object.fromEntries(signedPairs.filter(([,url])=>url));
+    resultData=mapSignedUrlsOntoDraft(hydrated,signedUrlByPath);
   }
-  const hydrated=mapMediaRowsForLazyRead(result.data);
-  const paths=[...new Set(hydrated.filter(item=>item.source.kind==="storage").map(item=>item.source.storagePath))];
-  const signedPairs=await Promise.all(paths.map(async path=>{
-    const signed=await cloudState.locationMediaApi.signedUrl(path);
-    return [path,signed.ok?signed.url:null];
-  }));
-  if(locationMediaLoadToken!==token||locationProfileParticipationId!==location.id)return;
-  const signedUrlByPath=Object.fromEntries(signedPairs.filter(([,url])=>url));
-  const withUrls=mapSignedUrlsOntoDraft(hydrated,signedUrlByPath);
-  locationMediaOriginal=withUrls;
-  locationProfileMediaDraft=withUrls.map(item=>({...item}));
-  locationMediaDraftFiles.clear();
+  const tracker=trackerFor("locationProfileModal");
+  // isDirty is read HERE, inside the same expression that builds the plan -- i.e. before anything
+  // below mutates locationMediaOriginal/locationProfileMediaDraft or the tracker's own baseline.
+  // See planLocationMediaAsyncResolution (js/location-media.js) for why this ordering is the fix.
+  const plan=planLocationMediaAsyncResolution({
+    isStale:locationMediaLoadToken!==token||locationProfileParticipationId!==location.id,
+    resultOk:!!result?.ok,resultData,isDirty:!!(tracker&&tracker.isDirty())
+  });
+  if(plan.stale)return;
+  locationMediaOriginal=plan.media;
+  if(plan.resetDraft){
+    for(const url of collectPendingObjectUrls(locationProfileMediaDraft))URL.revokeObjectURL(url);
+    locationMediaDraftFiles.clear();
+    locationProfileMediaDraft=plan.media.map(item=>({...item}));
+  }
   renderLocationProfileMedia();
   renderLocationProfileMediaEditor();
-  const tracker=trackerFor("locationProfileModal");
-  if(tracker&&!tracker.isDirty())tracker.captureInitialState();
+  if(plan.captureInitialState&&tracker)tracker.captureInitialState();
 }
 
 /* ---- Read mode ---- */
@@ -635,12 +658,44 @@ async function deleteLocationFromGallery(participationId){
 
 /* ---------- Profile: read-model rendering ---------- */
 
+// Location Manual UX Batch A issue #2 (identity boundary): clears the lazily-loaded Media/History
+// baselines and synchronously repaints the read-mode Media section as empty, so that between
+// "this Profile switched to a different Location" and "that Location's own lazy fetches resolve,"
+// nothing belonging to the PREVIOUS Location can render, not even for one frame -- the whole repaint
+// happens inside one synchronous call, before the browser gets a chance to paint an intermediate
+// state. Only called from populateLocationProfileCore, and only for a genuine identity change --
+// never for a same-Location refresh (see that function's own isLocationSwitch check).
+//
+// Deliberately does NOT touch locationProfileMediaDraft/locationProfileHistoryEventsDraft/
+// locationMediaDraftFiles/locationHistoryEventEditingId directly: syncLocationProfileEditFields
+// (called immediately after this, still inside the same populateLocationProfileCore call) already
+// resets those exact drafts from the now-empty originals via resetLocationProfileMediaDraft/
+// resetLocationProfileHistoryEventsDraft -- including revoking any pending object URLs the previous
+// Location's abandoned draft held -- so duplicating that here would just be dead code. Likewise,
+// renderLocationProfileHistory (the read-mode History section) is already called synchronously a
+// few lines later in populateLocationProfileCore with the now-cleared locationHistoryEventsOriginal;
+// only the read-mode Media section (renderLocationProfileMedia) has no such later call in the normal
+// flow, which is why it alone needs an explicit render here.
+function resetLocationProfileLazyChildState(){
+  locationMediaOriginal=[];
+  locationHistoryEventsOriginal=[];
+  renderLocationProfileMedia();
+}
+
 // The Profile opens in a read-only display (name/scene-count header, an identity intro block,
 // a readable description, and the read-only "Scenes here" list) rather than immediately looking
 // like an edit form. "Редактировать" is the single entry into edit mode.
 function populateLocationProfileCore(participationId){
   const location=locationById(participationId);if(!location)return null;
+  // Location Manual UX Batch A issue #2 (cross-Location stale content): only a genuine identity
+  // change -- opening a DIFFERENT Location than whatever this Profile last showed (including
+  // "closed, then opened a different one," since locationProfileParticipationId is never reset on
+  // close) -- may clear the lazily-loaded Media/History state. A same-Location refresh (e.g. the
+  // post-Save reopen in saveLocationProfile, still the SAME participationId) must never hit this,
+  // or it would destroy legitimate in-flight state instead of fixing a stale-identity bug.
+  const isLocationSwitch=locationProfileParticipationId!==participationId;
   locationProfileParticipationId=participationId;
+  if(isLocationSwitch)resetLocationProfileLazyChildState();
   document.getElementById("locationProfileTitle").textContent=location.name||"Локация";
   const sceneCount=locationSceneEntries(participationId).length;
   document.getElementById("locationProfileSceneCount").innerHTML=`Сцен <strong>${sceneCount}</strong>`;

@@ -8,6 +8,30 @@
 #locationsModal .modal>h2{flex:none}
 #locationsModal .modal>.modal-actions{flex:none}
 
+/* Location Manual UX Batch A issue #11 (modal scroll ownership): the Profile modal hosts TWO
+   alternating sub-views (read/edit, toggled via the `hidden` attribute) inside one shell, unlike
+   #charsModal's single flat body -- so the fixed-height + flex-column + single-inner-scroll-region
+   pattern above needs one extra layer here: the modal box itself is the OUTER flex column (header
+   pinned, exactly like #charsModal's own h2), the currently-visible sub-view is itself a flex column
+   so ITS OWN trailing .modal-actions can pin to ITS bottom, and .location-profile-scroll (the sub-
+   view's actual content, everything before that .modal-actions) is the one and only element that
+   ever scrolls. Never nest another overflow:auto inside .location-profile-scroll's own descendants.
+   `dvh` (real, current visual viewport) is preferred over `vh` (can be sized against the browser's
+   LARGEST viewport before its address bar/chrome collapses, then visibly mismatch the page once
+   scrolling changes that) -- the `vh` line is a fallback for browsers with no `dvh` support and stays
+   in effect there since an unsupported value is simply ignored, never applied. */
+.location-profile-modal{
+  max-height:94vh;max-height:94dvh;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.location-profile-modal>.location-profile-header{flex:none}
+.location-profile-modal>#locationProfileReadView:not([hidden]),
+.location-profile-modal>#locationProfileEditView:not([hidden]){
+  display:flex;flex-direction:column;flex:1 1 auto;min-height:0;
+}
+.location-profile-modal .location-profile-scroll{flex:1 1 auto;min-height:0;overflow-y:auto}
+.location-profile-modal .modal-actions{flex:none}
+
 .location-gallery-toolbar{
   flex:none;display:flex;align-items:flex-end;gap:var(--space-3);margin:2px 0 var(--space-3);
 }

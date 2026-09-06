@@ -393,13 +393,14 @@
 </div>
 
 <div class="modal-backdrop" id="locationProfileModal" role="dialog" aria-modal="true" aria-labelledby="locationProfileTitle">
-  <div class="modal location-profile-modal" style="width:min(760px,100%);max-height:94vh">
+  <div class="modal location-profile-modal" style="width:min(760px,100%)">
     <div class="location-profile-header">
       <h2 id="locationProfileTitle">Локация</h2>
       <span class="stat-pill" id="locationProfileSceneCount">Сцен <strong>0</strong></span>
     </div>
 
     <div id="locationProfileReadView">
+      <div class="location-profile-scroll">
       <div class="location-profile-read-toolbar">
         <button type="button" class="location-profile-edit-btn" id="locationProfileEdit">✎ Редактировать</button>
       </div>
@@ -417,12 +418,14 @@
         <h3 class="profile-section-title">Сцены здесь</h3>
         <div id="locationProfileScenes" class="location-profile-scenes"></div>
       </div>
+      </div>
       <div class="modal-actions">
         <button type="button" id="locationProfileClose">Закрыть</button>
       </div>
     </div>
 
     <div id="locationProfileEditView" hidden>
+      <div class="location-profile-scroll">
       <div class="profile-section">
         <div class="profile-editor-grid">
           <label class="profile-field full">
@@ -770,6 +773,7 @@
           <button type="button" class="location-thematic-add-toggle" id="locProfileAddSectionToggle" aria-expanded="false" aria-haspopup="true" aria-controls="locProfileAddSectionPanel" onclick="toggleLocationModuleAddPanel()">+ Добавить раздел</button>
           <div class="location-thematic-add-panel" id="locProfileAddSectionPanel" hidden></div>
         </div>
+      </div>
       </div>
 
       <div class="modal-actions">
