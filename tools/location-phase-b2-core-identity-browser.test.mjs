@@ -213,14 +213,21 @@ await page.click("#createLocationParent");
 await page.locator("#createLocationParentListbox .location-parent-option-name",{hasText:/^Рен$/}).click();
 await page.click("#createLocationSubmit");
 await page.waitForSelector("#locationProfileModal",{state:"visible"});
+// Location Manual UX Batch B, B4 "Создать и продолжить": creation now lands directly in full Edit
+// mode, not Read -- so this checks the Edit-view fields (name input/type select/parent combobox),
+// not the Read-view title/breadcrumb/type-badge elements from before.
 const created=await page.evaluate(()=>({
-  title:document.getElementById("locationProfileTitle").textContent,
-  breadcrumb:[...document.querySelectorAll("#locationProfileIntro .location-breadcrumb-link,#locationProfileIntro .location-breadcrumb-current")].map(el=>el.textContent.trim()),
-  typeBadge:document.querySelector("#locationProfileIntro .location-type-badge")?.textContent.trim()
+  editVisible:!document.getElementById("locationProfileEditView").hidden,
+  readVisible:!document.getElementById("locationProfileReadView").hidden,
+  name:document.getElementById("locProfileName").value,
+  typePreset:document.getElementById("locProfileTypePreset").value,
+  parent:document.getElementById("locProfileParent").value
 }));
-if(created.title!=="Таверна «Ржавый якорь»")throw new Error("созданная локация не открылась в Profile");
-if(created.typeBadge!=="Здание")throw new Error(`тип не сохранился при создании: ${created.typeBadge}`);
-if(JSON.stringify(created.breadcrumb)!==JSON.stringify(["Заброшенная шахта","Вальдория","Рен","Таверна «Ржавый якорь»"]))throw new Error(`родитель, заданный при создании, не отразился в breadcrumb: ${JSON.stringify(created.breadcrumb)}`);
+if(!created.editVisible||created.readVisible)throw new Error("B4: creation must land directly in Edit mode, not Read");
+if(created.name!=="Таверна «Ржавый якорь»")throw new Error("созданная локация не открылась в Profile");
+if(created.typePreset!=="building")throw new Error(`тип не сохранился при создании: ${created.typePreset}`);
+if(!created.parent.includes("Рен"))throw new Error(`родитель, заданный при создании, не отразился в поле "Родительская локация": ${created.parent}`);
+await page.evaluate(()=>document.getElementById("locationProfileCancelEdit").click());
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
 if(errors.length)throw new Error(`Ошибки браузера: ${errors.join("; ")}`);

@@ -341,7 +341,10 @@
   .multi-value-chip span{overflow-wrap:anywhere}
   .multi-value-chip button{padding:0 4px;min-width:24px;border:0;background:transparent}
   .multi-value-control{display:flex;position:relative}
-  .multi-value-control input{padding-right:34px}
+  /* Location Manual UX Batch B, B8: a field created with an empty initial suggestions array
+     renders no .multi-value-toggle chevron at all (see createMultiValueCombobox) -- its input
+     must not reserve right-padding for a button that was never rendered. */
+  .multi-value-control:has(.multi-value-toggle) input{padding-right:34px}
   .multi-value-toggle{position:absolute;right:2px;top:2px;bottom:2px;width:30px;padding:0;border:0;background:transparent;color:var(--text-secondary)}
   .multi-value-list{position:absolute;z-index:20;left:0;right:0;top:100%;max-height:min(240px,40vh);overflow:auto;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--surface-elevated);box-shadow:var(--shadow-md)}
   .multi-value-list [role=option]{padding:8px 10px;cursor:pointer;overflow-wrap:anywhere;font-size:var(--text-sm)}

@@ -120,38 +120,88 @@ assert.equal(locationModuleHasData({baseProfile:{economy:{}}},"economy"),false);
 assert.equal(locationModuleHasData({baseProfile:{economy:{currency:"кроны"}}},"economy"),true);
 
 // 23. locationModuleRecommendation: guidance-only lookup, never throws, "none" for an
-// unspecified/custom type (no typePreset) and for a module with no recommendation table.
-assert.equal(locationModuleRecommendation("governmentSociety","country"),"strong");
-assert.equal(locationModuleRecommendation("governmentSociety","continent"),"none");
-assert.equal(locationModuleRecommendation("governmentSociety","district"),"recommend");
-assert.equal(locationModuleRecommendation("economy","transport"),"strong");
-assert.equal(locationModuleRecommendation("economy","street"),"recommend");
-assert.equal(locationModuleRecommendation("economy","room"),"none");
+// unspecified/custom type (no typePreset) regardless of module.
 assert.equal(locationModuleRecommendation("governmentSociety",null),"none");
 assert.equal(locationModuleRecommendation("governmentSociety",undefined),"none");
 assert.equal(locationModuleRecommendation("governmentSociety","some-custom-unlisted-type"),"none");
-assert.equal(locationModuleRecommendation("appearanceAtmosphere","country"),"none","Phase 1 modules have no recommendation table");
-assert.equal(locationModuleRecommendation("geography","country"),"none","Phase 1 modules have no recommendation table");
+
+// 23b. Location Manual UX Batch B, B1 -- full recommendation matrix, revised end-to-end (not just
+// Appearance/Geography layered on top of the old table): every module x every type, per the task
+// brief's exact per-type spec. Data-driven so the whole matrix is exercised, not just spot checks.
+{
+  const FULL_MATRIX={
+    appearanceAtmosphere:{
+      world:"none",continent:"none",country:"recommend",region:"recommend",settlement:"strong",
+      district:"strong",street:"strong",building:"strong",room:"strong",natural_place:"recommend",
+      transport:"strong",other:"none"
+    },
+    geography:{
+      world:"none",continent:"recommend",country:"strong",region:"strong",settlement:"recommend",
+      district:"none",street:"none",building:"none",room:"none",natural_place:"strong",
+      transport:"none",other:"none"
+    },
+    governmentSociety:{
+      world:"recommend",continent:"none",country:"strong",region:"strong",settlement:"strong",
+      district:"recommend",street:"none",building:"none",room:"none",natural_place:"none",
+      transport:"none",other:"none"
+    },
+    economy:{
+      world:"recommend",continent:"none",country:"strong",region:"strong",settlement:"strong",
+      district:"recommend",street:"none",building:"none",room:"none",natural_place:"none",
+      transport:"none",other:"none"
+    },
+    populationCulture:{
+      world:"recommend",continent:"recommend",country:"strong",region:"strong",settlement:"strong",
+      district:"recommend",street:"none",building:"none",room:"none",natural_place:"none",
+      transport:"none",other:"none"
+    },
+    history:{
+      world:"recommend",continent:"recommend",country:"strong",region:"strong",settlement:"strong",
+      district:"strong",street:"recommend",building:"recommend",room:"none",natural_place:"recommend",
+      transport:"recommend",other:"none"
+    }
+  };
+  for(const moduleKey of Object.keys(FULL_MATRIX)){
+    for(const typePreset of Object.keys(FULL_MATRIX[moduleKey])){
+      const expected=FULL_MATRIX[moduleKey][typePreset];
+      assert.equal(locationModuleRecommendation(moduleKey,typePreset),expected,
+        `${moduleKey}/${typePreset} expected ${expected}`);
+    }
+  }
+  // Per-type sanity checks straight from the task brief's own worked examples, so a matrix typo
+  // that happens to satisfy the loop's own copy of the data still gets caught independently.
+  assert.equal(locationModuleRecommendation("appearanceAtmosphere","building"),"strong","BUILDING: Appearance strong");
+  assert.equal(locationModuleRecommendation("governmentSociety","building"),"none","BUILDING: no Government recommendation");
+  assert.equal(locationModuleRecommendation("economy","building"),"none","BUILDING: no Economy recommendation");
+  assert.equal(locationModuleRecommendation("appearanceAtmosphere","room"),"strong","ROOM: Appearance strong");
+  assert.equal(locationModuleRecommendation("governmentSociety","room"),"none","ROOM: no Government recommendation");
+  assert.equal(locationModuleRecommendation("geography","room"),"none","ROOM: no Geography recommendation");
+  assert.equal(locationModuleRecommendation("geography","country"),"strong","COUNTRY: broad worldbuilding recommendations");
+  assert.equal(locationModuleRecommendation("governmentSociety","country"),"strong");
+  assert.equal(locationModuleRecommendation("economy","country"),"strong");
+  assert.equal(locationModuleRecommendation("populationCulture","country"),"strong");
+  assert.equal(locationModuleRecommendation("history","country"),"strong");
+  assert.equal(locationModuleRecommendation("appearanceAtmosphere","country"),"recommend");
+  assert.equal(locationModuleRecommendation("geography","natural_place"),"strong","NATURAL PLACE: Geography strong");
+  assert.equal(locationModuleRecommendation("appearanceAtmosphere","natural_place"),"recommend");
+  assert.equal(locationModuleRecommendation("history","natural_place"),"recommend");
+  assert.equal(locationModuleRecommendation("governmentSociety","natural_place"),"none");
+  assert.equal(locationModuleRecommendation("appearanceAtmosphere","transport"),"strong","TRANSPORT: Appearance strong");
+  assert.equal(locationModuleRecommendation("history","transport"),"recommend");
+  assert.equal(locationModuleRecommendation("governmentSociety","transport"),"none");
+  assert.equal(locationModuleRecommendation("economy","transport"),"none");
+  assert.equal(locationModuleRecommendation("populationCulture","transport"),"none");
+  assert.equal(locationModuleRecommendation("geography","transport"),"none");
+  for(const moduleKey of Object.keys(FULL_MATRIX))assert.equal(locationModuleRecommendation(moduleKey,"other"),"none",`${moduleKey}/other must be none`);
+}
 
 // 27. B3C hasData: populationCulture follows the exact same rules as the existing modules.
 assert.equal(locationModuleHasData({baseProfile:{populationCulture:{populationCharacter:"   "}}},"populationCulture"),false);
 assert.equal(locationModuleHasData({baseProfile:{populationCulture:{socialNorms:"Не свистеть на корабле."}}},"populationCulture"),true);
 assert.equal(locationModuleHasData({baseProfile:{populationCulture:{}}},"populationCulture"),false);
 
-// 28. B3C recommendation matrix: country/region/settlement/district -> strong;
-// world/continent/street/building/transport -> recommend; room/natural_place/other -> none.
-assert.equal(locationModuleRecommendation("populationCulture","country"),"strong");
-assert.equal(locationModuleRecommendation("populationCulture","region"),"strong");
-assert.equal(locationModuleRecommendation("populationCulture","settlement"),"strong");
-assert.equal(locationModuleRecommendation("populationCulture","district"),"strong");
-assert.equal(locationModuleRecommendation("populationCulture","world"),"recommend");
-assert.equal(locationModuleRecommendation("populationCulture","continent"),"recommend");
-assert.equal(locationModuleRecommendation("populationCulture","street"),"recommend");
-assert.equal(locationModuleRecommendation("populationCulture","building"),"recommend");
-assert.equal(locationModuleRecommendation("populationCulture","transport"),"recommend");
-assert.equal(locationModuleRecommendation("populationCulture","room"),"none");
-assert.equal(locationModuleRecommendation("populationCulture","natural_place"),"none");
-assert.equal(locationModuleRecommendation("populationCulture","other"),"none");
+// 28. B1 (Location Manual UX Batch B) revised populationCulture recommendation matrix is exercised
+// exhaustively above (see "23b." FULL_MATRIX); moduleRecommendation(null) still resolves "none".
 assert.equal(locationModuleRecommendation("populationCulture",null),"none");
 
 // 15. addEmptyLocationModule: adds to shown, removes from hidden if it was there (defensive).
@@ -224,21 +274,8 @@ assert.equal(locationModuleHasData({baseProfile:{history:{}},historyEvents:"not-
   assert.deepEqual(locationVisibleModules(location,{},{mode:"edit"}),["history"]);
 }
 
-// 32. History recommendation matrix, per the implementation brief: country/region/settlement/
-// district/building -> strong; world/continent/street/natural_place/transport -> recommend;
-// room/other -> none.
-assert.equal(locationModuleRecommendation("history","country"),"strong");
-assert.equal(locationModuleRecommendation("history","region"),"strong");
-assert.equal(locationModuleRecommendation("history","settlement"),"strong");
-assert.equal(locationModuleRecommendation("history","district"),"strong");
-assert.equal(locationModuleRecommendation("history","building"),"strong");
-assert.equal(locationModuleRecommendation("history","world"),"recommend");
-assert.equal(locationModuleRecommendation("history","continent"),"recommend");
-assert.equal(locationModuleRecommendation("history","street"),"recommend");
-assert.equal(locationModuleRecommendation("history","natural_place"),"recommend");
-assert.equal(locationModuleRecommendation("history","transport"),"recommend");
-assert.equal(locationModuleRecommendation("history","room"),"none");
-assert.equal(locationModuleRecommendation("history","other"),"none");
+// 32. B1 (Location Manual UX Batch B) revised history recommendation matrix (building demoted from
+// strong to recommend) is exercised exhaustively above (see "23b." FULL_MATRIX).
 assert.equal(locationModuleRecommendation("history",null),"none");
 
 console.log("location-module-selection.test.mjs OK");

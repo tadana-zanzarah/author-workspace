@@ -163,7 +163,15 @@ await page.click("#locProfileAppearanceToggle");
   // K. Collapsing must not clear the draft.
   if(afterCollapse.visualDescription!=="Стволы деревьев теряются в тумане.")throw new Error("collapsing the Appearance module must not clear its draft values");
 }
+// Pre-existing test gap (reproduced identically on unmodified master, unrelated to Location
+// Manual UX Batch B): adding the empty Geography module above (line ~139) makes the form dirty
+// via moduleSelection (see js/app.js's locationProfileModal dirty tracker), so this Cancel opens
+// the app-native discard-confirmation modal -- it must be answered before anything else touches
+// locationProfileModal, or the NEXT openLocationProfile call below (line ~169) re-triggers
+// requestEditorTransition's own dirty-guard and hangs forever awaiting a SECOND, never-dismissed
+// confirmation (confirmed via `git worktree` bisection against master's own HEAD before this fix).
 await page.evaluate(()=>document.getElementById("locationProfileCancelEdit").click());
+if(await page.evaluate(()=>document.getElementById("discardChangesModal").style.display)==="flex"){await page.click("#discardChanges")}
 
 // L/M/N. Text-field and multi-value edits mark dirty; multi-value add/remove works.
 await page.evaluate(()=>openLocationProfile("loc-edit-target"));

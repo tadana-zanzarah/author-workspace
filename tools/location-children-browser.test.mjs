@@ -1,10 +1,12 @@
-// Location Phase B3A.1 browser regression (local mode): the "Внутри" child-locations section
-// in the Location Profile -- absent for a leaf, visible with direct project-participating
-// children only (grandchildren excluded), name/type/scene-count/summary row content, child-click
+// Location Phase B3A.1 browser regression (local mode), extended by Location Manual UX Batch B's
+// B7 compact-density pass: the "Внутри" child-locations section in the Location Profile -- absent
+// for a leaf, visible with direct project-participating children only (grandchildren excluded),
+// name/type/scene-count row content (B7: no excerpt/description line any more), child-click
 // navigation (replacing the Profile content, same modal instance), parent breadcrumb navigation
 // staying functional afterwards, progressive "Показать ещё"/"Свернуть" for large child counts,
-// long-name rows not overflowing, unchanged direct Scene counts, and B3A Appearance/Geography
-// plus correct section order (Description -> Внутри -> thematic modules -> Сцены здесь).
+// long-name rows not overflowing, unchanged direct Scene counts, B3A Appearance/Geography plus
+// correct section order (Description -> Внутри -> thematic modules -> Сцены здесь), and B7's
+// responsive 2-column/1-column grid plus keyboard tab order through the compact rows.
 import {createRequire} from "node:module";
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
@@ -91,18 +93,21 @@ await page.evaluate(()=>openLocationProfile("loc-city-a"));
 if(JSON.stringify(await childRows())!==JSON.stringify(["Старый квартал"]))throw new Error("opening the city's own Profile must show its own direct child");
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
-/* E. Name/type/summary render correctly on a populated row. */
+/* E. Name/type render correctly on a populated row. Location Manual UX Batch B, B7 compact
+   density pass deliberately DROPPED the shortSummary/description excerpt line from this list (see
+   renderLocationChildRow) to fit a 2-column grid -- so this only checks name/type meta now; the
+   excerpt element must not even exist. */
 await page.evaluate(()=>openLocationProfile("loc-country"));
 {
   const renCity=await page.evaluate(()=>{
     const row=[...document.querySelectorAll("#locationProfileChildren .location-profile-child-row")].find(r=>r.querySelector(".location-profile-child-title").textContent.trim()==="Рен");
     return {
       meta:row.querySelector(".location-profile-child-meta")?.textContent.trim(),
-      excerpt:row.querySelector(".location-profile-child-excerpt")?.textContent.trim()
+      hasExcerpt:!!row.querySelector(".location-profile-child-excerpt")
     };
   });
   if(!renCity.meta||!renCity.meta.includes("Населённый пункт"))throw new Error(`type label secondary text missing/wrong for Рен: ${JSON.stringify(renCity)}`);
-  if(renCity.excerpt!=="Столица, полная шпилей.")throw new Error("shortSummary excerpt did not render on the child row");
+  if(renCity.hasExcerpt)throw new Error("B7: the compact child row must not render an excerpt/description line at all");
 }
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
@@ -180,6 +185,58 @@ if((await childRows()).length!==6)throw new Error("opening a different large-chi
 if(!(await page.locator("#locationProfileChildren .location-profile-children-more").textContent()).includes("16"))throw new Error("22-child parent must report 16 remaining after the initial 6");
 await page.click("#locationProfileChildren .location-profile-children-more");
 if((await childRows()).length!==22)throw new Error("expanding the 22-child parent must reveal all of them");
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());
+
+/* ---------- B7 compact responsive layout: 2-column desktop, 1-column narrow, keyboard order ---------- */
+
+// O. Desktop/comfortable width: the "Внутри" list lays out as a 2-column grid -- the first two
+// rows sit side by side (same top offset, different left offset), not stacked one under another.
+await page.setViewportSize({width:1100,height:900});
+await page.evaluate(()=>openLocationProfile("loc-sher"));
+{
+  const geometry=await page.evaluate(()=>{
+    const rows=[...document.querySelectorAll("#locationProfileChildren .location-profile-child-row")];
+    const [a,b]=rows.map(r=>r.getBoundingClientRect());
+    return {count:rows.length,sameRow:Math.abs(a.top-b.top)<2,sideBySide:b.left>a.left};
+  });
+  if(geometry.count<2)throw new Error("O: expected at least 2 visible child rows for the 2-column check");
+  if(!geometry.sameRow||!geometry.sideBySide)throw new Error(`O: at comfortable/desktop width, the first two child rows must sit side by side in a 2-column grid: ${JSON.stringify(geometry)}`);
+}
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());
+
+// P. Narrow/mobile width: the grid collapses to 1 column -- the first two rows stack vertically
+// (different top offset, same left offset) instead of side by side.
+await page.setViewportSize({width:375,height:800});
+await page.evaluate(()=>openLocationProfile("loc-sher"));
+{
+  const geometry=await page.evaluate(()=>{
+    const rows=[...document.querySelectorAll("#locationProfileChildren .location-profile-child-row")];
+    const [a,b]=rows.map(r=>r.getBoundingClientRect());
+    return {sameLeft:Math.abs(a.left-b.left)<2,stacked:b.top>a.top};
+  });
+  if(!geometry.sameLeft||!geometry.stacked)throw new Error(`P: at narrow/mobile width, child rows must stack in a single column: ${JSON.stringify(geometry)}`);
+}
+await page.evaluate(()=>document.getElementById("locationProfileClose").click());
+await page.setViewportSize({width:1280,height:900});
+
+// Q. Keyboard tab order: each child row is a real, individually focusable control, reachable in
+// the same order the rows render (top-to-bottom, left-to-right within the grid).
+await page.evaluate(()=>openLocationProfile("loc-sher"));
+{
+  const order=await page.evaluate(()=>{
+    const rows=[...document.querySelectorAll("#locationProfileChildren .location-profile-child-row")];
+    return rows.map(r=>r.querySelector(".location-profile-child-title").textContent.trim());
+  });
+  await page.focus("#locationProfileChildren .location-profile-child-row");
+  const tabbedOrder=[order[0]];
+  for(let i=1;i<order.length;i++){
+    await page.keyboard.press("Tab");
+    const focused=await page.evaluate(()=>document.activeElement?.classList.contains("location-profile-child-row")?document.activeElement.querySelector(".location-profile-child-title").textContent.trim():null);
+    if(!focused)break;
+    tabbedOrder.push(focused);
+  }
+  if(JSON.stringify(tabbedOrder)!==JSON.stringify(order))throw new Error(`Q: Tab must move through child rows in DOM/render order: expected ${JSON.stringify(order)}, got ${JSON.stringify(tabbedOrder)}`);
+}
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
 if(errors.length)throw new Error(`Ошибки браузера: ${errors.join("; ")}`);

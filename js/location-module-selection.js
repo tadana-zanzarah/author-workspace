@@ -59,38 +59,43 @@ function locationModuleHasData(location,moduleKey){
   return false;
 }
 
-// B3B type recommendations -- UI guidance ONLY (see task brief "TYPE RECOMMENDATIONS"): never
-// auto-adds/hides/removes a module or touches any canonical/selection data. A small additive table
-// keyed by [moduleKey][typePreset], deliberately NOT built for appearanceAtmosphere/geography
-// (Phase 1 shipped without recommendations and nothing in this task asks to add them
-// retroactively -- an absent moduleKey here simply always resolves to "none"). "strong" and
-// "recommend" are kept as distinct values (for possible future visual differentiation) even though
-// the current UI renders both with the same restrained hint -- see js/locations.js.
+// Location Manual UX Batch B, B1 -- full type recommendation matrix, revising every module/type
+// pair (not just adding appearanceAtmosphere/geography on top of the old B3B/B3C/History table).
+// UI guidance ONLY (see task brief "TYPE RECOMMENDATIONS" / Batch B section 3): never
+// auto-adds/hides/removes a module or touches any canonical/selection data, and never prevents
+// manual addition. "strong" and "recommend" are kept as distinct values (for possible future visual
+// differentiation) even though the current UI renders both with the same restrained hint -- see
+// js/locations.js. An unspecified/custom Location type always resolves to "none" regardless of
+// this table (see locationModuleRecommendation below).
 const LOCATION_MODULE_TYPE_RECOMMENDATIONS={
+  appearanceAtmosphere:{
+    world:"none",continent:"none",country:"recommend",region:"recommend",settlement:"strong",
+    district:"strong",street:"strong",building:"strong",room:"strong",natural_place:"recommend",
+    transport:"strong",other:"none"
+  },
+  geography:{
+    world:"none",continent:"recommend",country:"strong",region:"strong",settlement:"recommend",
+    district:"none",street:"none",building:"none",room:"none",natural_place:"strong",
+    transport:"none",other:"none"
+  },
   governmentSociety:{
     world:"recommend",continent:"none",country:"strong",region:"strong",settlement:"strong",
-    district:"recommend",street:"none",building:"recommend",room:"none",natural_place:"none",
-    transport:"recommend",other:"none"
+    district:"recommend",street:"none",building:"none",room:"none",natural_place:"none",
+    transport:"none",other:"none"
   },
   economy:{
     world:"recommend",continent:"none",country:"strong",region:"strong",settlement:"strong",
-    district:"strong",street:"recommend",building:"recommend",room:"none",natural_place:"none",
-    transport:"strong",other:"none"
+    district:"recommend",street:"none",building:"none",room:"none",natural_place:"none",
+    transport:"none",other:"none"
   },
-  // B3C recommendations, per task brief: world/continent/street/building/transport -> recommend;
-  // country/region/settlement/district -> strong; room/natural_place/other -> none.
   populationCulture:{
     world:"recommend",continent:"recommend",country:"strong",region:"strong",settlement:"strong",
-    district:"strong",street:"recommend",building:"recommend",room:"none",natural_place:"none",
-    transport:"recommend",other:"none"
+    district:"recommend",street:"none",building:"none",room:"none",natural_place:"none",
+    transport:"none",other:"none"
   },
-  // History recommendations, per the Location History implementation brief's matrix: world/
-  // continent/street/natural_place/transport -> recommend; country/region/settlement/district/
-  // building -> strong; room/other -> none. Guidance only, per this file's own header -- never
-  // auto-enables/hides/removes the module.
   history:{
     world:"recommend",continent:"recommend",country:"strong",region:"strong",settlement:"strong",
-    district:"strong",street:"recommend",building:"strong",room:"none",natural_place:"recommend",
+    district:"strong",street:"recommend",building:"recommend",room:"none",natural_place:"recommend",
     transport:"recommend",other:"none"
   }
 };

@@ -6,7 +6,7 @@
 // every cloud project while still passing any local-mode-only fixture (where the two id spaces
 // happen to coincide).
 import assert from "node:assert/strict";
-import {locationDirectChildren} from "../js/location-hierarchy.js";
+import {locationDirectChildren,locationDescendantSceneStats} from "../js/location-hierarchy.js";
 
 // Simulated cloud-shaped project Location entries: `.id` is participationId, `.locationId` is
 // the canonical id parentId actually lives in -- see js/locations.js's own identity-naming
@@ -92,5 +92,92 @@ const projectLocations=[sher,dvor,kabinet,grandchild,unrelated,participationIdTr
 assert.deepEqual(locationDirectChildren(null,projectLocations),[]);
 assert.deepEqual(locationDirectChildren(undefined,projectLocations),[]);
 assert.deepEqual(locationDirectChildren("canon-sher",undefined),[]);
+
+// ---------------------------------------------------------------------------
+// Location Manual UX Batch B, B5 -- locationDescendantSceneStats: "Сцен внутри" (scenes on ANY
+// descendant Location's participation, any depth, in the CURRENT project) -- excludes THIS
+// Location's own direct scenes (that's the separate, unchanged "Сцен здесь", see
+// locationSceneEntries in js/locations.js).
+// ---------------------------------------------------------------------------
+
+// Task brief's own worked example: Шер -> Кабинет Рене (7 direct scenes) -> Ванная (3 direct
+// scenes). Шер itself has 0 direct scenes. Expected: Шер "Сцен внутри" = 10 (7+3), NEVER including
+// Шер's own (here irrelevant) direct count.
+{
+  const ownedRows=new Map([
+    ["canon-sher",{id:"canon-sher",parent_id:null}],
+    ["canon-kabinet",{id:"canon-kabinet",parent_id:"canon-sher"}],
+    ["canon-vannaya",{id:"canon-vannaya",parent_id:"canon-kabinet"}]
+  ]);
+  const projectLocations=[
+    {id:"part-sher",locationId:"canon-sher"},
+    {id:"part-kabinet",locationId:"canon-kabinet"},
+    {id:"part-vannaya",locationId:"canon-vannaya"}
+  ];
+  const scenes=[
+    ...Array.from({length:7},(_,i)=>({id:`k${i}`,locationId:"part-kabinet"})),
+    ...Array.from({length:3},(_,i)=>({id:`v${i}`,locationId:"part-vannaya"}))
+  ];
+  const sherStats=locationDescendantSceneStats("canon-sher",ownedRows,projectLocations,scenes);
+  assert.deepEqual(sherStats,{count:10,hasParticipatingDescendants:true},"Шер: 7 (Кабинет) + 3 (Ванная) = 10, excluding Шер's own direct scenes");
+
+  // 1. Direct child alone (Кабинет's own subtree: just Ванная under it) -- 3.
+  const kabinetStats=locationDescendantSceneStats("canon-kabinet",ownedRows,projectLocations,scenes);
+  assert.deepEqual(kabinetStats,{count:3,hasParticipatingDescendants:true},"Кабинет: only Ванная (3) is inside it, its own 7 direct scenes are excluded");
+
+  // 2. No descendants at all (Ванная is a leaf) -- count 0, hasParticipatingDescendants false, so
+  // the UI knows to hide "Сцен внутри: 0" entirely rather than show an awkward zero.
+  const vannayaStats=locationDescendantSceneStats("canon-vannaya",ownedRows,projectLocations,scenes);
+  assert.deepEqual(vannayaStats,{count:0,hasParticipatingDescendants:false},"a leaf Location has no descendants at all");
+}
+
+// 3. Non-participating intermediate canonical ancestor must not break traversal to a deeper
+// participating descendant. Canonical chain: root -> middle (NOT in this project) -> leaf (IS in
+// this project, with 4 scenes). root's "Сцен внутри" must still find leaf's scenes through middle.
+{
+  const ownedRows=new Map([
+    ["canon-root",{id:"canon-root",parent_id:null}],
+    ["canon-middle",{id:"canon-middle",parent_id:"canon-root"}], // not participating in this project
+    ["canon-leaf",{id:"canon-leaf",parent_id:"canon-middle"}]
+  ]);
+  const projectLocations=[
+    {id:"part-root",locationId:"canon-root"},
+    // NOTE: no entry for canon-middle -- it exists in the owned canonical hierarchy but does not
+    // participate in the current project.
+    {id:"part-leaf",locationId:"canon-leaf"}
+  ];
+  const scenes=Array.from({length:4},(_,i)=>({id:`leaf-scene-${i}`,locationId:"part-leaf"}));
+  const stats=locationDescendantSceneStats("canon-root",ownedRows,projectLocations,scenes);
+  assert.deepEqual(stats,{count:4,hasParticipatingDescendants:true},"a non-participating intermediate ancestor must not break traversal to a deeper participating descendant");
+}
+
+// 4. scene.location_id participation semantics: a scene whose locationId happens to equal a
+// descendant's CANONICAL id (never a valid real shape, but guards the comparison itself) must NOT
+// be counted -- only a real PARTICIPATION id match counts. This is the exact bug class the task
+// brief warns about ("Do not compare scene.location_id to canonical ids").
+{
+  const ownedRows=new Map([
+    ["canon-parent",{id:"canon-parent",parent_id:null}],
+    ["canon-child",{id:"canon-child",parent_id:"canon-parent"}]
+  ]);
+  const projectLocations=[
+    {id:"part-parent",locationId:"canon-parent"},
+    {id:"part-child",locationId:"canon-child"}
+  ];
+  // Trap: a scene's locationId is the descendant's CANONICAL id, not its participation id.
+  const trapScenes=[{id:"trap",locationId:"canon-child"}];
+  const trapStats=locationDescendantSceneStats("canon-parent",ownedRows,projectLocations,trapScenes);
+  assert.deepEqual(trapStats,{count:0,hasParticipatingDescendants:true},"a scene keyed by a descendant's CANONICAL id (not its participation id) must never be counted");
+  // Sanity: the same scene correctly counts once its locationId is the real participation id.
+  const realScenes=[{id:"real",locationId:"part-child"}];
+  const realStats=locationDescendantSceneStats("canon-parent",ownedRows,projectLocations,realScenes);
+  assert.deepEqual(realStats,{count:1,hasParticipatingDescendants:true});
+}
+
+// Empty/absent canonical id, and malformed input, never throw.
+assert.deepEqual(locationDescendantSceneStats(null,new Map(),[],[]),{count:0,hasParticipatingDescendants:false});
+assert.deepEqual(locationDescendantSceneStats(undefined,new Map(),[],[]),{count:0,hasParticipatingDescendants:false});
+assert.deepEqual(locationDescendantSceneStats("canon-x",undefined,[],[]),{count:0,hasParticipatingDescendants:false});
+assert.deepEqual(locationDescendantSceneStats("canon-x",new Map(),undefined,undefined),{count:0,hasParticipatingDescendants:false});
 
 console.log("location Phase B3A.1 children-derivation unit tests: OK");

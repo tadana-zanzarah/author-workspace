@@ -193,24 +193,23 @@
    "not a large Gallery card" direction. */
 .location-profile-children{margin-bottom:var(--space-4)}
 .location-profile-children[hidden]{display:none}
-.location-profile-children-list{display:flex;flex-direction:column}
+/* Location Manual UX Batch B, B7: compact responsive grid -- 2 columns at comfortable/desktop
+   width, collapsing to 1 column narrow (see the max-width:520px block below), replacing the old
+   single full-width stacked list. Each row dropped its excerpt line (see renderLocationChildRow)
+   so a row is name+meta only -- short enough that 2 columns reads cleanly without wrapping. */
+.location-profile-children-list{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px}
 
 .location-profile-child-row{
-  display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;min-width:0;
-  padding:9px 2px;border:0;border-bottom:1px solid var(--border-faint);
+  display:flex;align-items:baseline;gap:8px;width:100%;text-align:left;min-width:0;
+  padding:8px 6px;border:0;border-bottom:1px solid var(--border-faint);
   border-radius:0;background:transparent;cursor:pointer;
 }
-.location-profile-child-row:last-child{border-bottom:0}
 .location-profile-child-row:hover,.location-profile-child-row:focus-visible{background:var(--soft)}
 .location-profile-child-title{
-  font-weight:650;font-size:var(--text-sm);color:var(--text-primary);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-weight:650;font-size:var(--text-sm);color:var(--text-primary);flex:1 1 auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
 }
-.location-profile-child-meta{font-size:var(--text-xs);color:var(--text-secondary)}
-.location-profile-child-excerpt{
-  font-size:var(--text-xs);color:var(--text-secondary);line-height:1.4;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
+.location-profile-child-meta{font-size:var(--text-xs);color:var(--text-secondary);flex:0 0 auto;white-space:nowrap}
 
 /* Same restrained text-link treatment as .sidebar-show-more (css/layout.css) -- the established
    "Показать ещё" affordance elsewhere in the app -- restyled to this dossier's own quieter
@@ -278,20 +277,24 @@
 }
 .location-thematic-clear:hover,.location-thematic-clear:focus-visible{color:var(--text-primary);text-decoration-color:currentColor}
 
-/* Adaptive Module Selection (Phase 1): per-module action row -- Скрыть/Убрать raздел are quiet
-   text actions (same visual weight as the old "Очистить раздел" link they replace); Удалить
-   данные раздела is deliberately the SAME quiet weight, not a heavy red button, per the accepted
-   contract ("small, secondary, de-emphasized text action... not a large red button") -- only its
-   color leans toward --danger so it still reads as the more consequential of the two. */
-.location-thematic-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);margin-top:var(--space-2)}
+/* Adaptive Module Selection (Phase 1) + Location Manual UX Batch B, B3: per-module action row.
+   Batch B corrective pass -- the original underline-only text links (visible only on hover/focus)
+   read as passive text rather than actions (task brief: "current actions look too much like
+   passive text"). Скрыть/Убрать раздел are now a compact, subtle PILL treatment (bordered, like
+   the "+ Добавить раздел" chips they sit near) so they read as clickable at rest, not only on
+   hover. Удалить данные раздела keeps the same compact pill shape (never a large/filled red CTA --
+   Save stays the only primary action in this form) but leans on --danger for its border/text so it
+   still reads as the more consequential of the three. */
+.location-thematic-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin-top:var(--space-2)}
 .location-thematic-hide,.location-thematic-remove,.location-thematic-delete-start{
-  display:inline-block;padding:4px 0;border:0;background:transparent;
-  color:var(--text-secondary);font-size:var(--text-xs);text-decoration:underline;text-decoration-color:transparent;cursor:pointer;
+  display:inline-flex;align-items:center;padding:4px 10px;border:1px solid var(--border-subtle);border-radius:999px;
+  background:var(--surface);color:var(--text-secondary);font-size:var(--text-xs);line-height:1.4;cursor:pointer;
 }
 .location-thematic-hide:hover,.location-thematic-hide:focus-visible,
-.location-thematic-remove:hover,.location-thematic-remove:focus-visible{color:var(--text-primary);text-decoration-color:currentColor}
-.location-thematic-delete-start{color:var(--danger)}
-.location-thematic-delete-start:hover,.location-thematic-delete-start:focus-visible{text-decoration-color:currentColor}
+.location-thematic-remove:hover,.location-thematic-remove:focus-visible{color:var(--text-primary);border-color:var(--accent);background:var(--soft)}
+.location-thematic-delete-start{border-color:var(--border-subtle);color:var(--danger)}
+.location-thematic-delete-start:hover,.location-thematic-delete-start:focus-visible{border-color:var(--danger);background:var(--danger-tint)}
+.location-thematic-hide:focus-visible,.location-thematic-remove:focus-visible,.location-thematic-delete-start:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .location-thematic-delete-confirm{display:inline-flex;align-items:center;gap:8px;font-size:var(--text-xs)}
 .location-thematic-delete-warning{color:var(--danger);max-width:38ch}
 .location-thematic-delete-confirm-yes,.location-thematic-delete-confirm-no{
@@ -512,4 +515,7 @@
   .location-media-card{flex-direction:column}
   .location-media-card-preview{width:100%}
   .location-media-card-thumb{width:100%;height:120px}
+  /* B7: narrow width collapses the "Внутри" grid to a single column -- 2 columns get cramped
+     below this width, especially once a child's name/type/scene-count meta needs real room. */
+  .location-profile-children-list{grid-template-columns:1fr}
 }

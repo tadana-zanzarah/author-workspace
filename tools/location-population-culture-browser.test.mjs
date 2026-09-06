@@ -11,7 +11,10 @@ const browser=await chromium.launch({headless:true,executablePath:"C:/Program Fi
 const context=await browser.newContext();
 const page=await context.newPage();
 page.setDefaultTimeout(5000);
-const errors=[];page.on("pageerror",error=>errors.push(error.message));page.on("console",message=>{if(message.type()==="error")errors.push(message.text())});
+// The dev static server ("serve") has no favicon.ico, so every run logs one benign 404 console
+// error unrelated to any app behavior this file tests -- filtered here so it can't mask a real one.
+const errors=[];page.on("pageerror",error=>errors.push(error.message));
+page.on("console",message=>{if(message.type()==="error"&&!/favicon/.test(message.text())&&!/404/.test(message.text()))errors.push(message.text())});
 
 const locations=[
   {id:"loc-pop-culture",name:"Портовый город Вейлор",description:"",officialName:"",aliases:[],parentId:null,typePreset:"settlement",customTypeLabel:"",shortSummary:"",
@@ -179,6 +182,13 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
   if(selection&&(selection.hidden||[]).includes("populationCulture"))throw new Error("4: a restored module must not linger in 'hidden' after save (phantom selection state)");
   await reloaded.close();
 }
+// `page` (the original tab) has been sitting idle since before the `reloaded` sub-block above
+// wrote the Show+Save changes -- its own in-memory `data` predates them (no cross-tab storage
+// sync exists, nor should one: this is standard local-storage-app behavior). Re-sync `page` from
+// the now-current localStorage (a plain data reload, NOT page.reload() -- `page` carries an
+// addInitScript that re-seeds the ORIGINAL fixture on every navigation, so a real page.reload()
+// here would silently wipe every change made since goto(), not just resync them).
+await page.evaluate(()=>{data=loadDataSafe();render()});
 
 /* ---------- DELETE DATA ---------- */
 

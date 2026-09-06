@@ -698,7 +698,8 @@ function populateLocationProfileCore(participationId){
   if(isLocationSwitch)resetLocationProfileLazyChildState();
   document.getElementById("locationProfileTitle").textContent=location.name||"Локация";
   const sceneCount=locationSceneEntries(participationId).length;
-  document.getElementById("locationProfileSceneCount").innerHTML=`Сцен <strong>${sceneCount}</strong>`;
+  document.getElementById("locationProfileSceneCount").innerHTML=`Сцен здесь <strong>${sceneCount}</strong>`;
+  renderLocationProfileDescendantSceneStat(location,ownedLocationRowsSync());
   syncLocationProfileEditFields(location);
   renderLocationProfileSummary(location);
   renderLocationProfileIntro(location,ownedLocationRowsSync());
@@ -717,6 +718,20 @@ function populateLocationProfileCore(participationId){
   return location;
 }
 
+// B5: "Сцен здесь" (this Location's own direct scenes, unchanged) vs "Сцен внутри" (scenes on any
+// descendant Location's participation, any depth, in the CURRENT project -- see
+// locationDescendantSceneStats). Hidden entirely when there is nothing meaningful to show (no
+// descendant Locations participate in this project AND the count is 0) so a leaf Location never
+// shows an awkward "Сцен внутри: 0".
+function renderLocationProfileDescendantSceneStat(location,rows){
+  const el=document.getElementById("locationProfileDescendantSceneCount");if(!el)return;
+  const canonicalId=locationCanonicalId(location);
+  const stats=locationDescendantSceneStats(canonicalId,rows,data.locations,data.scenes);
+  if(!stats.hasParticipatingDescendants&&stats.count===0){el.hidden=true;return}
+  el.hidden=false;
+  el.innerHTML=`Сцен внутри <strong>${stats.count}</strong>`;
+}
+
 // Fire-and-forget: repaints the breadcrumb + refreshes the parent picker's candidate list once
 // the owned-location fetch resolves, without blocking the Profile from opening instantly. Bails
 // out quietly if the Profile has since navigated to a different Location.
@@ -724,6 +739,7 @@ async function refreshLocationHierarchyContext(location){
   const rows=await loadOwnedLocationRows();
   if(locationProfileParticipationId!==location.id)return;
   renderLocationProfileIntro(location,rows);
+  renderLocationProfileDescendantSceneStat(location,rows);
   const canonicalId=locationCanonicalId(location);
   const picker=ensureLocationParentPicker();
   picker.setRows(rows);
@@ -813,16 +829,19 @@ function renderLocationProfileIntro(location,rows){
  * sidebar's own "Показать ещё" pattern (js/render.js) rather than an inner scrollbar or pagination. */
 const LOCATION_CHILDREN_VISIBLE_COUNT=6;
 
+// Location Manual UX Batch B, B7: compact density pass -- the excerpt/description line is
+// deliberately dropped (never rendered here at all, not just visually hidden) so each row stays a
+// single compact line even for a long name; the title's `title=""` attribute keeps the full name
+// reachable on hover/focus when the CSS layer truncates it. Keeps direct-child-only scene count
+// (never the B5 subtree count -- see the task brief's explicit "do not aggregate grandchildren").
 function renderLocationChildRow(child){
   const name=child.name||"Без названия";
   const typeLabel=locationDisplayTypeLabel(child);
   const sceneCount=locationSceneEntries(child.id).length;
   const metaParts=[typeLabel,sceneCount?`Сцен ${sceneCount}`:null].filter(Boolean);
-  const excerpt=((child.shortSummary||"").trim())||((child.description||"").trim());
   return `<button type="button" class="location-profile-child-row" onclick="openLocationProfile('${jsq(child.id)}')" aria-label="Открыть локацию «${esc(name)}»">
     <span class="location-profile-child-title" title="${esc(name)}">${esc(name)}</span>
     ${metaParts.length?`<span class="location-profile-child-meta">${esc(metaParts.join(" · "))}</span>`:""}
-    ${excerpt?`<span class="location-profile-child-excerpt">${esc(excerpt)}</span>`:""}
   </button>`;
 }
 
@@ -1615,16 +1634,22 @@ async function cancelLocationProfileEdit(){
   showLocationProfileReadMode();
 }
 
-function openLocationProfile(participationId){
-  return requestEditorTransition(()=>openLocationProfileNow(participationId));
+function openLocationProfile(participationId,options){
+  return requestEditorTransition(()=>openLocationProfileNow(participationId,options));
 }
 
-function openLocationProfileNow(participationId){
+// startInEdit (Location Manual UX Batch B, B4 "Создать и продолжить"): land directly in full Edit
+// mode instead of Read -- used ONLY right after a fresh Location's minimal canonical row already
+// exists (see submitCreateLocation), never as a general-purpose "open in edit" shortcut. Reuses
+// enterLocationProfileEdit exactly (same field hydration/dirty-baseline path as clicking "Edit"
+// manually), so nothing about the edit-entry contract is duplicated or special-cased here.
+function openLocationProfileNow(participationId,{startInEdit=false}={}){
   if(!populateLocationProfileCore(participationId))return;
   showLocationProfileReadMode();
-  showModal("locationProfileModal",{initialFocus:"#locationProfileEdit"});
+  showModal("locationProfileModal",{initialFocus:startInEdit?"#locProfileName":"#locationProfileEdit"});
   trackerFor("locationProfileModal").captureInitialState();
   locationProfileSaveButton.refresh();
+  if(startInEdit)enterLocationProfileEdit();
 }
 
 // Sidebar/entity navigation opens the concrete Location Profile directly — the
@@ -1999,7 +2024,10 @@ async function submitCreateLocation(){
     forceCloseModal("createLocationModal");
     renderLocationGallery();
     render();
-    if(newParticipationId)openLocationProfile(newParticipationId);
+    // B4 "Создать и продолжить": land directly in full Edit, not Read -- the canonical row (plus
+    // participation/parent) already exists by this point, so entering Edit here is purely a UI
+    // landing choice, no different in data-safety terms from opening Read and clicking Edit by hand.
+    if(newParticipationId)openLocationProfile(newParticipationId,{startInEdit:true});
   }finally{
     createLocationInFlight=false;button.textContent=idleLabel;
     button.disabled=!!newParticipationId||!document.getElementById("createLocationName").value.trim();

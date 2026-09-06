@@ -387,7 +387,7 @@
     <div class="modal-actions">
       <span id="createLocationStatus" class="save-status" role="status" aria-live="polite"></span>
       <button id="createLocationCancel" type="button">Отмена</button>
-      <button class="primary" id="createLocationSubmit" type="button" disabled>Создать</button>
+      <button class="primary" id="createLocationSubmit" type="button" disabled>Создать и продолжить</button>
     </div>
   </div>
 </div>
@@ -396,7 +396,8 @@
   <div class="modal location-profile-modal" style="width:min(760px,100%)">
     <div class="location-profile-header">
       <h2 id="locationProfileTitle">Локация</h2>
-      <span class="stat-pill" id="locationProfileSceneCount">Сцен <strong>0</strong></span>
+      <span class="stat-pill" id="locationProfileSceneCount">Сцен здесь <strong>0</strong></span>
+      <span class="stat-pill" id="locationProfileDescendantSceneCount" hidden>Сцен внутри <strong>0</strong></span>
     </div>
 
     <div id="locationProfileReadView">
@@ -406,8 +407,8 @@
       </div>
       <div class="location-profile-intro" id="locationProfileIntro" hidden></div>
       <div class="location-profile-summary" id="locationProfileSummary"></div>
-      <div class="location-profile-children" id="locationProfileChildren" hidden></div>
       <div class="location-profile-media" id="locationProfileMedia" hidden></div>
+      <div class="location-profile-children" id="locationProfileChildren" hidden></div>
       <div class="location-profile-thematic" id="locationProfileAppearance" hidden></div>
       <div class="location-profile-thematic" id="locationProfileGeography" hidden></div>
       <div class="location-profile-thematic" id="locationProfileGovernmentSociety" hidden></div>
@@ -503,15 +504,15 @@
               </label>
               <label class="profile-field">
                 <span class="field-caption">Звуки</span>
-                <textarea id="locProfileSounds" rows="2"></textarea>
+                <input id="locProfileSounds">
               </label>
               <label class="profile-field">
                 <span class="field-caption">Запахи</span>
-                <textarea id="locProfileSmells" rows="2"></textarea>
+                <input id="locProfileSmells">
               </label>
               <label class="profile-field">
                 <span class="field-caption">Освещение</span>
-                <textarea id="locProfileLighting" rows="2"></textarea>
+                <input id="locProfileLighting">
               </label>
               <label class="profile-field">
                 <span class="field-caption">Ощущения (необязательно)</span>
@@ -544,7 +545,7 @@
             <div class="profile-editor-grid">
               <label class="profile-field">
                 <span class="field-caption">Рельеф</span>
-                <textarea id="locProfileTerrain" rows="2"></textarea>
+                <input id="locProfileTerrain">
               </label>
               <label class="profile-field">
                 <span class="field-caption">Климат</span>
@@ -552,15 +553,15 @@
               </label>
               <label class="profile-field">
                 <span class="field-caption">Вода</span>
-                <textarea id="locProfileWater" rows="2"></textarea>
+                <input id="locProfileWater">
               </label>
               <label class="profile-field">
                 <span class="field-caption">Растительность</span>
-                <textarea id="locProfileVegetation" rows="2"></textarea>
+                <input id="locProfileVegetation">
               </label>
               <label class="profile-field">
                 <span class="field-caption">Доступ</span>
-                <textarea id="locProfileAccess" rows="2"></textarea>
+                <input id="locProfileAccess">
               </label>
               <label class="profile-field">
                 <span class="field-caption">Координаты</span>

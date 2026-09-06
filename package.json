@@ -14,6 +14,8 @@
     "test:location-adaptive-module-selection-browser": "node tools/location-adaptive-module-selection-browser.test.mjs",
     "test:location-government-economy-modules-browser": "node tools/location-government-economy-modules-browser.test.mjs",
     "test:location-population-culture-browser": "node tools/location-population-culture-browser.test.mjs",
+    "test:location-module-visibility-lifecycle-browser": "node tools/location-module-visibility-lifecycle-browser.test.mjs",
+    "test:location-tag-fields-no-chevron-browser": "node tools/location-tag-fields-no-chevron-browser.test.mjs",
     "test:location-media-profile-browser": "node tools/location-media-profile-browser.test.mjs",
     "test:location-media-gallery-cover-browser": "node tools/location-media-gallery-cover-browser.test.mjs",
     "test:location-history-browser": "node tools/location-history-browser.test.mjs",

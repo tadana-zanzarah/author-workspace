@@ -227,14 +227,21 @@ await page.click("#locProfileAddSectionToggle");
 await cancelEdit(page);
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
-// 8. A room-typed Location: no recommendation hint, but both modules remain addable (guidance
-// never blocks a manual add).
+// 8. A room-typed Location: no recommendation hint specifically for Government/Economy, but both
+// modules remain addable (guidance never blocks a manual add). Location Manual UX Batch B's
+// revised recommendation matrix (B1) now DOES recommend Appearance & Atmosphere for room-typed
+// Locations, so this checks the Government/Economy chips specifically rather than the whole panel
+// (a room recommending Appearance is the correct, intentional B1 product direction).
 await page.evaluate(()=>openLocationProfile("loc-room"));
 await page.click("#locationProfileEdit");
 await page.click("#locProfileAddSectionToggle");
 {
-  const panelText=await page.evaluate(()=>document.getElementById("locProfileAddSectionPanel").textContent);
-  if(panelText.includes("Рекомендуется"))throw new Error("8: a room-typed Location must not show the recommendation hint");
+  const chipHasRecommendTag=label=>{
+    const chip=[...document.querySelectorAll("#locProfileAddSectionPanel .location-thematic-add-chip")].find(el=>el.textContent.includes(label));
+    return !!chip?.querySelector(".location-thematic-add-chip-recommend-tag");
+  };
+  if(await page.evaluate(chipHasRecommendTag,"Государство и общество"))throw new Error("8: a room-typed Location must not show the recommendation hint for governmentSociety");
+  if(await page.evaluate(chipHasRecommendTag,"Экономика"))throw new Error("8: a room-typed Location must not show the recommendation hint for economy");
   const govChipExists=await page.evaluate(label=>!!document.querySelector(`#locProfileAddSectionPanel .location-thematic-add-chip`),null);
   if(!govChipExists)throw new Error("8: non-recommended modules must remain addable");
 }

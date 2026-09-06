@@ -31,10 +31,15 @@ if(await page.isDisabled("#createLocationSubmit")!==false)throw new Error("D: С
 await page.click("#createLocationSubmit");
 await page.waitForSelector("#createLocationModal",{state:"hidden"});
 if(!await page.evaluate(()=>data.locations.some(l=>l.name==="Кабинет")))throw new Error("новая локация не попала в data после создания");
-// successful create opens the new Location's Profile directly, in READ mode (not an edit form).
+// Location Manual UX Batch B, B4 "Создать и продолжить": successful create opens the new
+// Location's Profile directly in full EDIT mode (not Read) -- the author lands ready to keep
+// filling in description/modules/media/history without an extra "Редактировать" click.
 if(!await visible("locationProfileModal"))throw new Error("создание локации не открыло её профиль");
-if(await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==true)throw new Error("Profile новой локации открылся не в read mode");
-if(await page.textContent("#locationProfileTitle")!=="Кабинет")throw new Error("профиль новой локации не показывает её название");
+if(await page.evaluate(()=>document.getElementById("locationProfileEditView").hidden)!==false)throw new Error("B4: Profile новой локации должен открыться сразу в edit mode");
+if(await page.evaluate(()=>document.getElementById("locationProfileReadView").hidden)!==true)throw new Error("B4: Profile новой локации не должен показывать read mode первым");
+if(await page.inputValue("#locProfileName")!=="Кабинет")throw new Error("профиль новой локации не показывает её название в форме редактирования");
+if(!await page.isDisabled("#locationProfileSave"))throw new Error("B4: Save должен быть отключён сразу после создания (ничего ещё не изменено)");
+await page.evaluate(()=>document.getElementById("locationProfileCancelEdit").click());
 await page.evaluate(()=>document.getElementById("locationProfileClose").click());
 
 // C: Save disabled on a freshly-entered, unedited Edit mode.
