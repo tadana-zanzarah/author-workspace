@@ -29,6 +29,13 @@
 //      shrink-wrapped to whatever synchronous content it had, then visibly grew once async Media
 //      resolved. It now has an explicit height too (matching #charsModal's own convention), and a
 //      genuine LOADING state (distinct from LOADED EMPTY) occupies the Media position meanwhile.
+//
+//   #5D/#5E SPARSE READ HEIGHT CORRECTION -- the fixed #5 workspace height, applied unconditionally,
+//      made a genuinely EMPTY Read Profile look like an oversized blank box. computeLocationProfileReadDensity
+//      (js/locations.js) now judges sparse/workspace from the actual rendered Read-mode DOM --
+//      never a scrollHeight guess -- and only ever upgrades sparse->workspace mid-viewing (never
+//      the reverse), so a still-pending Media/History fetch can never be mistaken for "confirmed
+//      empty" and cause the #5 jump this whole architecture exists to prevent.
 import {createRequire} from "node:module";
 import {spawn} from "node:child_process";
 
@@ -74,12 +81,17 @@ const mediaLocA={id:"loc-media-a",name:"Локация Медиа А",descriptio
 const mediaLocB={id:"loc-media-b",name:"Локация Медиа Б",description:"",officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:"",shortSummary:""};
 const mediaLocC={id:"loc-media-c",name:"Локация Медиа В",description:"",officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:"",shortSummary:""};
 
+// #5D/#5E sparse-Read-height fixture: cloud-mode, genuinely empty (no description/modules/
+// children/scenes) once Media/History resolve -- used to prove a still-pending open never
+// compacts, and a same-Location refresh (media/history already known) correctly does.
+const sparseMediaLoc={id:"loc-sparse-media",name:"Пустая облачная локация",description:"",officialName:"",aliases:[],parentId:null,typePreset:null,customTypeLabel:"",shortSummary:""};
+
 const project={
   version:11,
   characters:[{id:"char-focus",name:"Рене",sortOrder:1000}],
   profiles:{},
   chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],
-  locations:[addPanelLoc,addPanelShortLoc,parentLoc,...childLocs,mediaLocA,mediaLocB,mediaLocC],
+  locations:[addPanelLoc,addPanelShortLoc,parentLoc,...childLocs,mediaLocA,mediaLocB,mediaLocC,sparseMediaLoc],
   tags:[],future:{},scenes:childScenes
 };
 
@@ -379,6 +391,88 @@ try{
     await page.evaluate(()=>forceCloseModal("locationProfileModal"));
   }
   console.log("#5 media layout stability: OK");
+
+  /* ================= #5D SPARSE READ HEIGHT (local mode) ================= */
+  // Back to plain local mode for this section -- #5 above left globalThis.cloudProjectSync set.
+  // Local mode has no async Media/History gap at all, so density is always known synchronously --
+  // reuses the already-established sparse (addPanelShortLoc) and rich (addPanelLoc) fixtures.
+  {
+    await page.evaluate(()=>{delete globalThis.cloudProjectSync;delete cloudState.locationMediaApi});
+    const outerRectHeight=()=>page.evaluate(()=>document.querySelector("#locationProfileModal .modal").getBoundingClientRect().height);
+    const isSparseClassed=()=>page.evaluate(()=>document.querySelector("#locationProfileModal .modal").classList.contains("location-profile-modal--sparse-read"));
+
+    await page.evaluate(id=>openLocationProfile(id),addPanelShortLoc.id);
+    assert(await isSparseClassed(),"a genuinely sparse Location (no description/modules/children/scenes) must get the sparse-read class");
+    const sparseHeight=await outerRectHeight();
+    const viewportHeight=await page.evaluate(()=>window.innerHeight);
+    assert(sparseHeight<viewportHeight*0.7,`a sparse Read Profile must be meaningfully below the 94dvh workspace height, got ${sparseHeight} of a ${viewportHeight} viewport`);
+
+    await page.evaluate(()=>forceCloseModal("locationProfileModal"));
+    await page.evaluate(id=>openLocationProfile(id),addPanelLoc.id);
+    assert(!(await isSparseClassed()),"a Location with real thematic content must NOT get the sparse-read class");
+    const richHeight=await outerRectHeight();
+    assert(richHeight>sparseHeight+100,`rich Read must be meaningfully taller than sparse Read, got sparse=${sparseHeight} rich=${richHeight}`);
+    await page.evaluate(()=>forceCloseModal("locationProfileModal"));
+
+    // Edit is always the full workspace, even for the same sparse Location.
+    await page.evaluate(id=>{openLocationProfile(id);enterLocationProfileEdit()},addPanelShortLoc.id);
+    assert(!(await isSparseClassed()),"Edit mode must always use the full workspace height, even for a sparse Location");
+    const sparseEditHeight=await outerRectHeight();
+    assert(sparseEditHeight>sparseHeight+100,`Edit must be taller than the same Location's compact Read view, got read=${sparseHeight} edit=${sparseEditHeight}`);
+
+    // Edit -> Cancel: a user-triggered mode change is allowed to re-judge fresh -- a Location
+    // that's still sparse after Cancel must return to compact Read (task brief section 7).
+    await page.evaluate(()=>cancelLocationProfileEdit());
+    assert(await isSparseClassed(),"returning to Read via Cancel must re-judge a still-sparse Location as sparse again");
+    await page.evaluate(()=>forceCloseModal("locationProfileModal"));
+  }
+  console.log("#5D sparse read height (local): OK");
+
+  /* ================= #5E MEDIA/HISTORY-PENDING SPARSE SAFETY (cloud) ================= */
+  // The critical regression guard: a cloud Location that WOULD otherwise be judged sparse must
+  // never open compact while its Media/History are still unresolved, and must never visibly
+  // shrink after they resolve empty mid-viewing -- only a fresh reopen (state now known) may
+  // correctly compact it.
+  {
+    await page.evaluate(()=>{
+      globalThis.cloudProjectSync={projectId:"fake-project",api:{listOwnedLocations:async()=>({ok:true,data:[]}),listLocationHistoryEvents:()=>window.__historyFetchSparse||Promise.resolve({ok:true,data:[]})}};
+      cloudState.locationMediaApi={
+        listMedia:()=>window.__mediaFetchSparse||Promise.resolve({ok:true,data:[]}),
+        signedUrl:async()=>({ok:true,url:"https://example.test/fake.jpg"})
+      };
+    });
+    const outerRect=()=>page.evaluate(()=>document.querySelector("#locationProfileModal .modal").getBoundingClientRect().toJSON());
+    const isSparseClassed=()=>page.evaluate(()=>document.querySelector("#locationProfileModal .modal").classList.contains("location-profile-modal--sparse-read"));
+
+    // First (genuine-switch) open: Media AND History both pending -- must NOT open compact.
+    await page.evaluate(()=>{
+      window.__mediaFetchSparse=new Promise(resolve=>{window.__resolveMediaSparse=resolve});
+      window.__historyFetchSparse=new Promise(resolve=>{window.__resolveHistorySparse=resolve});
+    });
+    await page.evaluate(id=>openLocationProfile(id),sparseMediaLoc.id);
+    const rectPending=await outerRect();
+    assert(!(await isSparseClassed()),"a cloud Location whose Media/History are still pending must NOT open compact, even though everything else is empty");
+
+    // Resolve both empty -- must never visibly shrink the already-open workspace modal.
+    await page.evaluate(()=>window.__resolveHistorySparse({ok:true,data:[]}));
+    await page.evaluate(()=>window.__resolveMediaSparse({ok:true,data:[]}));
+    await page.waitForFunction(()=>document.getElementById("locationProfileMedia").hidden===true);
+    await page.waitForTimeout(50);
+    const rectAfterEmpty=await outerRect();
+    assert(Math.abs(rectAfterEmpty.height-rectPending.height)<1,`resolving Media/History empty must never visibly collapse an already-open workspace modal, got ${rectPending.height} -> ${rectAfterEmpty.height}`);
+    assert(!(await isSparseClassed()),"the modal must stay in workspace mode for the rest of this viewing, even after Media/History resolve empty");
+
+    // Same-Location REFRESH (close, reopen): Media/History are now KNOWN (already resolved
+    // empty) -- this fresh open may correctly judge the Location sparse and compact it.
+    await page.evaluate(()=>forceCloseModal("locationProfileModal"));
+    await page.evaluate(id=>openLocationProfile(id),sparseMediaLoc.id);
+    assert(await isSparseClassed(),"reopening the same now-confirmed-empty Location must correctly judge it sparse this time");
+    const rectRefreshed=await outerRect();
+    const viewportHeight=await page.evaluate(()=>window.innerHeight);
+    assert(rectRefreshed.height<viewportHeight*0.7,`a confirmed-empty cloud Location must compact on a fresh reopen, got ${rectRefreshed.height} of a ${viewportHeight} viewport`);
+    await page.evaluate(()=>forceCloseModal("locationProfileModal"));
+  }
+  console.log("#5E media/history-pending sparse safety (cloud): OK");
 
   if(errors.length)throw new Error(`Browser console errors: ${errors.join("; ")}`);
   console.log("location manual ux final visual polish browser tests passed");

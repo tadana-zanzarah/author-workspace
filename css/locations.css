@@ -29,11 +29,30 @@
    stable, viewport-constrained workspace height from the moment they open -- async content below
    changes ONLY inside .location-profile-scroll (flex:1 1 auto, min-height:0), never this outer
    box. dvh (real, current visual viewport) preferred over vh, same fallback convention as the
-   max-height pair below it. */
+   max-height pair below it. This `height` is the WORKSPACE default (Edit mode always, Read mode
+   whenever it has real/pending content) -- see .location-profile-modal--sparse-read below for the
+   one narrow exception this rule turned out to need. */
 .location-profile-modal{
   height:94vh;height:94dvh;
   max-height:94vh;max-height:94dvh;
   display:flex;flex-direction:column;overflow:hidden;
+}
+/* Sparse Read correction: the fixed workspace height above is right for Edit (always a full form)
+   and for Read once there's real or still-loading content to show -- but a genuinely EMPTY Read
+   Profile (no description, no Media, no children, no modules, no History, no scenes -- see
+   computeLocationProfileReadDensity in js/locations.js, which decides this from the actual
+   rendered DOM, not a scrollHeight guess) has nothing to fill that space with, so the fixed height
+   just reads as a large empty box. This class is applied ONLY to that exact case, and ONLY while
+   Read mode is showing (showLocationProfileEditMode always removes it) -- `height:auto` lets the
+   modal shrink to its real content, `max-height` above still caps it, and this min-height keeps it
+   from feeling cramped or clipping the header/footer chrome. Never applied while Media or History
+   is still resolving (their pending state alone forces workspace) or after either has ever
+   resolved to something non-empty during this viewing (density only ever upgrades sparse to
+   workspace mid-session, never the reverse -- see locationProfileReadDensityLocked) -- so this can
+   never itself cause the async-resize jump #5 fixed. */
+.location-profile-modal.location-profile-modal--sparse-read{
+  height:auto;
+  min-height:280px;
 }
 .location-profile-modal>.location-profile-header{flex:none}
 .location-profile-modal>#locationProfileReadView:not([hidden]),

@@ -36,6 +36,13 @@ let locationProfileOriginalParentId=null;
 let locationProfileChildrenExpanded=false;
 let createLocationInFlight=false;
 let createLocationParentId=null;
+// Location Manual UX sparse-Read height correction: once a Read viewing has been judged to have
+// real (or still-pending) content and upgraded to the fixed workspace height, it must never
+// shrink back down underneath the user just because an async fetch happens to resolve empty --
+// see refreshLocationProfileReadDensity. Reset to false on every FRESH Read-mode entry (open,
+// Location switch, Cancel, post-Save), since a user-triggered mode change is allowed to judge the
+// content fresh (see task brief section 7).
+let locationProfileReadDensityLocked=false;
 
 const locationProfileSaveButton=createSaveButtonController("locationProfileSave","locationProfileModal",{statusId:"locationProfileStatus"});
 
@@ -100,14 +107,24 @@ let locationHistoryEventsOriginal=[];
 let locationProfileHistoryEventsDraft=[];
 let locationHistoryEventsLoadToken=0;
 let locationHistoryEventEditingId=null;
+// Location Manual UX sparse-Read height correction: mirrors locationMediaLoadStatus exactly, for
+// the same reason -- History has the same lazy cloud-only fetch shape as Media (see this block's
+// own header comment), so a sparse-Read density decision (see computeLocationProfileReadDensity)
+// made before History's own fetch has resolved would be judging incomplete information the same
+// way a pre-fix Media decision would. Set to "loading" only for a genuine Location switch (see
+// resetLocationProfileLazyChildState) and cleared once this Location's own fetch settles, exactly
+// mirroring Media's own lifecycle including the same-Location-refresh exception.
+let locationHistoryLoadStatus="loaded"; // "loading" | "loaded"
 
 async function loadLocationHistoryEventsForProfile(location){
   const token=++locationHistoryEventsLoadToken;
   if(!isCloudWorkspace()){
     locationHistoryEventsOriginal=normalizeLocalHistoryEvents(location.historyEvents).map(item=>normalizeHistoryEventDraftItem(item))
       .sort((a,b)=>a.sortOrder-b.sortOrder||a.id.localeCompare(b.id));
+    locationHistoryLoadStatus="loaded";
     resetLocationProfileHistoryEventsDraft();
     renderLocationProfileHistory(location);
+    refreshLocationProfileReadDensity();
     return;
   }
   const canonicalId=locationCanonicalId(location);
@@ -131,11 +148,13 @@ async function loadLocationHistoryEventsForProfile(location){
   });
   if(plan.stale)return;
   locationHistoryEventsOriginal=plan.events;
+  locationHistoryLoadStatus="loaded";
   if(plan.resetDraft)resetLocationProfileHistoryEventsDraft();
   renderLocationProfileHistory(location);
   if(plan.refreshModules)renderLocationThematicModules();
   if(plan.expandHistoryDisclosure)setLocationThematicDisclosure("history",true);
   if(plan.captureInitialState&&tracker)tracker.captureInitialState();
+  refreshLocationProfileReadDensity();
 }
 // locationMediaCropState ({id, draft:{x,y,zoom}} | null) lives in js/state.js, not as a local `let`
 // here -- js/app.js's crop-modal zoom/pointer-drag bindings need to read it as a bare identifier
@@ -150,6 +169,7 @@ async function loadLocationMediaForProfile(location){
     locationMediaOriginal=[];locationProfileMediaDraft=[];locationMediaDraftFiles.clear();
     locationMediaLoadStatus="loaded";
     renderLocationProfileMedia();renderLocationProfileMediaEditor();
+    refreshLocationProfileReadDensity();
     return;
   }
   const canonicalId=locationCanonicalId(location);
@@ -191,6 +211,7 @@ async function loadLocationMediaForProfile(location){
   renderLocationProfileMedia();
   renderLocationProfileMediaEditor();
   if(plan.captureInitialState&&tracker)tracker.captureInitialState();
+  refreshLocationProfileReadDensity();
 }
 
 /* ---- Read mode ---- */
@@ -717,11 +738,16 @@ async function deleteLocationFromGallery(participationId){
 function resetLocationProfileLazyChildState(){
   locationMediaOriginal=[];
   locationHistoryEventsOriginal=[];
-  // Cloud mode has a real async gap before this Location's own Media resolves -- render the
-  // loading placeholder now, synchronously, so there is never a frame where the section looks
+  // Cloud mode has a real async gap before this Location's own Media/History resolve -- render the
+  // Media loading placeholder now, synchronously, so there is never a frame where the section looks
   // like "loaded, no media" before the fetch has even started. Local mode resolves synchronously
-  // (see loadLocationMediaForProfile's own local-mode branch), so it goes straight to "loaded".
-  locationMediaLoadStatus=isCloudWorkspace()?"loading":"loaded";
+  // (see loadLocationMediaForProfile/loadLocationHistoryEventsForProfile's own local-mode branches),
+  // so both go straight to "loaded". History's own "loading" status has no visible placeholder of
+  // its own (unlike Media) -- it exists purely so computeLocationProfileReadDensity never judges a
+  // still-pending History fetch as "definitely empty".
+  const pendingIfCloud=isCloudWorkspace()?"loading":"loaded";
+  locationMediaLoadStatus=pendingIfCloud;
+  locationHistoryLoadStatus=pendingIfCloud;
   renderLocationProfileMedia();
 }
 
@@ -759,6 +785,48 @@ function populateLocationProfileCore(participationId){
   loadLocationMediaForProfile(location);
   loadLocationHistoryEventsForProfile(location);
   return location;
+}
+
+// Location Manual UX sparse-Read height correction: decides between the fixed 94dvh WORKSPACE
+// height (Edit always; Read whenever it has real or still-pending content) and a compact,
+// content-driven height for a Read Profile that is genuinely empty (see
+// .location-profile-modal--sparse-read in css/locations.css). Reads the ALREADY-RENDERED DOM state
+// of every Read-mode section -- title/description/children/thematic modules/History/scenes/Media
+// -- plus the Media/History load-status flags, never a scrollHeight or other layout-size guess.
+// Media or History still resolving counts as non-sparse on its own: an unresolved fetch could
+// still turn out to hold real content, and the #5 bug this whole architecture exists to prevent
+// was exactly a wrong-at-open-time size decision like that.
+function computeLocationProfileReadDensity(){
+  if(locationMediaLoadStatus==="loading"||locationHistoryLoadStatus==="loading")return "workspace";
+  const hasDescription=!!document.querySelector("#locationProfileSummary .location-profile-description");
+  const hasChildren=document.getElementById("locationProfileChildren")?.hidden===false;
+  const thematicIds=["locationProfileAppearance","locationProfileGeography","locationProfileGovernmentSociety",
+    "locationProfileEconomy","locationProfilePopulationCulture","locationProfileHistory"];
+  const hasThematic=thematicIds.some(id=>document.getElementById(id)?.hidden===false);
+  const hasScenes=!!document.querySelector("#locationProfileScenes .location-profile-scene-row");
+  const hasMedia=document.getElementById("locationProfileMedia")?.hidden===false;
+  return (hasDescription||hasChildren||hasThematic||hasScenes||hasMedia)?"workspace":"sparse";
+}
+
+function applyLocationProfileReadDensity(density){
+  document.querySelector("#locationProfileModal .modal")?.classList.toggle("location-profile-modal--sparse-read",density==="sparse");
+}
+
+// `fresh` (called from showLocationProfileReadMode -- every actual Read-mode entry: initial open,
+// Location switch, Cancel, post-Save) always resets the lock below and judges purely from what's
+// known right now, matching the task brief's "a user-triggered mode change is acceptable" -- a
+// Location that got sparser after Save/Cancel is allowed to compact back down. Without `fresh`
+// (called from the async resolution points inside loadLocationMediaForProfile/
+// loadLocationHistoryEventsForProfile) this only ever UPGRADES sparse to workspace, never the
+// reverse -- once real/pending content has shown up during a single Read viewing, the modal must
+// never visibly shrink back underneath the user; only the growth a stable workspace already
+// absorbs without moving anything is allowed to happen mid-viewing.
+function refreshLocationProfileReadDensity({fresh=false}={}){
+  if(fresh)locationProfileReadDensityLocked=false;
+  if(locationProfileReadDensityLocked)return;
+  const density=computeLocationProfileReadDensity();
+  if(density==="workspace")locationProfileReadDensityLocked=true;
+  applyLocationProfileReadDensity(density);
 }
 
 // B5: "Сцен здесь" (this Location's own direct scenes, unchanged) vs "Сцен внутри" (scenes on any
@@ -1701,6 +1769,7 @@ function showLocationProfileReadMode(){
   document.getElementById("locationProfileReadView").hidden=false;
   document.getElementById("locationProfileEditView").hidden=true;
   document.getElementById("locationProfileEdit")?.focus();
+  refreshLocationProfileReadDensity({fresh:true});
 }
 
 function showLocationProfileEditMode(){
@@ -1710,6 +1779,8 @@ function showLocationProfileEditMode(){
   trackerFor("locationProfileModal").captureInitialState();
   locationProfileSaveButton.refresh();
   document.getElementById("locProfileName").focus();
+  // Edit is always the full workspace -- unconditional, independent of the Read-mode density lock.
+  applyLocationProfileReadDensity("workspace");
 }
 
 function enterLocationProfileEdit(){
