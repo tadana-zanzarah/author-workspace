@@ -116,8 +116,13 @@ try{
     assert(focusVisible,"clicking a text field must land keyboard-visible focus on it");
     const outline=await page.evaluate(()=>{const s=getComputedStyle(document.getElementById("locProfileSounds"));return {width:s.outlineWidth,offset:s.outlineOffset,style:s.outlineStyle}});
     assert(outline.style==="solid","Location compact field must still show a solid focus outline");
-    assert(outline.width==="2px","Location compact field outline must be thinned to 2px (was 3px)");
-    assert(outline.offset==="1px","Location compact field outline-offset must be thinned to 1px (was 2px)");
+    assert(outline.width==="2px","Location compact field outline must stay 2px (WCAG 2.4.11 minimum)");
+    // Manual Review batch superseded the plain positive-offset ring this test originally checked
+    // for (outline-offset:1px, painted OUTSIDE the border edge) with a NEGATIVE offset that pulls
+    // the whole ring inside the box instead -- see css/base.css and
+    // location-manual-review-layout-stability-browser.test.mjs's own #1 section for the full
+    // geometric containment proof this file doesn't duplicate.
+    assert(outline.offset==="-3px","Location compact field outline-offset must be inset (-3px), not painted outside the border edge");
     const after=await page.evaluate(()=>document.getElementById("locProfileSounds").getBoundingClientRect().toJSON());
     assert(before.width===after.width&&before.height===after.height,"focusing a Location field must not change its own box geometry");
 
@@ -141,7 +146,7 @@ try{
     const before=await page.evaluate(()=>document.getElementById("pf_height").getBoundingClientRect().toJSON());
     await page.click("#pf_height");
     const outline=await page.evaluate(()=>{const s=getComputedStyle(document.getElementById("pf_height"));return {width:s.outlineWidth,offset:s.outlineOffset}});
-    assert(outline.width==="2px"&&outline.offset==="1px","Character field must pick up the same shared, thinned focus rule as Location");
+    assert(outline.width==="2px"&&outline.offset==="-3px","Character field must pick up the same shared, inset focus rule as Location");
     const after=await page.evaluate(()=>document.getElementById("pf_height").getBoundingClientRect().toJSON());
     assert(before.width===after.width&&before.height===after.height,"focusing a Character field must not change its own box geometry");
     await page.evaluate(()=>forceCloseModal("profileEditorModal"));
