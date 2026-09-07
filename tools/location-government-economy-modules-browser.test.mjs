@@ -51,17 +51,22 @@ const freshPage=async()=>{
 await page.evaluate(()=>openLocationProfile("loc-gov-econ"));
 {
   const state=await page.evaluate(()=>{
-    // Location Manual UX Batch A issue #11: read-view content now lives one level deeper, inside
-    // .location-profile-scroll (the single scroll region the modal-scroll fix introduced) --
-    // relative order is unchanged, only the direct-children container to walk is different.
+    // Location Manual UX Batch A issue #11: read-view content lives inside .location-profile-scroll
+    // (the single scroll region the modal-scroll fix introduced). Location Media unknown->metadata
+    // stability follow-up added one MORE level of nesting on top of that -- #locationProfileReadDownstream
+    // now wraps everything from Children through Scenes (see index.html) so it can be held hidden
+    // while Media's composition is unknown -- so a shallow direct-children indexOf no longer
+    // reflects visual order (both operands resolve to -1). compareDocumentPosition reflects actual
+    // document order regardless of how many wrapper levels sit between two elements.
+    const isAfter=(a,b)=>!!(b.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING);
     const view=document.getElementById("locationProfileReadView").querySelector(".location-profile-scroll");
     const gov=document.getElementById("locationProfileGovernmentSociety");
     const econ=document.getElementById("locationProfileEconomy");
-    const order=Array.prototype.indexOf.call(view.children,gov)<Array.prototype.indexOf.call(view.children,econ);
+    const order=isAfter(econ,gov);
     const scenesSection=[...view.querySelectorAll(".profile-section")].find(s=>s.querySelector("#locationProfileScenes"));
     return {
       govHidden:gov.hidden,econHidden:econ.hidden,order,
-      econBeforeScenes:Array.prototype.indexOf.call(view.children,econ)<Array.prototype.indexOf.call(view.children,scenesSection),
+      econBeforeScenes:isAfter(scenesSection,econ),
       govTitle:gov.querySelector(".location-profile-thematic-title")?.textContent.trim(),
       econTitle:econ.querySelector(".location-profile-thematic-title")?.textContent.trim(),
       govProse:[...gov.querySelectorAll(".location-profile-thematic-prose")].map(el=>el.textContent.trim()),

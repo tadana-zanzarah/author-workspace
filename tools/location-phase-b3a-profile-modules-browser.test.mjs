@@ -91,14 +91,21 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 await page.evaluate(()=>openLocationProfile("loc-both"));
 {
   const state=await page.evaluate(()=>{
-    // Location Manual UX Batch A issue #11: read-view content now lives one level deeper, inside
-    // .location-profile-scroll (the single scroll region the modal-scroll fix introduced) --
-    // relative order is unchanged, only the direct-children container to walk is different.
+    // Location Manual UX Batch A issue #11: the read view's own content lives inside
+    // .location-profile-scroll (the single scroll region the modal-scroll fix introduced).
+    // Location Media unknown->metadata stability follow-up added one MORE level of nesting on top
+    // of that -- #locationProfileReadDownstream now wraps everything from Children through Scenes
+    // (see index.html) so it can be held hidden while Media's composition is unknown -- while
+    // locationProfileSummary stays a direct child of the scroll region (it's upstream of Media, so
+    // never withheld). A shallow direct-children indexOf can no longer compare these consistently
+    // (mixed nesting depths); compareDocumentPosition reflects actual document order regardless of
+    // how many wrapper levels sit between two elements.
     const view=document.getElementById("locationProfileReadView").querySelector(".location-profile-scroll");
+    const isAfter=(a,b)=>!!(b.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING);
     const ids=["locationProfileSummary","locationProfileAppearance","locationProfileGeography"].map(id=>document.getElementById(id));
-    const order=ids.map(el=>Array.prototype.indexOf.call(view.children,el)).every((pos,i,arr)=>i===0||pos>arr[i-1]);
+    const order=ids.every((el,i)=>i===0||isAfter(el,ids[i-1]));
     const scenesSection=[...view.querySelectorAll(".profile-section")].find(s=>s.querySelector("#locationProfileScenes"));
-    const scenesAfterGeography=Array.prototype.indexOf.call(view.children,scenesSection)>Array.prototype.indexOf.call(view.children,document.getElementById("locationProfileGeography"));
+    const scenesAfterGeography=isAfter(scenesSection,document.getElementById("locationProfileGeography"));
     return {
       appearanceHidden:document.getElementById("locationProfileAppearance").hidden,
       geographyHidden:document.getElementById("locationProfileGeography").hidden,

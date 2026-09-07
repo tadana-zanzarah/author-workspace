@@ -65,17 +65,24 @@ await page.evaluate(()=>document.getElementById("locationProfileClose").click())
 await page.evaluate(()=>openLocationProfile("loc-history-full"));
 {
   const state=await page.evaluate(()=>{
-    // Location Manual UX Batch A issue #11: read-view content now lives one level deeper, inside
-    // .location-profile-scroll (the single scroll region the modal-scroll fix introduced) --
-    // relative order is unchanged, only the direct-children container to walk is different.
+    // Location Manual UX Batch A issue #11: read-view content lives inside .location-profile-scroll
+    // (the single scroll region the modal-scroll fix introduced). Location Media unknown->metadata
+    // stability follow-up added one MORE level of nesting on top of that -- #locationProfileReadDownstream
+    // now wraps everything from Children through Scenes (see index.html) so it can be held hidden
+    // while Media's composition is still unknown -- so a shallow direct-children indexOf no longer
+    // reflects visual order at all (both operands can resolve to -1, comparing equal).
+    // compareDocumentPosition is nesting-depth-agnostic -- it reflects actual document order
+    // regardless of how many wrapper levels sit between two elements, so it stays correct no matter
+    // how this container structure evolves further.
+    const isAfter=(a,b)=>!!(b.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_FOLLOWING);
     const view=document.getElementById("locationProfileReadView").querySelector(".location-profile-scroll");
     const pop=document.getElementById("locationProfilePopulationCulture");
     const hist=document.getElementById("locationProfileHistory");
     const scenesSection=[...view.querySelectorAll(".profile-section")].find(s=>s.querySelector("#locationProfileScenes"));
     return {
       hidden:hist.hidden,
-      afterPop:Array.prototype.indexOf.call(view.children,hist)>Array.prototype.indexOf.call(view.children,pop),
-      beforeScenes:Array.prototype.indexOf.call(view.children,hist)<Array.prototype.indexOf.call(view.children,scenesSection),
+      afterPop:isAfter(hist,pop),
+      beforeScenes:isAfter(scenesSection,hist),
       html:hist.innerHTML,
       events:[...hist.querySelectorAll(".location-profile-history-event")].map(el=>({
         date:el.querySelector(".location-profile-history-event-date")?.textContent.trim()||"",
