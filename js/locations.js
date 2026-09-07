@@ -184,6 +184,7 @@ async function loadLocationMediaForProfile(location){
     locationMediaImagesResolved=true;
     renderLocationProfileMedia();renderLocationProfileMediaEditor();
     refreshLocationProfileReadDensity();
+    revealLocationProfileReadDownstream();
     return;
   }
   const canonicalId=locationCanonicalId(location);
@@ -208,6 +209,12 @@ async function loadLocationMediaForProfile(location){
     locationMediaImagesResolved=false;
     renderLocationProfileMedia();
     refreshLocationProfileReadDensity();
+    // Composition is now fully known (kind/count/caption/isPrimary) -- this is the exact moment
+    // Read mode's Children/thematic/Scenes sections (held back by resetLocationProfileLazyChildState
+    // above, if this was a genuine Location switch) can safely reveal at their FINAL position, one
+    // time, before the slower per-path signing below even starts. A same-Location reopen that never
+    // hid the wrapper leaves this a harmless no-op.
+    revealLocationProfileReadDownstream();
     const paths=[...new Set(hydrated.filter(item=>item.source.kind==="storage").map(item=>item.source.storagePath))];
     const signedPairs=await Promise.all(paths.map(async path=>{
       const signed=await cloudState.locationMediaApi.signedUrl(path);
@@ -243,6 +250,10 @@ async function loadLocationMediaForProfile(location){
   renderLocationProfileMediaEditor();
   if(plan.captureInitialState&&tracker)tracker.captureInitialState();
   refreshLocationProfileReadDensity();
+  // Covers the error path (listMedia itself failed, so the metadata-known reveal above never ran)
+  // and is a harmless idempotent re-reveal on the success path (already revealed once metadata
+  // resolved, well before this point).
+  revealLocationProfileReadDownstream();
 }
 
 /* ---- Read mode ---- */
@@ -270,6 +281,10 @@ function locationMediaErrorPlaceholderHtml(){
 }
 function renderLocationProfileMedia(){
   const el=document.getElementById("locationProfileMedia");if(!el)return;
+  // Semantic aria-busy, not just a visual cue: true only while composition itself is unknown --
+  // signing images (locationMediaImagesResolved:false, handled below) doesn't affect Media's own
+  // static structure, so it's already fully rendered and not "busy" in the accessibility sense.
+  el.setAttribute("aria-busy",locationMediaLoadStatus==="loading"?"true":"false");
   if(locationMediaLoadStatus==="loading"){el.innerHTML=locationMediaLoadingPlaceholderHtml();el.hidden=false;return}
   if(locationMediaLoadStatus==="error"){el.innerHTML=locationMediaErrorPlaceholderHtml();el.hidden=false;return}
   const groups=groupMediaByKind(locationMediaOriginal);
@@ -783,6 +798,26 @@ async function deleteLocationFromGallery(participationId){
 
 /* ---------- Profile: read-model rendering ---------- */
 
+// Location Media unknown->metadata layout-stability follow-up: Read mode's Children/thematic-
+// module/Scenes sections (everything in index.html after #locationProfileMedia, see
+// #locationProfileReadDownstream) are rendered synchronously by populateLocationProfileCore
+// BEFORE Media's own async load even starts -- so while Media's composition is still unknown, they
+// already sit at whatever position a generic guessed loading placeholder leaves them at, then jump
+// once the real Media structure (known only after list_location_media's metadata resolves) replaces
+// that guess. The earlier Manual Review batch already made METADATA-KNOWN -> SIGNED perfectly
+// stable (0px); this closes the remaining UNKNOWN -> METADATA-KNOWN gap the same way: hold this
+// whole wrapper hidden (identity/summary/Media loading state still show immediately -- only what
+// comes AFTER Media in Read order is withheld) until Media's status stops being "loading", then
+// reveal it once, already at its final position -- never a guessed size, never a second reveal
+// animation. Local mode has no async gap at all (see loadLocationMediaForProfile's own local-mode
+// branch), so hide+reveal both happen inside the same synchronous call, before any frame paints.
+function hideLocationProfileReadDownstream(){
+  const el=document.getElementById("locationProfileReadDownstream");if(el)el.hidden=true;
+}
+function revealLocationProfileReadDownstream(){
+  const el=document.getElementById("locationProfileReadDownstream");if(el)el.hidden=false;
+}
+
 // Location Manual UX Batch A issue #2 (identity boundary): clears the lazily-loaded Media/History
 // baselines and synchronously repaints the read-mode Media section as empty, so that between
 // "this Profile switched to a different Location" and "that Location's own lazy fetches resolve,"
@@ -816,6 +851,13 @@ function resetLocationProfileLazyChildState(){
   locationMediaImagesResolved=true;
   locationHistoryLoadStatus=pendingIfCloud;
   renderLocationProfileMedia();
+  // Hold Children/thematic/Scenes back on every genuine Location switch, unconditionally (even in
+  // local mode, where loadLocationMediaForProfile's own synchronous branch reveals it again before
+  // this call stack unwinds -- see that function). A same-Location reopen never reaches this
+  // function at all (see populateLocationProfileCore's own isLocationSwitch guard), so metadata
+  // already known from an earlier open of THIS Location is never re-hidden -- section 10's "don't
+  // flash the gate on reopen" falls out of that existing guard for free.
+  hideLocationProfileReadDownstream();
 }
 
 // The Profile opens in a read-only display (name/scene-count header, an identity intro block,
