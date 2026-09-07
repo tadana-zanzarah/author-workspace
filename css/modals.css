@@ -22,6 +22,22 @@
   @starting-style{
     .modal-backdrop{opacity:0}
   }
+  /* Manual Review batch, backdrop-exit "bright flash" finding: a full-screen dark-tint overlay,
+     independent of the backdrop's own opacity above, that animateModalReveal (js/modal-manager.js)
+     puts on a PARENT modal-backdrop the instant a nested modal on top of it closes -- see that
+     function's own comment for why the parent needs its own brief recovery pulse rather than
+     trusting the closing child's fade alone. Starts at the closing child's own resting darkness
+     (rgba(0,0,0,.35), same value the base .modal-backdrop rule above uses) and eases to fully
+     clear once `--reveal-settled` lands a moment later; `position:absolute` keeps it out of
+     `.modal-backdrop`'s own flex layout (never shifts the centered `.modal` box), and painting
+     after `.modal` in DOM order means it also covers that box, exactly matching what the closing
+     child's own tint used to cover. Reduced-motion already covered by the app-wide
+     `*::after{transition-duration:.001ms!important}` rule in css/base.css. */
+  .modal-backdrop.modal-backdrop--reveal::after{
+    content:"";position:absolute;inset:0;background:rgba(0,0,0,.35);
+    opacity:1;transition:opacity 200ms ease-out;pointer-events:none;
+  }
+  .modal-backdrop.modal-backdrop--reveal.modal-backdrop--reveal-settled::after{opacity:0}
   .modal{
     width:min(920px,100%);max-height:92vh;overflow:auto;
     background:var(--surface-elevated);border-radius:var(--radius-lg);padding:18px;

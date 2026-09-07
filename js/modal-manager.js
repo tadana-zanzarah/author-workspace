@@ -52,8 +52,49 @@ function initialFocus(modal,requested){
   if(target){if(target.matches?.(".modal")&&!target.hasAttribute("tabindex"))target.tabIndex=-1;target.focus({preventScroll:true})}
 }
 
+// Manual Review batch, backdrop-exit "bright flash" finding: closing a NESTED modal (e.g. Location
+// Profile stacked on top of Location Gallery, or a confirmation stacked on top of either) removes
+// its own dark 35%-black backdrop tint -- but the PARENT modal-backdrop underneath was always at
+// its own steady 35% dimness the whole time, never itself changing. So what the user actually sees
+// isn't one continuous darkness change, it's "two stacked dim layers" (parent's own tint plus the
+// closing child's tint, both painted over the parent's own light modal box) collapsing to "one
+// layer" the instant the child leaves -- read as a sudden jump to bright, especially wherever the
+// parent's own light modal box was visible only through both tints stacked. animateModalReveal
+// below gives the freshly-revealed PARENT its own brief, independent luminance-recovery pulse --
+// starts a touch darker than its resting dimness, eases back to normal -- entirely decoupled from
+// the closing child's own animation/timing (that stays exactly as it already was; see the
+// `.modal-backdrop` transition/`@starting-style` pair in css/modals.css). Never touches
+// forceCloseModal's own synchronous close contract (display flips, tracker deactivates, focus
+// restores -- all still happen in the same tick, so nothing else in the app that depends on a
+// close having already fully happened by the time forceCloseModal returns changes at all); this is
+// a purely cosmetic overlay applied to a completely different (already-open) element.
+const MODAL_REVEAL_TRANSITION_MS=200;
+function animateModalReveal(modal){
+  if(!modal)return;
+  clearTimeout(modal._revealCleanupTimer);
+  // Two classes landing in the same synchronous turn would collapse into a no-op transition (the
+  // browser never gets to render the intermediate "still dimmed" frame) -- same footgun as any
+  // other from/to CSS transition driven by class toggling, hence the forced layout flush
+  // (`void modal.offsetWidth`) between adding the starting class and the class that supplies the
+  // transition's actual target value.
+  modal.classList.remove("modal-backdrop--reveal-settled");
+  modal.classList.add("modal-backdrop--reveal");
+  void modal.offsetWidth;
+  modal.classList.add("modal-backdrop--reveal-settled");
+  const reduceMotion=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  modal._revealCleanupTimer=setTimeout(()=>{
+    modal.classList.remove("modal-backdrop--reveal","modal-backdrop--reveal-settled");
+    modal._revealCleanupTimer=null;
+  },reduceMotion?20:MODAL_REVEAL_TRANSITION_MS);
+}
+
 function openModal(modalId,options={}){
   const modal=document.getElementById(modalId);if(!modal)return null;
+  // Defensive cleanup, not the normal path (animateModalReveal's own setTimeout already handles
+  // the ordinary case) -- guards the rare edge of this exact modal being explicitly re-opened
+  // while its own reveal pulse from an earlier nested-close was still mid-flight.
+  clearTimeout(modal._revealCleanupTimer);
+  modal.classList.remove("modal-backdrop--reveal","modal-backdrop--reveal-settled");
   const current=modalStack.find(entry=>entry.modal===modal);
   if(current){modalStack.splice(modalStack.indexOf(current),1);modalStack.push(current)}
   else {const opener=options.opener||document.activeElement;modalStack.push({modal,opener,openerKey:focusKey(opener),fallback:opener?.closest?.("details")?.querySelector("summary")||null,lastFocus:null})}
@@ -69,7 +110,10 @@ function forceCloseModal(modalId,{restore=true}={}){
   if(modal)modal.style.display="none";
   globalThis.trackerFor?.(modalId)?.deactivate();globalThis.syncBeforeUnload?.();syncLayers();
   const topEntry=modalStack.at(-1);
-  if(topEntry){topEntry.modal.inert=false;topEntry.modal.setAttribute("aria-hidden","false")}
+  if(topEntry){
+    topEntry.modal.inert=false;topEntry.modal.setAttribute("aria-hidden","false");
+    animateModalReveal(topEntry.modal);
+  }
   if(restore&&entry)resolveFocus(entry)?.focus({preventScroll:true});
 }
 
