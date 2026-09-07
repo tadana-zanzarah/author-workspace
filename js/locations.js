@@ -92,6 +92,19 @@ let locationMediaPendingKind=null;
 // skeleton. Local mode has no async gap at all (see AGENTS.md "no local binary Media persistence")
 // and goes straight to "loaded".
 let locationMediaLoadStatus="loaded"; // "loading" | "loaded" | "error"
+// Manual Review batch, Media internal-CLS finding: list_location_media (metadata: kind/count/
+// caption/sortOrder/isPrimary) and the per-item signed-URL round trip are two separate network
+// steps (see loadLocationMediaForProfile) -- the FIRST already tells us the exact group shape a
+// Location's Media section will render at, well before the SECOND resolves any actual image.
+// false between "metadata known, groups rendered with placeholder slots" and "every path either
+// signed or given up on"; true otherwise (nothing pending, or nothing to resolve at all -- local
+// mode, "loading"/"error" overall status, genuinely empty Media). renderLocationProfileMedia reads
+// this to tell an image slot that's merely still resolving (quiet shimmer, same fixed-size frame)
+// apart from one that has permanently failed to sign (locationMediaUnavailableHtml) -- the whole
+// point being that the surrounding group/hero/thumb/grid STRUCTURE below Media never changes size
+// again once groups first render, regardless of which of those two an individual slot turns out
+// to be.
+let locationMediaImagesResolved=true;
 
 /* ---------- History Events (Location History H-events) ----------
  * Canonical-only, draft-until-Profile-Save, same lazy-load shape as Media (list_location_history_
@@ -168,6 +181,7 @@ async function loadLocationMediaForProfile(location){
   if(!isCloudWorkspace()){
     locationMediaOriginal=[];locationProfileMediaDraft=[];locationMediaDraftFiles.clear();
     locationMediaLoadStatus="loaded";
+    locationMediaImagesResolved=true;
     renderLocationProfileMedia();renderLocationProfileMediaEditor();
     refreshLocationProfileReadDensity();
     return;
@@ -182,11 +196,27 @@ async function loadLocationMediaForProfile(location){
   let resultData=[];
   if(result?.ok){
     const hydrated=mapMediaRowsForLazyRead(result.data);
+    // Manual Review batch: reveal the real group/hero/thumb/grid STRUCTURE now, images still
+    // pending -- metadata alone (kind/count/caption/isPrimary) already fully determines that
+    // shape, no need to wait for the slower per-path signing below just to get it right (see 4B
+    // "Option B"/prefetch-composition). Read mode's Children/History/Scenes sections, already
+    // rendered by populateLocationProfileCore before this async call even started, are from this
+    // point on sitting at their FINAL position -- signing can only fill an already correctly-
+    // sized slot with its real <img>, never resize one.
+    locationMediaOriginal=hydrated;
+    locationMediaLoadStatus="loaded";
+    locationMediaImagesResolved=false;
+    renderLocationProfileMedia();
+    refreshLocationProfileReadDensity();
     const paths=[...new Set(hydrated.filter(item=>item.source.kind==="storage").map(item=>item.source.storagePath))];
     const signedPairs=await Promise.all(paths.map(async path=>{
       const signed=await cloudState.locationMediaApi.signedUrl(path);
       return [path,signed.ok?signed.url:null];
     }));
+    // Re-check staleness after the signing round trip too -- the metadata-only reveal above
+    // already committed locationMediaOriginal/locationMediaLoadStatus for THIS token, so a stale
+    // signing result must bail before overwriting whatever a newer load already put there.
+    if(locationMediaLoadToken!==token||locationProfileParticipationId!==location.id)return;
     const signedUrlByPath=Object.fromEntries(signedPairs.filter(([,url])=>url));
     resultData=mapSignedUrlsOntoDraft(hydrated,signedUrlByPath);
   }
@@ -203,6 +233,7 @@ async function loadLocationMediaForProfile(location){
   // A resolved fetch always leaves "loading" behind, whether or not it succeeded -- an error
   // gets its own restrained state (see renderLocationProfileMedia), never an eternal skeleton.
   locationMediaLoadStatus=result?.ok?"loaded":"error";
+  locationMediaImagesResolved=true;
   if(plan.resetDraft){
     for(const url of collectPendingObjectUrls(locationProfileMediaDraft))URL.revokeObjectURL(url);
     locationMediaDraftFiles.clear();
@@ -243,15 +274,26 @@ function renderLocationProfileMedia(){
   if(locationMediaLoadStatus==="error"){el.innerHTML=locationMediaErrorPlaceholderHtml();el.hidden=false;return}
   const groups=groupMediaByKind(locationMediaOriginal);
   if(!groups.length){el.hidden=true;el.innerHTML="";return}
-  el.innerHTML=groups.map(renderLocationMediaReadGroup).join("");
+  const imagesPending=!locationMediaImagesResolved;
+  el.innerHTML=groups.map(group=>renderLocationMediaReadGroup(group,imagesPending)).join("");
   el.hidden=false;
 }
-function renderLocationMediaReadGroup(group){
+// `imagesPending`=true renders a quiet same-size shimmer for any slot without a resolved image yet
+// (its signed URL is still in flight); false means signing is done, so an empty slot means a
+// permanent failure and gets the "Недоступно" text instead. Frame sizes (.location-media-hero/
+// -thumb/-visual-button in css/locations.css) are fixed regardless of which of those two renders,
+// or of an <img> replacing either later -- that's what keeps this group's total height constant
+// across all three states (see loadLocationMediaForProfile's own comment on this).
+function locationMediaSlotHtml(item,imagesPending){
+  if(item.source.value)return `<img src="${esc(item.source.value)}" alt="${esc(item.alt||"")}">`;
+  return imagesPending?'<span class="location-media-slot-loading" aria-hidden="true"></span>':locationMediaUnavailableHtml();
+}
+function renderLocationMediaReadGroup(group,imagesPending){
   if(group.kind==="photo"){
     const primary=group.items.find(item=>item.isPrimary)||group.items[0];
     const rest=group.items.filter(item=>item.id!==primary.id);
-    const heroImg=primary.source.value?`<img src="${esc(primary.source.value)}" alt="${esc(primary.alt||"")}">`:locationMediaUnavailableHtml();
-    const railHtml=rest.map(item=>`<button type="button" class="location-media-thumb" aria-label="Открыть фото" onclick="openLocationMediaLightbox('${jsq(item.id)}')">${item.source.value?`<img src="${esc(item.source.value)}" alt="${esc(item.alt||"")}">`:locationMediaUnavailableHtml()}</button>`).join("");
+    const heroImg=locationMediaSlotHtml(primary,imagesPending);
+    const railHtml=rest.map(item=>`<button type="button" class="location-media-thumb" aria-label="Открыть фото" onclick="openLocationMediaLightbox('${jsq(item.id)}')">${locationMediaSlotHtml(item,imagesPending)}</button>`).join("");
     const captionHtml=primary.caption?`<p class="location-media-visual-caption">${esc(primary.caption)}</p>`:"";
     return `<div class="location-media-group">
       <h3 class="location-media-group-title">${esc(group.label)}</h3>
@@ -264,7 +306,7 @@ function renderLocationMediaReadGroup(group){
   }
   const showPrimaryMark=group.items.length>1;
   const itemsHtml=group.items.map(item=>{
-    const img=item.source.value?`<img src="${esc(item.source.value)}" alt="${esc(item.alt||"")}">`:locationMediaUnavailableHtml();
+    const img=locationMediaSlotHtml(item,imagesPending);
     const captionHtml=item.caption?`<span class="location-media-visual-caption">${esc(item.caption)}</span>`:"";
     return `<div class="location-media-visual-item">
       <button type="button" class="location-media-visual-button" aria-label="Открыть изображение" onclick="openLocationMediaLightbox('${jsq(item.id)}')">${img}${item.isPrimary&&showPrimaryMark?'<span class="location-media-primary-mark" aria-hidden="true">★</span>':""}</button>
@@ -511,6 +553,18 @@ async function ensureOwnedLocationsLoaded(force=false){
 
 function invalidateOwnedLocationsCache(){ownedLocationsCache=null}
 
+// Manual Review batch, Gallery initial-load CLS finding: local mode's rows are always
+// synthesized synchronously from data.locations (see ownedLocationRowsSync above), so they're
+// "ready" from the very first render -- only cloud mode has a real async gap, while the owning
+// project's listOwnedLocations() round-trip is still in flight (cold cache, or a project switch
+// invalidated it). renderLocationGallery uses this to tell "parent name not resolved YET" apart
+// from "this location's parentId doesn't resolve to any owned row" -- the former still reserves
+// the breadcrumb line's height (filled in once ready), the latter genuinely has nothing to show.
+function ownedLocationRowsReady(){
+  if(!isCloudWorkspace())return true;
+  return !!(ownedLocationsCache&&ownedLocationsCache.projectId===cloudProjectSync.projectId);
+}
+
 async function loadOwnedLocationRows(force=false){
   if(isCloudWorkspace())await ensureOwnedLocationsLoaded(force);
   return ownedLocationRowsSync();
@@ -620,12 +674,24 @@ function renderLocationGallery(){
     return;
   }
   const rows=ownedLocationRowsSync();
+  const rowsReady=ownedLocationRowsReady();
   grid.innerHTML=items.map(location=>{
     const participationId=location.id;
     const sceneCount=locationSceneEntries(participationId).length;
     const monogram=(location.name||"").trim().charAt(0).toLocaleUpperCase("ru")||"?";
     const typeLabel=locationDisplayTypeLabel(location);
     const parentRow=location.parentId?rows.get(location.parentId):null;
+    // Manual Review batch: whether a card carries a parent-breadcrumb line at all is already
+    // known SYNCHRONOUSLY from location.parentId (part of the project content this Gallery
+    // renders from directly) -- only the parent's NAME needs the separate owned-rows round-trip
+    // (rowsReady above). Reserving the line's slot the instant we know it belongs there, even
+    // before the name resolves, keeps every card at its final structural height from first paint
+    // -- the async re-render (openLocationGallery's loadOwnedLocationRows().then(...)) then only
+    // fills real text into an already-reserved single-line span (fixed line-height regardless of
+    // content -- see .location-card-parent's nowrap/ellipsis in css/locations.css), never grows
+    // the card. A parentId that never resolves to an owned row (genuinely orphaned, not just
+    // still loading) still renders nothing once rows are actually ready, same as before.
+    const showParentLine=!!location.parentId&&(parentRow||!rowsReady);
     const excerpt=((location.shortSummary||"").trim())||((location.description||"").trim());
     // Gallery cover (B4C): same 26px circular slot the monogram already occupies -- see the
     // "Corrective pass" comment on .location-card-monogram in css/locations.css for why this
@@ -647,7 +713,7 @@ function renderLocationGallery(){
           <span class="location-card-name" title="${esc(location.name||"Без названия")}">${esc(location.name||"Без названия")}</span>
           ${typeLabel?`<span class="location-type-badge location-type-badge-sm" title="${esc(typeLabel)}">${esc(typeLabel)}</span>`:""}
         </span>
-        ${parentRow?`<span class="location-card-parent">в «${esc(parentRow.name||"")}»</span>`:""}
+        ${showParentLine?`<span class="location-card-parent">${parentRow?`в «${esc(parentRow.name||"")}»`:" "}</span>`:""}
         ${excerpt?`<span class="location-card-excerpt">${esc(excerpt)}</span>`:""}
       </button>
       <div class="location-card-footer">
@@ -747,6 +813,7 @@ function resetLocationProfileLazyChildState(){
   // still-pending History fetch as "definitely empty".
   const pendingIfCloud=isCloudWorkspace()?"loading":"loaded";
   locationMediaLoadStatus=pendingIfCloud;
+  locationMediaImagesResolved=true;
   locationHistoryLoadStatus=pendingIfCloud;
   renderLocationProfileMedia();
 }
@@ -1332,29 +1399,62 @@ function closeLocationModuleAddPanel(){
 // Location Manual UX final polish #2: "+ Добавить раздел" opened the catalog correctly all
 // along, but with no scroll feedback -- a catalog inserted below the visible portion of
 // .location-profile-scroll looked like nothing happened, and the user had to discover it by
-// scrolling blind. Only the explicit toggle-to-open action calls this (never hydration, never
-// re-opening the Profile, never a recommendation-state re-render), and it targets the CATALOG
-// itself, not a module selected afterward -- addEmptyLocationThematicModule/
-// showLocationThematicModule already handle revealing/focusing the selected module and are left
-// untouched (see their own calls to setLocationThematicDisclosure/focus).
-function revealLocationModuleAddPanel(panel){
-  if(!panel)return;
-  const scroller=panel.closest(".location-profile-scroll");
+// scrolling blind. Shared by the catalog-open reveal below AND by revealLocationThematicModule
+// (Manual Review batch: selecting a specific module from that catalog had the SAME "no scroll
+// feedback" problem for its own separate action -- see that function's own comment) -- one
+// scroll primitive, two distinct explicit user actions each call it once, so a "start-through-
+// useful-content" reveal behaves identically for both instead of drifting apart over time.
+// `bottomEl` is the element whose bottom edge defines the "useful" extent to fit alongside
+// `topEl`'s top (its own bottom if omitted) -- e.g. a module's heading plus its first field,
+// never the module's full (possibly much taller) body.
+function scrollLocationProfileElementIntoView(topEl,bottomEl){
+  if(!topEl)return;
+  const scroller=topEl.closest(".location-profile-scroll");
   if(!scroller)return;
   const scrollerRect=scroller.getBoundingClientRect();
-  const panelRect=panel.getBoundingClientRect();
-  const topOffset=panelRect.top-scrollerRect.top;
-  const bottomOffset=panelRect.bottom-scrollerRect.top;
+  const topRect=topEl.getBoundingClientRect();
+  const bottomRect=bottomEl?bottomEl.getBoundingClientRect():topRect;
+  const topOffset=topRect.top-scrollerRect.top;
+  const bottomOffset=bottomRect.bottom-scrollerRect.top;
   // Case A: already comfortably visible in full -- no pointless movement.
   if(topOffset>=0&&bottomOffset<=scrollerRect.height)return;
-  // Case B/C: reveal the catalog's START with a small breathing-room margin (also keeps a
-  // sliver of the "+ Добавить раздел" button itself visible above it) -- never attempts to also
-  // fit the bottom of a catalog taller than the remaining viewport.
+  // Case B/C: reveal the target's START with a small breathing-room margin -- never attempts to
+  // also fit a bottom edge taller than the remaining viewport (see each caller's own comment for
+  // why: keeping a sliver of the trigger visible above the catalog, or "align the START" per the
+  // module-reveal spec).
   const margin=12;
   const maxScrollTop=Math.max(0,scroller.scrollHeight-scroller.clientHeight);
   const targetScrollTop=Math.max(0,Math.min(scroller.scrollTop+topOffset-margin,maxScrollTop));
   const reduceMotion=matchMedia("(prefers-reduced-motion: reduce)").matches;
   scroller.scrollTo({top:targetScrollTop,behavior:reduceMotion?"auto":"smooth"});
+}
+
+// Only the explicit toggle-to-open action calls this (never hydration, never re-opening the
+// Profile, never a recommendation-state re-render), and it targets the CATALOG itself, not a
+// module selected afterward -- addEmptyLocationThematicModule/showLocationThematicModule call
+// revealLocationThematicModule below for that separate action instead.
+function revealLocationModuleAddPanel(panel){
+  scrollLocationProfileElementIntoView(panel);
+}
+
+// Manual Review batch, finding #2 (add-section flow, Step 2 regression): the earlier fix above
+// made the CATALOG scroll into view on open, but selecting a specific module from it had no
+// equivalent -- the module expands (its `hidden` disclosure body toggles open) ABOVE the
+// scroll position that was showing the catalog, and simply removing `hidden` does not move
+// scrollTop, so the newly-expanded content doesn't reliably end up visible: at best the
+// browser's own default focus-triggered scrollIntoView (from addEmptyLocationThematicModule's
+// .focus() call) drags only the focused control into view, not the heading above it; at worst
+// (showLocationThematicModule's restore path never focused anything) nothing scrolls at all.
+// Reveals the module's heading through its first real field -- never the whole body, which can
+// be much taller than the viewport (2B: "align its START to a comfortable visible position...
+// do not try to show its bottom"). Both callers invoke this BEFORE their own .focus() (which
+// now passes preventScroll so the browser doesn't ALSO scroll independently and create a second,
+// competing jump on top of this deliberate one).
+function revealLocationThematicModule(moduleKey){
+  const ids=LOCATION_THEMATIC_MODULE_IDS[moduleKey];if(!ids)return;
+  const moduleEl=document.getElementById(ids.module);
+  const firstField=document.getElementById(ids.firstField);
+  scrollLocationProfileElementIntoView(moduleEl,firstField||moduleEl);
 }
 
 function toggleLocationModuleAddPanel(){
@@ -1394,7 +1494,8 @@ function addEmptyLocationThematicModule(moduleKey){
   renderLocationThematicModules();
   setLocationThematicDisclosure(moduleKey,true);
   syncBeforeUnload();
-  document.getElementById(LOCATION_THEMATIC_MODULE_IDS[moduleKey]?.firstField)?.focus();
+  revealLocationThematicModule(moduleKey);
+  document.getElementById(LOCATION_THEMATIC_MODULE_IDS[moduleKey]?.firstField)?.focus({preventScroll:true});
 }
 function showLocationThematicModule(moduleKey){
   locationProfileModuleSelectionDraft=showLocationModule(locationProfileModuleSelectionDraft,moduleKey);
@@ -1402,6 +1503,7 @@ function showLocationThematicModule(moduleKey){
   renderLocationThematicModules();
   setLocationThematicDisclosure(moduleKey,true);
   syncBeforeUnload();
+  revealLocationThematicModule(moduleKey);
 }
 function removeEmptyLocationThematicModule(moduleKey){
   locationProfileModuleSelectionDraft=removeEmptyLocationModule(locationProfileModuleSelectionDraft,moduleKey);

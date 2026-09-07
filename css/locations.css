@@ -490,6 +490,18 @@
   display:flex;align-items:center;justify-content:center;width:100%;height:100%;
   font-size:var(--text-2xs);color:var(--text-secondary);text-align:center;padding:4px;
 }
+/* Manual Review batch, Media internal-CLS finding: unlike .location-media-skeleton above (a
+   generic placeholder for when even the GROUP SHAPE is still unknown), this fills a slot whose
+   real frame -- .location-media-hero/-thumb/-visual-button, all fixed-size regardless of content
+   -- already exists at its final size; only the <img> that will eventually sit inside is still
+   resolving (see locationMediaSlotHtml/loadLocationMediaForProfile in js/locations.js). Same
+   shimmer treatment as that generic block, just sized to whichever real frame it's inside via
+   width/height:100% rather than its own fixed dimensions. */
+.location-media-slot-loading{
+  display:block;width:100%;height:100%;
+  background:linear-gradient(90deg,var(--soft) 25%,var(--border-faint) 37%,var(--soft) 63%);
+  background-size:400% 100%;animation:location-media-skeleton-shimmer 1.6s ease infinite;
+}
 
 /* ---- Location Media B4B: Profile Edit section ---------------------------------------------
    One compact card per media item -- thumbnail + kind badge + caption/alt fields + a small
