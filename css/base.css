@@ -195,17 +195,41 @@
      accent-color recolors the native track+thumb in every browser that
      matters here without touching focus/keyboard behavior. */
   input[type="range"]{accent-color:var(--brand-strong)}
-  /* Location Manual UX final polish: was outline:3px/offset:2px (5px of ring
-     per side) -- on compact two-column fields (e.g. Location's Звуки/Запахи/
-     Освещение, same .profile-editor-grid Character uses) that read as an
-     oversized "double border" and could bleed into the adjacent column or
-     clip against the modal edge. 2px/1px (3px per side) keeps the ring
-     clearly visible -- still above the 2px WCAG 2.4.11 minimum, same
-     high-contrast color -- without the bulk. No control changes size either
-     way; outline never participates in layout. */
+  /* Location Manual UX final polish had shrunk this from 3px/offset:2px to
+     2px/offset:1px, which only reduced the ring's thickness -- it never
+     addressed WHERE the ring paints. A positive outline-offset paints
+     entirely OUTSIDE the control's own border box, in whatever space the
+     surrounding layout happens to leave. That space is not guaranteed: e.g.
+     `.location-profile-scroll` (the only scrolling region inside the
+     Location Profile modal, see css/locations.css) sets overflow-y:auto,
+     which per spec also computes its overflow-x to auto -- so a full-width
+     field's outward-painted ring gets clipped flush against that
+     container's own edge, even though the outer `.modal` still has its own
+     18px padding (that padding belongs to `.modal`, not to the scroll
+     region nested inside it, so it does nothing for content clipped by the
+     inner container). Manual review confirmed this: the ring visibly
+     overflowed and was pressed/clipped against modal content edges on
+     Location name, the History field, and other full-width controls.
+     Location Manual UX Manual Review batch: outline-offset is now NEGATIVE,
+     which pulls the entire ring band inside the border edge instead. Outline
+     geometry: the ring's near edge sits |offset| inside the border, its far
+     (outermost) edge sits |offset|-width further OUT from there -- i.e. at
+     |offset|-width inside the border. -3px offset with a 2px width puts that
+     outer edge 1px inside the border (never touching it): a bare -2px/2px
+     pairing would put the outer edge EXACTLY ON the border (0px buffer --
+     still technically non-clipping, but close enough that sub-pixel
+     rounding at some zoom levels could round it back out). A ring painted
+     strictly inside a box can never be clipped by that box's own (or an
+     ancestor's) overflow, so this fixes the clipping for every control this
+     shared rule reaches -- full-width fields, compact two-column grid
+     fields (Location's Звуки/Запахи/Освещение), tag fields, comboboxes/
+     selects, Character's own fields -- without depending on how much
+     incidental space a given layout leaves around the control. Still 2px
+     thick (WCAG 2.4.11 minimum) and the same high-contrast brand color;
+     still doesn't affect control size or participate in layout either way. */
   :where(button,input,textarea,select,summary,a,[tabindex]):focus-visible{
     outline:2px solid var(--focus-ring);
-    outline-offset:1px;
+    outline-offset:-3px;
     border-radius:var(--radius-sm);
   }
   .hint{color:var(--text-secondary);font-size:13px}
