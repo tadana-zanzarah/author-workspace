@@ -23,6 +23,7 @@
     "test:location-final-visual-polish-browser": "node tools/location-final-visual-polish-browser.test.mjs",
     "test:location-manual-review-layout-stability-browser": "node tools/location-manual-review-layout-stability-browser.test.mjs",
     "test:location-media-unknown-metadata-stability-browser": "node tools/location-media-unknown-metadata-stability-browser.test.mjs",
+    "test:modal-motion-location-loading-corrective-browser": "node tools/modal-motion-location-loading-corrective-browser.test.mjs",
     "test:accessibility-browser": "node tools/accessibility-browser.test.mjs",
     "test:cloud-browser": "node tools/cloud-browser.test.mjs",
     "test:auth-browser": "node tools/auth-browser.test.mjs",

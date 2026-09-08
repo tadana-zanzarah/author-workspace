@@ -258,19 +258,24 @@ async function loadLocationMediaForProfile(location){
 
 /* ---- Read mode ---- */
 
-// Location Manual UX final polish #5B/#5C: a lightweight, restrained loading state occupies the
-// Media position while its fetch is pending (never a fake thumbnail) -- kept quiet enough to read
-// as "not resolved yet", not as actual content. Reserves real vertical space so lower Profile
-// sections don't visibly shift once Media actually arrives (see .location-media-skeleton in
-// css/locations.css); the outer modal's own height no longer depends on this either (#5A).
+// Modal/motion corrective pass, "blinks through too many states" finding #1: while composition is
+// genuinely UNKNOWN (no fetch has resolved yet -- number/kind/grouping of Media is not known), the
+// old placeholder guessed a fake two-image hero+thumb shape here (a beige hero block + a beige
+// thumb block, unrelated to whatever the real composition turns out to be) -- that fake shape was
+// itself one of the perceptually distinct "states" the user's manual review flagged as a visible
+// flash (generic beige -> real beige slots -> ...). This placeholder no longer pretends to know a
+// shape it doesn't have: one quiet shimmer bar, modest footprint, that only ever says "Media is
+// loading" -- never "here are two images". Once metadata resolves, renderLocationProfileMedia
+// replaces this whole placeholder with the REAL group/slot structure in one step (see
+// locationMediaSlotHtml below for how THAT structure then avoids its own beige->white->image
+// flash). Reserves real vertical space so lower Profile sections don't visibly shift once Media
+// actually arrives (see .location-media-generic-loading in css/locations.css); the outer modal's
+// own height no longer depends on this either (#5A).
 function locationMediaLoadingPlaceholderHtml(){
   return `<div class="location-media-group location-media-loading" role="status">
     <h3 class="location-media-group-title">Медиа</h3>
     <span class="visually-hidden">Загрузка медиа…</span>
-    <div class="location-media-skeleton" aria-hidden="true">
-      <span class="location-media-skeleton-block"></span>
-      <span class="location-media-skeleton-block"></span>
-    </div>
+    <div class="location-media-generic-loading" aria-hidden="true"></div>
   </div>`;
 }
 function locationMediaErrorPlaceholderHtml(){
@@ -299,8 +304,29 @@ function renderLocationProfileMedia(){
 // -thumb/-visual-button in css/locations.css) are fixed regardless of which of those two renders,
 // or of an <img> replacing either later -- that's what keeps this group's total height constant
 // across all three states (see loadLocationMediaForProfile's own comment on this).
+//
+// Modal/motion corrective pass, "beige -> white -> image" finding #2: once a signed URL was known,
+// the OLD code swapped the shimmer span for a bare `<img src="...">` immediately -- but knowing the
+// URL string is not the same as the browser actually having fetched+decoded the pixels yet, and an
+// <img> paints nothing (showing the frame's own plain background -- effectively a white/blank
+// flash) until its `load` event fires. This wraps shimmer + <img> + the unavailable fallback text
+// TOGETHER in one `.location-media-slot`, all three stacked in the same box (see
+// css/locations.css), and lets CSS opacity -- driven by a `data-state` attribute the <img>'s own
+// onload/onerror flips -- decide which one is visible: the shimmer keeps showing, unchanged, right
+// up until the moment the image is actually ready to paint, then a short opacity cross-fade reveals
+// it (onerror falls back to the unavailable text instead, for a URL that resolved but whose object
+// failed to actually load). No intermediate "nothing" state exists between shimmer and image.
 function locationMediaSlotHtml(item,imagesPending){
-  if(item.source.value)return `<img src="${esc(item.source.value)}" alt="${esc(item.alt||"")}">`;
+  if(item.source.value){
+    const url=esc(item.source.value),alt=esc(item.alt||"");
+    return `<span class="location-media-slot" data-state="loading">
+      <span class="location-media-slot-loading" aria-hidden="true"></span>
+      <img src="${url}" alt="${alt}" decoding="async"
+        onload="this.parentElement.dataset.state='loaded'"
+        onerror="this.parentElement.dataset.state='error'">
+      <span class="location-media-unavailable">Недоступно</span>
+    </span>`;
+  }
   return imagesPending?'<span class="location-media-slot-loading" aria-hidden="true"></span>':locationMediaUnavailableHtml();
 }
 function renderLocationMediaReadGroup(group,imagesPending){
@@ -1912,6 +1938,7 @@ function showLocationProfileReadMode(){
   locationProfileMode="read";
   document.getElementById("locationProfileReadView").hidden=false;
   document.getElementById("locationProfileEditView").hidden=true;
+  document.getElementById("locationProfileEdit").hidden=false;
   document.getElementById("locationProfileEdit")?.focus();
   refreshLocationProfileReadDensity({fresh:true});
 }
@@ -1920,6 +1947,7 @@ function showLocationProfileEditMode(){
   locationProfileMode="edit";
   document.getElementById("locationProfileReadView").hidden=true;
   document.getElementById("locationProfileEditView").hidden=false;
+  document.getElementById("locationProfileEdit").hidden=true;
   trackerFor("locationProfileModal").captureInitialState();
   locationProfileSaveButton.refresh();
   document.getElementById("locProfileName").focus();

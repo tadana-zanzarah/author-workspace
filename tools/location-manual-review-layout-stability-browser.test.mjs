@@ -122,10 +122,7 @@ try{
   page.setDefaultTimeout(5000);
   const errors=[];
   page.on("pageerror",error=>errors.push(error.message));
-  // ERR_NAME_NOT_RESOLVED filtered same as favicon/404 below: this suite's Media tests render real
-  // <img src="https://example.test/..."> tags against the RFC 2606 reserved "example.test" domain
-  // (same fake-URL convention the final-visual-polish suite uses for its own Media test) -- a
-  // deliberately non-resolvable placeholder, not a real app error.
+  // favicon/404 filtered as pre-existing baseline noise, not a real app error.
   page.on("console",message=>{if(message.type()==="error"&&!/favicon/.test(message.text())&&!/404/.test(message.text())&&!/ERR_NAME_NOT_RESOLVED/.test(message.text()))errors.push(message.text())});
   await page.setViewportSize({width:900,height:700});
   await page.addInitScript(value=>{if(sessionStorage.getItem("manual-review-layout-seeded"))return;sessionStorage.setItem("manual-review-layout-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
@@ -396,19 +393,44 @@ try{
 
   /* ================= #4 MEDIA INTERNAL CLS ================= */
   {
-    await page.evaluate(()=>{
+    // Modal/motion corrective pass: a real, tiny (1x1) data: URI, not the earlier `https://
+    // example.test/...` placeholder -- that fake host never resolves (by design, RFC 2606), which
+    // was fine when a signed URL string alone counted as "success" (the old code swapped the
+    // shimmer for a bare <img src> the instant the URL was known). The NEW code (locationMediaSlotHtml,
+    // js/locations.js) keeps the shimmer showing until the <img> actually fires `load` -- so this
+    // suite needs an image that CAN actually load for its own "fully settled" assertions below to
+    // mean anything; a never-resolving host would leave every slot stuck in data-state="loading"
+    // (or eventually "error") forever, which is exactly the white-flash bug this pass fixed, not a
+    // useful test signal.
+    const loadableImg="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    await page.evaluate(url=>{
       globalThis.cloudProjectSync={projectId:"fake-media-project",api:{listOwnedLocations:async()=>({ok:true,data:[]}),listLocationHistoryEvents:async()=>({ok:true,data:[]})}};
       cloudState.locationMediaApi={
         listMedia:()=>window.__mediaListFetch||Promise.resolve({ok:true,data:[]}),
-        signedUrl:async path=>{await window.__mediaSignGate;return {ok:true,url:`https://example.test/${encodeURIComponent(path)}`}}
+        signedUrl:async()=>{await window.__mediaSignGate;return {ok:true,url}}
       };
-    });
+    },loadableImg);
 
     const firstSectionTop=()=>page.evaluate(()=>document.getElementById("locationProfileChildren").getBoundingClientRect().top);
+    // Modal/motion corrective pass: slotLoadingCount now counts slots still ACTUALLY mid-load
+    // (data-state="loading") rather than raw DOM presence of `.location-media-slot-loading` --
+    // that element intentionally stays in the DOM (opacity-faded, see css/locations.css) even
+    // after a slot finishes loading, as the whole point of the fix that eliminated the
+    // beige->white->image flash (nothing is ever removed before its replacement is ready to
+    // paint). settledCount is the complement: slots that reached "loaded" or "error" and are no
+    // longer showing the shimmer as their visible layer.
     const mediaSnapshot=()=>page.evaluate(()=>{
       const el=document.getElementById("locationProfileMedia");
+      // A bare `.location-media-slot-loading` (no `.location-media-slot` ancestor) means the URL
+      // itself isn't known yet; one INSIDE a `.location-media-slot` is only actually "the visible
+      // state" while that slot's own data-state is still "loading" (loaded/error fade it to
+      // opacity:0 without removing it -- see css/locations.css).
+      const stillLoading=[...el.querySelectorAll(".location-media-slot-loading")]
+        .filter(s=>{const slot=s.closest(".location-media-slot");return !slot||slot.dataset.state==="loading"});
+      const settledSlots=[...el.querySelectorAll(".location-media-slot")].filter(s=>s.dataset.state==="loaded"||s.dataset.state==="error");
       return {hidden:el.hidden,hasLoadingSkeleton:!!el.querySelector(".location-media-loading"),
-        slotLoadingCount:el.querySelectorAll(".location-media-slot-loading").length,imgCount:el.querySelectorAll("img").length,
+        slotLoadingCount:stillLoading.length,slotSettledCount:settledSlots.length,
+        imgCount:el.querySelectorAll("img").length,
         groupCount:el.querySelectorAll(".location-media-group").length};
     });
 
@@ -449,13 +471,19 @@ try{
       await page.evaluate(()=>window.__resolveMediaSignGate());
       if(compositionRows[key].length){
         await page.waitForFunction(count=>document.querySelectorAll("#locationProfileMedia img").length>=count,compositionRows[key].filter(r=>true).length>0?compositionRows[key].length:0);
+        // The <img> tag existing in the DOM (checked above) is not the same as it having actually
+        // fired `load` -- see locationMediaSlotHtml's own comment. Every slot must reach a settled
+        // data-state (its real image, this suite's loadable data: URI, always succeeds) before the
+        // "no shimmer remains" assertion below means anything.
+        await page.waitForFunction(count=>[...document.querySelectorAll("#locationProfileMedia .location-media-slot")].filter(s=>s.dataset.state==="loaded"||s.dataset.state==="error").length>=count,compositionRows[key].length);
       }
       await page.waitForTimeout(30);
       const topAfterSigning=await firstSectionTop();
       const finalState=await mediaSnapshot();
       if(compositionRows[key].length){
         assert(finalState.imgCount===compositionRows[key].length,`${key}: every item must end up with a real <img> once signing resolves, got ${finalState.imgCount} of ${compositionRows[key].length}`);
-        assert(finalState.slotLoadingCount===0,`${key}: no shimmer placeholders should remain once every path has signed`);
+        assert(finalState.slotSettledCount===compositionRows[key].length,`${key}: every slot must actually finish loading (data-state loaded/error), got ${finalState.slotSettledCount} of ${compositionRows[key].length}`);
+        assert(finalState.slotLoadingCount===0,`${key}: no slot may still be showing its loading shimmer once every path has settled`);
       }
 
       const metadataToSignedDelta=Math.abs(topAfterSigning-topAfterMetadata);
@@ -496,33 +524,63 @@ try{
   }
   console.log("#4 media internal CLS: OK");
 
-  /* ================= #5 BACKDROP EXIT ("bright flash") ================= */
+  /* ================= #5 BACKDROP EXIT ("very bad flash... hurts the eyes") =================
+     The old `.modal-backdrop--reveal`/`--reveal-settled` pulse (applied to the freshly-revealed
+     PARENT) failed real manual review and was deleted entirely -- see js/modal-manager.js's own
+     comment. The replacement never touches the parent at all: forceCloseModal now adds
+     `.modal-backdrop--closing` (opacity:0) to the CLOSING modal itself in the same synchronous
+     turn as its display write, giving the base rule's existing `transition:opacity 160ms ease,
+     display 160ms allow-discrete` an actual value to animate instead of nothing to interpolate.
+     These assertions check the PARENT is never touched (no new class, opacity never leaves 1) and
+     the closing child's own opacity is monotonically non-increasing over several sampled frames --
+     the direct test for "no dark/bright oscillation". */
   {
-    const revealState=(modalId)=>page.evaluate(id=>{
+    const state=(modalId)=>page.evaluate(id=>{
       const modal=document.getElementById(id);
-      return {reveal:modal.classList.contains("modal-backdrop--reveal"),settled:modal.classList.contains("modal-backdrop--reveal-settled"),display:modal.style.display};
+      return {closing:modal.classList.contains("modal-backdrop--closing"),display:modal.style.display,opacity:Number(getComputedStyle(modal).opacity)};
     },modalId);
 
-    // Profile -> Gallery: closing the Profile must give the now-revealed Gallery its own brief
-    // recovery pulse (added synchronously), which must clean itself up afterward.
+    // Profile -> Gallery: closing the Profile must never touch the Gallery at all.
     await page.evaluate(()=>openLocationGallery());
+    await page.waitForTimeout(200); // let the Gallery's own open fade-in settle before using it as a steady baseline
     await page.evaluate(id=>openLocationProfile(id),galleryRoot.id);
+    await page.waitForTimeout(200); // same, for the Profile's own open fade-in
+    const galleryBefore=await state("locationsModal");
+    assert(galleryBefore.opacity===1&&!galleryBefore.closing,"the Gallery must sit at its steady opacity, untouched, while the Profile is open on top of it");
     await page.evaluate(()=>forceCloseModal("locationProfileModal"));
-    const immediatelyAfterClose=await revealState("locationsModal");
-    assert(immediatelyAfterClose.reveal&&immediatelyAfterClose.settled,"closing the Profile must immediately mark the revealed Gallery backdrop for its own recovery pulse");
-    assert(immediatelyAfterClose.display==="flex","the revealed Gallery must actually be visible (display flips synchronously, unaffected by the cosmetic pulse)");
-    await page.waitForTimeout(260);
-    const settledAfterClose=await revealState("locationsModal");
-    assert(!settledAfterClose.reveal&&!settledAfterClose.settled,"the recovery-pulse classes must clean themselves up and never linger on the Gallery backdrop");
-    const finalOpacity=await page.evaluate(()=>getComputedStyle(document.getElementById("locationsModal"),"::after").opacity);
-    assert(Number(finalOpacity)===1||Number.isNaN(Number(finalOpacity)),"once classes are gone, no ::after overlay rule should be matching at all (initial/default opacity)");
+    const profileImmediatelyAfter=await state("locationProfileModal");
+    assert(profileImmediatelyAfter.closing,"forceCloseModal must synchronously mark the CLOSING modal itself for its own fade, not the parent");
+    assert(profileImmediatelyAfter.display==="none","the synchronous close contract (display flips immediately) must be unchanged");
+    const galleryImmediatelyAfter=await state("locationsModal");
+    assert(!galleryImmediatelyAfter.closing,"the revealed Gallery must never receive any exit/reveal class of its own");
+    assert(galleryImmediatelyAfter.opacity===1,"the revealed Gallery's own opacity must never move -- it was never dimmed by the closing child in the first place, only ever displayed underneath it");
+
+    // Sample the CLOSING Profile's own opacity over several real frames -- must be monotonically
+    // non-increasing (a plain fade, never a dip-then-recover) -- while the Gallery stays pinned at
+    // exactly 1 throughout (proof nothing "pulses" on the parent). One evaluate call with an
+    // internal timer loop, not N separate round trips -- keeps this cheap regardless of how many
+    // samples are taken.
+    const samples=await page.evaluate(()=>new Promise(resolve=>{
+      const out=[];
+      const tick=()=>{
+        const p=document.getElementById("locationProfileModal"),g=document.getElementById("locationsModal");
+        out.push({profile:Number(getComputedStyle(p).opacity),gallery:Number(getComputedStyle(g).opacity)});
+        if(out.length<6)setTimeout(tick,35);else resolve(out);
+      };
+      tick();
+    }));
+    for(const s of samples)assert(s.gallery===1,`the Gallery's opacity must stay exactly 1 for the ENTIRE close sequence, sampled ${JSON.stringify(samples.map(x=>x.gallery))}`);
+    for(let i=1;i<samples.length;i++){
+      assert(samples[i].profile<=samples[i-1].profile+0.01,`the closing Profile's own opacity must never increase mid-fade (monotonic), sampled ${JSON.stringify(samples.map(x=>x.profile))}`);
+    }
+    assert(samples.at(-1).profile<=0.01,`the closing Profile must have fully faded out by the end of the sampling window, got ${JSON.stringify(samples.map(x=>x.profile))}`);
+
     await page.evaluate(()=>forceCloseModal("locationsModal"));
   }
-  console.log("#5 backdrop exit (Profile -> Gallery): OK");
+  console.log("#5 backdrop exit (Profile -> Gallery, monotonic, parent untouched): OK");
 
   {
-    // Nested confirmation -> Profile: the confirmation modal closing must pulse the PROFILE
-    // (not the Gallery further down the stack).
+    // Nested confirmation -> Profile: closing the confirmation must never touch the Profile.
     await page.evaluate(()=>openLocationGallery());
     await page.evaluate(id=>{openLocationProfile(id);enterLocationProfileEdit();toggleLocationThematicDisclosure("history")},confirmLoc.id);
     await page.evaluate(()=>startDeleteLocationThematicModule("history"));
@@ -531,71 +589,63 @@ try{
     // action modal, via showConfirmAction (used elsewhere, e.g. location deletion).
     const confirmPromise=page.evaluate(()=>showConfirmAction({title:"Тест",description:"тест"}));
     await page.waitForSelector("#confirmActionModal[style*='display: flex']");
-    const revealBefore=await page.evaluate(()=>({
-      reveal:document.getElementById("locationProfileModal").classList.contains("modal-backdrop--reveal"),
-      display:document.getElementById("locationProfileModal").style.display
+    const profileWhileNested=await page.evaluate(()=>({
+      closing:document.getElementById("locationProfileModal").classList.contains("modal-backdrop--closing"),
+      display:document.getElementById("locationProfileModal").style.display,
+      opacity:Number(getComputedStyle(document.getElementById("locationProfileModal")).opacity)
     }));
-    assert(revealBefore.display==="flex","the Profile modal must still be the visible parent underneath the confirmation");
+    assert(profileWhileNested.display==="flex"&&profileWhileNested.opacity===1&&!profileWhileNested.closing,"the Profile modal must still be the visible, untouched parent underneath the confirmation");
     await page.evaluate(()=>resolveConfirmAction(true));
     await confirmPromise;
-    const revealAfter=await page.evaluate(()=>({
-      reveal:document.getElementById("locationProfileModal").classList.contains("modal-backdrop--reveal"),
-      settled:document.getElementById("locationProfileModal").classList.contains("modal-backdrop--reveal-settled")
+    const profileAfter=await page.evaluate(()=>({
+      closing:document.getElementById("locationProfileModal").classList.contains("modal-backdrop--closing"),
+      opacity:Number(getComputedStyle(document.getElementById("locationProfileModal")).opacity)
     }));
-    assert(revealAfter.reveal&&revealAfter.settled,"closing the nested confirmation must pulse the revealed Profile modal specifically");
-    await page.waitForTimeout(260);
-    const revealSettled=await page.evaluate(()=>document.getElementById("locationProfileModal").classList.contains("modal-backdrop--reveal"));
-    assert(!revealSettled,"the Profile's own recovery-pulse classes must also clean themselves up");
+    assert(!profileAfter.closing&&profileAfter.opacity===1,"closing the nested confirmation must leave the revealed Profile completely untouched -- no class, no opacity change");
     await page.evaluate(()=>cancelLocationProfileEdit());
     await page.evaluate(()=>forceCloseModal("locationProfileModal"));
     await page.evaluate(()=>forceCloseModal("locationsModal"));
   }
-  console.log("#5 backdrop exit (nested confirmation -> Profile): OK");
+  console.log("#5 backdrop exit (nested confirmation -> Profile, parent untouched): OK");
 
   {
-    // Rapid open/close/reopen must never leave a stuck dim veil or a doubled-up pulse.
+    // Rapid open/close/reopen must never leave a stuck fade or an invisible-but-still-flex modal.
     await page.evaluate(()=>openLocationGallery());
     await page.evaluate(id=>openLocationProfile(id),galleryRoot.id);
-    await page.evaluate(()=>forceCloseModal("locationProfileModal")); // Gallery gets pulsed, cleanup pending
-    await page.evaluate(id=>openLocationProfile(id),galleryRoot.id); // reopen Profile before Gallery's cleanup fires
-    await page.evaluate(()=>forceCloseModal("locationProfileModal")); // close again -- must restart cleanly, not double up
-    await page.waitForTimeout(260);
-    const state=await page.evaluate(()=>({
-      reveal:document.getElementById("locationsModal").classList.contains("modal-backdrop--reveal"),
-      settled:document.getElementById("locationsModal").classList.contains("modal-backdrop--reveal-settled"),
-      opacity:getComputedStyle(document.getElementById("locationsModal")).opacity
+    await page.evaluate(()=>forceCloseModal("locationProfileModal")); // Profile starts fading, cleanup pending
+    await page.evaluate(id=>openLocationProfile(id),galleryRoot.id); // reopen before that fade finishes
+    const reopenedState=await page.evaluate(()=>({
+      closing:document.getElementById("locationProfileModal").classList.contains("modal-backdrop--closing"),
+      opacity:Number(getComputedStyle(document.getElementById("locationProfileModal")).opacity)
     }));
-    assert(!state.reveal&&!state.settled,"rapid close/reopen/close must still end with no stale pulse classes");
-    assert(Number(state.opacity)>0.9,"the Gallery must end up fully visible, never stuck dimmed, after rapid nested open/close");
-
-    // Also: closing the Gallery itself WHILE its own pulse cleanup is still pending must not leave
-    // stale classes if it's reopened immediately (openModal's own defensive cleanup).
-    await page.evaluate(id=>openLocationProfile(id),galleryRoot.id);
-    await page.evaluate(()=>forceCloseModal("locationProfileModal")); // pulses Gallery, cleanup pending
-    await page.evaluate(()=>forceCloseModal("locationsModal")); // close Gallery itself mid-pulse
-    await page.evaluate(()=>openLocationGallery()); // reopen immediately
-    const reopenState=await page.evaluate(()=>({
-      reveal:document.getElementById("locationsModal").classList.contains("modal-backdrop--reveal"),
-      settled:document.getElementById("locationsModal").classList.contains("modal-backdrop--reveal-settled")
+    assert(!reopenedState.closing,"reopening a modal mid-fade must synchronously clear its own closing class");
+    assert(reopenedState.opacity===1,"a reopened modal must be fully visible immediately, never stuck at a faded opacity from its previous close");
+    await page.evaluate(()=>forceCloseModal("locationProfileModal"));
+    await page.waitForTimeout(220);
+    const galleryState=await page.evaluate(()=>({
+      closing:document.getElementById("locationsModal").classList.contains("modal-backdrop--closing"),
+      opacity:Number(getComputedStyle(document.getElementById("locationsModal")).opacity)
     }));
-    assert(!reopenState.reveal&&!reopenState.settled,"reopening a modal must never inherit stale pulse classes from before it was closed");
+    assert(!galleryState.closing&&galleryState.opacity===1,"the Gallery must end up fully visible, never stuck dimmed, after rapid nested open/close");
     await page.evaluate(()=>forceCloseModal("locationsModal"));
   }
   console.log("#5 backdrop exit (rapid open/close/reopen): OK");
 
   {
-    // Reduced motion: the pulse must still apply (for forced-colors/robustness) but clean up near-
-    // instantly rather than waiting the full ~200ms.
+    // Reduced motion: logically identical (still closes synchronously), and the app-wide
+    // transition-duration:.001ms rule (css/base.css) already collapses the visual fade to
+    // effectively instant -- verified here as "fully faded within a few ms", not the full 160ms.
     await page.emulateMedia({reducedMotion:"reduce"});
     await page.evaluate(()=>openLocationGallery());
     await page.evaluate(id=>openLocationProfile(id),galleryRoot.id);
     await page.evaluate(()=>forceCloseModal("locationProfileModal"));
-    await page.waitForTimeout(60);
+    await page.waitForTimeout(30);
     const state=await page.evaluate(()=>({
-      reveal:document.getElementById("locationsModal").classList.contains("modal-backdrop--reveal"),
-      settled:document.getElementById("locationsModal").classList.contains("modal-backdrop--reveal-settled")
+      opacity:Number(getComputedStyle(document.getElementById("locationProfileModal")).opacity),
+      galleryOpacity:Number(getComputedStyle(document.getElementById("locationsModal")).opacity)
     }));
-    assert(!state.reveal&&!state.settled,"reduced motion must clean up the pulse classes well within 60ms, not the full ~200ms");
+    assert(state.opacity<=0.01,"reduced motion must collapse the close fade to effectively instant, well within 30ms");
+    assert(state.galleryOpacity===1,"the Gallery must still never be touched under reduced motion either");
     await page.evaluate(()=>forceCloseModal("locationsModal"));
     await page.emulateMedia({reducedMotion:"no-preference"});
   }

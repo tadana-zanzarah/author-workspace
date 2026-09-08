@@ -165,11 +165,20 @@
 .location-profile-header{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-2)}
 .location-profile-header h2{margin:0}
 
-/* Read mode: "Редактировать" is the one quiet secondary action that opens edit mode —
-   deliberately not styled as a primary button, so the read surface stays a profile,
-   not a form waiting to be filled in. */
-.location-profile-read-toolbar{display:flex;justify-content:flex-end;margin-bottom:var(--space-2)}
+/* Modal/motion corrective pass, "Редактировать disappears when scrolling a long Profile" finding:
+   this control used to live inside .location-profile-scroll (READ view's own scrolling content),
+   so it scrolled away with everything else -- the user had to scroll all the way back to the top
+   to find it again on a long Profile. .location-profile-header is the modal's own non-scrolling
+   shell region (`.location-profile-modal>.location-profile-header{flex:none}` above), shared by
+   both Read and Edit -- moving the button there (index.html) makes it persistent while
+   .location-profile-scroll's content moves underneath. `margin-left:auto` pushes it to the header
+   row's own trailing edge without needing a separate wrapper element; visible only in Read mode
+   (showLocationProfileReadMode/showLocationProfileEditMode in js/locations.js toggle `hidden` --
+   Edit mode has no use for an "Edit" action while already editing, and this is the ONLY Edit
+   control in the Profile, never duplicated). Still deliberately a quiet secondary action, not a
+   primary button -- the read surface stays a profile, not a form waiting to be filled in. */
 .location-profile-edit-btn{
+  margin-left:auto;flex:none;
   padding:6px 10px;font-size:var(--text-xs);color:var(--text-secondary);
   background:transparent;border-color:var(--border-subtle);
 }
@@ -442,19 +451,18 @@
   color:var(--text-secondary);border-bottom:1px solid var(--border-faint);
 }
 
-/* Location Manual UX final polish #5B: reserves roughly the same footprint as a real hero+rail
-   photo group (see .location-media-hero below) so the Profile's lower sections shift as little as
-   possible once real Media (or a "no media" empty result) replaces this -- secondary protection
-   only, the outer modal's own height no longer depends on this either way (#5A). Quiet, no fake
-   thumbnails -- a quiet shimmer, not a spinner, and neutralized by the app-wide
+/* Modal/motion corrective pass, "blinks through too many states" finding #1: while the fetch is
+   pending, composition (number/kind/grouping of Media) is genuinely unknown -- a fake two-image
+   hero+thumb guess here (the old .location-media-skeleton/-block pair) was itself a distinct
+   visible state the user's manual review flagged ("generic beige [...] then very quickly [...]
+   real beige slots"). One quiet, modest-height shimmer bar -- communicates "loading", never
+   pretends to know a shape it doesn't have yet. Neutralized by the app-wide
    prefers-reduced-motion rule in css/base.css like every other animation. */
-.location-media-skeleton{display:flex;align-items:flex-start;gap:10px;margin-top:2px}
-.location-media-skeleton-block{
-  border-radius:var(--radius-md);background:linear-gradient(90deg,var(--soft) 25%,var(--border-faint) 37%,var(--soft) 63%);
+.location-media-generic-loading{
+  height:10px;max-width:220px;border-radius:999px;margin-top:4px;
+  background:linear-gradient(90deg,var(--soft) 25%,var(--border-faint) 37%,var(--soft) 63%);
   background-size:400% 100%;animation:location-media-skeleton-shimmer 1.6s ease infinite;
 }
-.location-media-skeleton-block:first-child{width:220px;max-width:46%;aspect-ratio:4/3}
-.location-media-skeleton-block:last-child{flex:1 1 auto;min-width:0;max-width:120px;aspect-ratio:1/1}
 @keyframes location-media-skeleton-shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
 .location-media-load-error{color:var(--text-secondary);font-size:var(--text-sm)}
 
@@ -490,7 +498,7 @@
   display:flex;align-items:center;justify-content:center;width:100%;height:100%;
   font-size:var(--text-2xs);color:var(--text-secondary);text-align:center;padding:4px;
 }
-/* Manual Review batch, Media internal-CLS finding: unlike .location-media-skeleton above (a
+/* Manual Review batch, Media internal-CLS finding: unlike .location-media-generic-loading above (a
    generic placeholder for when even the GROUP SHAPE is still unknown), this fills a slot whose
    real frame -- .location-media-hero/-thumb/-visual-button, all fixed-size regardless of content
    -- already exists at its final size; only the <img> that will eventually sit inside is still
@@ -502,6 +510,30 @@
   background:linear-gradient(90deg,var(--soft) 25%,var(--border-faint) 37%,var(--soft) 63%);
   background-size:400% 100%;animation:location-media-skeleton-shimmer 1.6s ease infinite;
 }
+/* Modal/motion corrective pass, "beige -> white -> image" finding #2: the slot that's actually
+   loading an image (as opposed to one still waiting to even be assigned a signed URL, which stays
+   the plain .location-media-slot-loading span above) stacks shimmer + <img> + unavailable-text in
+   the SAME box via position:absolute -- so nothing ever un-paints before its replacement is ready
+   to paint. `data-state` (set by the <img>'s own onload/onerror, see locationMediaSlotHtml)
+   controls which layer is visible: "loading" (default, matches the initial DOM state so there is
+   no flash-of-unstyled-content before JS/CSS applies) keeps only the shimmer opaque; "loaded"
+   cross-fades the shimmer out and the image in; "error" cross-fades the shimmer out and the
+   unavailable text in. Short opacity-only fade (~180ms, this app's own --motion-base token),
+   never a delay long enough to read as its own separate "state" -- and collapses to an instant
+   swap under prefers-reduced-motion via the existing app-wide transition-duration rule in
+   css/base.css. */
+.location-media-slot{position:relative;display:block;width:100%;height:100%}
+.location-media-slot .location-media-slot-loading,
+.location-media-slot img,
+.location-media-slot .location-media-unavailable{
+  position:absolute;inset:0;transition:opacity var(--motion-base);
+}
+.location-media-slot img,.location-media-slot .location-media-unavailable{opacity:0}
+.location-media-slot[data-state="loaded"] .location-media-slot-loading{opacity:0}
+.location-media-slot[data-state="loaded"] img{opacity:1}
+.location-media-slot[data-state="error"] .location-media-slot-loading{opacity:0}
+.location-media-slot[data-state="error"] .location-media-unavailable{opacity:1}
+.location-media-slot[data-state="error"] img{display:none}
 
 /* ---- Location Media B4B: Profile Edit section ---------------------------------------------
    One compact card per media item -- thumbnail + kind badge + caption/alt fields + a small

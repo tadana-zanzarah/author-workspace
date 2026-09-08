@@ -32,6 +32,22 @@ function resolveFocus(entry){
   return getFocusableElements(getTopModal())[0]||document.getElementById("addFirst")||document.querySelector("summary,button,input,select,textarea");
 }
 
+// Modal/motion corrective pass, "wheel scroll leaks past the modal to the page behind it"
+// finding: css/base.css's own comment says document scroll is this app's ONE deliberate main-
+// content scroll surface (no fixed-height #app wrapper) -- so once .modal-backdrop's accidental
+// overflow-y:auto bug was fixed (it could never legitimately be a scroll target; see that fix's
+// own comment in css/modals.css), a wheel scroll landing anywhere over a modal that ISN'T its own
+// inner scroll region has nowhere valid to consume it and chains straight past the modal to the
+// document -- which, being genuinely taller than a short viewport by design, actually scrolls.
+// Previously invisible only because the backdrop's OWN bug happened to (wrongly) absorb the event
+// every time. `inert` above already makes the page behind non-interactive while a modal is open,
+// but does not stop wheel-driven scroll chaining from reaching it -- a real, separate lock is
+// needed. Toggled here (not scattered across openModal/forceCloseModal) since this is the one
+// shared place that already runs on every stack change and already knows whether `top` exists.
+function setBackgroundScrollLocked(locked){
+  document.documentElement.style.overflow=locked?"hidden":"";
+}
+
 function syncLayers(){
   const top=getTopModal();
   [...document.body.children].forEach(element=>{
@@ -44,6 +60,7 @@ function syncLayers(){
     modal.setAttribute("aria-hidden",active?"false":"true");
     modal.inert=!active;
   });
+  setBackgroundScrollLocked(!!top);
 }
 
 function initialFocus(modal,requested){
@@ -52,49 +69,36 @@ function initialFocus(modal,requested){
   if(target){if(target.matches?.(".modal")&&!target.hasAttribute("tabindex"))target.tabIndex=-1;target.focus({preventScroll:true})}
 }
 
-// Manual Review batch, backdrop-exit "bright flash" finding: closing a NESTED modal (e.g. Location
-// Profile stacked on top of Location Gallery, or a confirmation stacked on top of either) removes
-// its own dark 35%-black backdrop tint -- but the PARENT modal-backdrop underneath was always at
-// its own steady 35% dimness the whole time, never itself changing. So what the user actually sees
-// isn't one continuous darkness change, it's "two stacked dim layers" (parent's own tint plus the
-// closing child's tint, both painted over the parent's own light modal box) collapsing to "one
-// layer" the instant the child leaves -- read as a sudden jump to bright, especially wherever the
-// parent's own light modal box was visible only through both tints stacked. animateModalReveal
-// below gives the freshly-revealed PARENT its own brief, independent luminance-recovery pulse --
-// starts a touch darker than its resting dimness, eases back to normal -- entirely decoupled from
-// the closing child's own animation/timing (that stays exactly as it already was; see the
-// `.modal-backdrop` transition/`@starting-style` pair in css/modals.css). Never touches
-// forceCloseModal's own synchronous close contract (display flips, tracker deactivates, focus
-// restores -- all still happen in the same tick, so nothing else in the app that depends on a
-// close having already fully happened by the time forceCloseModal returns changes at all); this is
-// a purely cosmetic overlay applied to a completely different (already-open) element.
-const MODAL_REVEAL_TRANSITION_MS=200;
-function animateModalReveal(modal){
-  if(!modal)return;
-  clearTimeout(modal._revealCleanupTimer);
-  // Two classes landing in the same synchronous turn would collapse into a no-op transition (the
-  // browser never gets to render the intermediate "still dimmed" frame) -- same footgun as any
-  // other from/to CSS transition driven by class toggling, hence the forced layout flush
-  // (`void modal.offsetWidth`) between adding the starting class and the class that supplies the
-  // transition's actual target value.
-  modal.classList.remove("modal-backdrop--reveal-settled");
-  modal.classList.add("modal-backdrop--reveal");
-  void modal.offsetWidth;
-  modal.classList.add("modal-backdrop--reveal-settled");
-  const reduceMotion=matchMedia("(prefers-reduced-motion: reduce)").matches;
-  modal._revealCleanupTimer=setTimeout(()=>{
-    modal.classList.remove("modal-backdrop--reveal","modal-backdrop--reveal-settled");
-    modal._revealCleanupTimer=null;
-  },reduceMotion?20:MODAL_REVEAL_TRANSITION_MS);
-}
-
+// Modal/motion corrective pass, backdrop-exit "very bad flash... hurts the eyes" finding: the
+// PREVIOUS fix here (animateModalReveal, a "luminance-recovery pulse" slapped onto the freshly-
+// revealed PARENT the instant a nested child closed) failed real manual review -- it replaced one
+// abrupt jump with a worse one: the pulse's own starting frame (synchronously as dark as the
+// closing child's own resting tint, THEN easing back down) reads as a dark SNAP followed by a
+// fade, i.e. exactly the "dark -> bright -> dark again -> bright" oscillation the task brief
+// explicitly rules out, not a smooth continuous change. Deleted entirely, and the PARENT is never
+// touched at all any more -- the fix instead makes the CLOSING modal actually fade out (see
+// `.modal-backdrop--closing` in css/modals.css), reusing the SAME `transition:opacity 160ms ease,
+// display 160ms allow-discrete` pair the base `.modal-backdrop` rule already uses for opening.
+// Previously, forceCloseModal wrote `.style.display="none"` with no accompanying opacity change,
+// so there was nothing for that transition to actually interpolate -- allow-discrete's own spec
+// behavior (hold the old `display` value, fully rendered, until the transition's OTHER properties
+// finish) meant the closing modal sat frozen on-screen for the full 160ms, then vanished in a
+// single instant frame: a hang-then-pop, not a fade, and (for a nested close) the exact "flash"
+// the manual review reported. Adding `--closing` (opacity:0) in the SAME synchronous turn as the
+// display write gives that transition an actual value pair to animate, so the closing modal now
+// visibly fades 1->0 over 160ms and only leaves the render tree once that finishes -- and for a
+// nested close, this is ALSO the entire fix for the revealed parent: the parent's own steady dim
+// was never touched, so as the child's compounding tint fades away on top of it, the combined
+// scene brightness eases smoothly and monotonically down to "parent's dim only" with no separate
+// pulse required. Never touches the synchronous close contract below (modalStack pop, tracker
+// deactivate, focus restore all still happen in the same tick, unchanged) -- `--closing` is a
+// purely cosmetic class with no logic reading it anywhere.
 function openModal(modalId,options={}){
   const modal=document.getElementById(modalId);if(!modal)return null;
-  // Defensive cleanup, not the normal path (animateModalReveal's own setTimeout already handles
-  // the ordinary case) -- guards the rare edge of this exact modal being explicitly re-opened
-  // while its own reveal pulse from an earlier nested-close was still mid-flight.
-  clearTimeout(modal._revealCleanupTimer);
-  modal.classList.remove("modal-backdrop--reveal","modal-backdrop--reveal-settled");
+  // Defensive: reopening a modal while its own close fade from an earlier visit is still mid-
+  // flight must not leave it stuck at opacity:0 -- see the removed animateModalReveal's own
+  // comment for why this exact guard shape (clear before the visible-state write, not after).
+  modal.classList.remove("modal-backdrop--closing");
   const current=modalStack.find(entry=>entry.modal===modal);
   if(current){modalStack.splice(modalStack.indexOf(current),1);modalStack.push(current)}
   else {const opener=options.opener||document.activeElement;modalStack.push({modal,opener,openerKey:focusKey(opener),fallback:opener?.closest?.("details")?.querySelector("summary")||null,lastFocus:null})}
@@ -107,13 +111,8 @@ function forceCloseModal(modalId,{restore=true}={}){
   const index=modalStack.findIndex(entry=>entry.modal.id===modalId),modal=document.getElementById(modalId);
   const entry=index>=0?modalStack[index]:null;
   if(index>=0)modalStack.splice(index,1);
-  if(modal)modal.style.display="none";
+  if(modal){modal.classList.add("modal-backdrop--closing");modal.style.display="none"}
   globalThis.trackerFor?.(modalId)?.deactivate();globalThis.syncBeforeUnload?.();syncLayers();
-  const topEntry=modalStack.at(-1);
-  if(topEntry){
-    topEntry.modal.inert=false;topEntry.modal.setAttribute("aria-hidden","false");
-    animateModalReveal(topEntry.modal);
-  }
   if(restore&&entry)resolveFocus(entry)?.focus({preventScroll:true});
 }
 
