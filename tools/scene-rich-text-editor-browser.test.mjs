@@ -18,7 +18,11 @@ const project={
     {id:"scene-1",title:"Первая сцена",date:"",time:"",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],
      writingStatus:"idea",sceneText:"Первый абзац.\nВторой абзац.",included:true,status:"floating",people:{}},
     {id:"scene-2",title:"Вторая сцена (легаси)",date:"",time:"",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],
-     writingStatus:"idea",sceneText:"Нетронутый легаси-текст.",included:true,status:"floating",people:{}}
+     writingStatus:"idea",sceneText:"Нетронутый легаси-текст.",included:true,status:"floating",people:{}},
+    {id:"scene-boundary",title:"Проверка границы выделения",date:"",time:"",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],
+     writingStatus:"idea",sceneText:"L1\nL2\nL3\nL4\nL5",included:true,status:"floating",people:{}},
+    {id:"scene-long",title:"Длинная сцена",date:"",time:"",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],
+     writingStatus:"idea",sceneText:Array.from({length:60},(_,i)=>`Абзац номер ${i+1} для проверки прокрутки длинного текста сцены.`).join("\n"),included:true,status:"floating",people:{}}
   ]
 };
 
@@ -43,11 +47,22 @@ try{
   if(JSON.stringify(paragraphs)!==JSON.stringify(["Первый абзац.","Второй абзац."]))
     throw new Error(`Legacy text not preserved paragraph-for-paragraph: ${JSON.stringify(paragraphs)}`);
 
-  // Accessible names on the toolbar controls.
-  const boldAriaLabel=await page.getAttribute('[data-cmd="bold"]',"aria-label");
-  if(!boldAriaLabel)throw new Error("Bold button has no accessible name");
-  const povAriaLabel=await page.getAttribute('[data-cmd="pov"]',"aria-label");
-  if(!povAriaLabel)throw new Error("POV control has no accessible name");
+  // Legacy scenes have no explicit alignment -- they render using the
+  // platform default (justify), not a baked-in "left" (T1 corrective UX pass,
+  // items 2/6). Destructive-rewrite check: opening does not add an explicit
+  // align attr (verified separately below via the doc JSON after a no-op close).
+  const legacyParaClasses=await page.$$eval("#fullSceneTextEditor .scene-paragraph",els=>els.map(el=>el.className));
+  if(!legacyParaClasses.every(c=>c.includes("scene-paragraph-justify")))
+    throw new Error(`Legacy paragraphs did not render with the default justify alignment: ${JSON.stringify(legacyParaClasses)}`);
+
+  // Every icon-only control (alignment icons + undo/redo glyphs) keeps a real
+  // Russian accessible name -- icons alone are never the only signal.
+  for(const cmd of ["bold","align-left","align-center","align-right","align-justify","undo","redo","scene-break","pov"]){
+    const label=await page.getAttribute(`[data-cmd="${cmd}"]`,"aria-label");
+    if(!label)throw new Error(`Control [data-cmd="${cmd}"] has no accessible name`);
+    const title=await page.getAttribute(`[data-cmd="${cmd}"]`,"title");
+    if(cmd!=="pov"&&!title)throw new Error(`Control [data-cmd="${cmd}"] has no tooltip/title`);
+  }
 
   // --- No changes made: closing must NOT show the discard-changes confirmation.
   await page.click("#closeText");
@@ -108,6 +123,18 @@ try{
   const firstParagraphClass=await firstParagraph.getAttribute("class");
   if(!firstParagraphClass.includes("scene-paragraph-center"))throw new Error("Center alignment was not applied to the paragraph");
 
+  await firstParagraph.click({clickCount:3});
+  await page.click('[data-cmd="align-justify"]');
+  const justifiedClass=await firstParagraph.getAttribute("class");
+  if(!justifiedClass.includes("scene-paragraph-justify"))throw new Error("Justify was not applied to the paragraph");
+  if((await page.getAttribute('[data-cmd="align-justify"]',"aria-pressed"))!=="true")throw new Error("Justify button did not report active state");
+  // Explicit Left still works despite Justify being the platform default --
+  // leave the paragraph here; the save/reopen check below confirms this
+  // explicit choice (not the default) is what actually gets persisted.
+  await firstParagraph.click({clickCount:3});
+  await page.click('[data-cmd="align-left"]');
+  if((await page.getAttribute('[data-cmd="align-left"]',"aria-pressed"))!=="true")throw new Error("Explicit Left did not report active state despite Justify being default");
+
   // Scene separator: structural block, not plain text, editable around. A short
   // pause before/after each of these two inserts keeps them as two genuinely
   // separate prosemirror-history undo groups (its default grouping window is
@@ -120,11 +147,25 @@ try{
   if(!(await page.$("#fullSceneTextEditor .scene-break")))throw new Error("Scene break was not inserted");
   await page.waitForTimeout(600);
 
-  // POV insert from the project's own Characters.
+  // POV insert from the project's own Characters -- ordinary text, NOT forced
+  // bold (T1 corrective UX pass, item 5). The paragraph it lands in already
+  // has other bold/italic/strike text from earlier in this test, so check the
+  // POV run specifically rather than "any <strong> exists in the editor".
   await page.selectOption('[data-cmd="pov"]',"Мартин Моралес");
   const editorText=await page.$eval("#fullSceneTextEditor",el=>el.textContent);
   if(!editorText.includes("pov Мартин Моралес"))throw new Error("POV insert did not add the character's name");
-  if(await page.$eval("#fullSceneTextEditor strong",els=>els).catch(()=>null)===null)throw new Error("POV insert control missing bold presentation");
+  const povRunIsPlain=await page.evaluate(()=>{
+    const walker=document.createTreeWalker(document.getElementById("fullSceneTextEditor"),NodeFilter.SHOW_TEXT);
+    let node;
+    while((node=walker.nextNode())){
+      if(node.textContent.includes("pov Мартин Моралес")){
+        const insideMark=node.parentElement.closest("strong,em,s")!==null;
+        return !insideMark;
+      }
+    }
+    return false;
+  });
+  if(!povRunIsPlain)throw new Error("POV insert is still wrapped in a formatting mark (should be plain ordinary text)");
   await page.waitForTimeout(600);
 
   // Multi-step undo/redo through the toolbar (same command path as everywhere else).
@@ -157,7 +198,7 @@ try{
   if(!(await page.$("#fullSceneTextEditor s")))throw new Error("Strike formatting did not survive save/reopen");
   if(!(await page.$("#fullSceneTextEditor .scene-break")))throw new Error("Scene break did not survive save/reopen");
   const reopenedClass=await page.locator("#fullSceneTextEditor .scene-paragraph").first().getAttribute("class");
-  if(!reopenedClass.includes("scene-paragraph-center"))throw new Error("Alignment did not survive save/reopen");
+  if(!reopenedClass.includes("scene-paragraph-left"))throw new Error("Explicit Left alignment did not survive save/reopen");
   await page.click("#closeText");
 
   // --- A second, never-touched legacy scene must still open cleanly (regression safety).
@@ -167,6 +208,73 @@ try{
   if(JSON.stringify(legacyParas)!==JSON.stringify(["Нетронутый легаси-текст."]))
     throw new Error(`Untouched legacy scene changed on open: ${JSON.stringify(legacyParas)}`);
   await page.click("#closeText");
+
+  // --- Selection-boundary regression (production bug), isolated on its own
+  // scene: selecting exactly 4 paragraphs via keyboard (Home, then
+  // Shift+Down x4 -- a selection whose endpoint lands exactly at the start
+  // of the 5th paragraph) and centering must NOT also center that 5th
+  // paragraph. The pure-logic unit test proves this precisely at the
+  // position-math level; this proves the same fix through the real
+  // keymap-integrated selection/command path.
+  await page.evaluate(()=>openSceneText("scene-boundary"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  await page.locator("#fullSceneTextEditor .scene-paragraph").first().click();
+  await page.keyboard.press("Home");
+  for(let i=0;i<4;i++)await page.keyboard.press("Shift+ArrowDown");
+  await page.click('[data-cmd="align-center"]');
+  const boundaryClasses=await page.$$eval("#fullSceneTextEditor .scene-paragraph",els=>els.map(el=>el.className));
+  if(boundaryClasses.length!==5)throw new Error(`Expected 5 paragraphs for the boundary regression check, got ${boundaryClasses.length}`);
+  for(let i=0;i<4;i++)if(!boundaryClasses[i].includes("scene-paragraph-center"))throw new Error(`Boundary regression: paragraph ${i+1} was not centered`);
+  if(boundaryClasses[4].includes("scene-paragraph-center"))throw new Error("Boundary regression bug reproduced: the 5th paragraph (outside the selection) was also centered");
+  if(!boundaryClasses[4].includes("scene-paragraph-justify"))throw new Error("Boundary regression: the untouched 5th paragraph should remain at its (default justify) alignment");
+  await page.click("#closeText");
+  await page.click("#discardChanges");
+  await page.waitForTimeout(80);
+
+  // --- Sticky toolbar/actions on a long scene: scrolling down must keep the
+  // formatting toolbar reachable at the top and Close/Save reachable at the
+  // bottom, with the manuscript as the one scrolling region between them (no
+  // nested scroll, no background scroll leak).
+  await page.evaluate(()=>openSceneText("scene-long"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  const modalBox=page.locator("#textModal .modal");
+  const toolbarTopBeforeScroll=await page.locator("#fullSceneTextToolbar").boundingBox().then(b=>b.y);
+  await modalBox.evaluate(el=>{el.scrollTop=el.scrollHeight/2});
+  await page.waitForTimeout(60);
+  const toolbarBoxAfterScroll=await page.locator("#fullSceneTextToolbar").boundingBox();
+  const actionsBoxAfterScroll=await page.locator("#textModal .modal-actions").boundingBox();
+  const modalViewport=await modalBox.boundingBox();
+  if(!(toolbarBoxAfterScroll.y>=modalViewport.y-2&&toolbarBoxAfterScroll.y<=toolbarTopBeforeScroll+2))
+    throw new Error(`Toolbar did not stay pinned near the top after scrolling (y=${toolbarBoxAfterScroll.y}, was ${toolbarTopBeforeScroll})`);
+  if(actionsBoxAfterScroll.y+actionsBoxAfterScroll.height>modalViewport.y+modalViewport.height+2)
+    throw new Error("Save/Close actions are not reachable within the modal viewport after scrolling");
+  // Toolbar buttons and Save/Close must actually be clickable (not just
+  // visually present) after scrolling deep into a long scene.
+  if(!(await page.locator('[data-cmd="bold"]').isVisible()))throw new Error("Bold button not reachable after scrolling a long scene");
+  if(!(await page.locator("#saveText").isVisible()))throw new Error("Save button not reachable after scrolling a long scene");
+  // No background scroll leak: the page behind the modal must not have moved.
+  const bodyScrollBefore=await page.evaluate(()=>document.documentElement.scrollTop);
+  await modalBox.evaluate(el=>{el.scrollTop=0});
+  await page.mouse.wheel(0,400);
+  await page.waitForTimeout(60);
+  const bodyScrollAfter=await page.evaluate(()=>document.documentElement.scrollTop);
+  if(bodyScrollAfter!==bodyScrollBefore)throw new Error("Scrolling inside the long-scene editor leaked to the page behind the modal");
+
+  // Narrow viewport: the toolbar wraps but every essential control (incl.
+  // Save/Close) stays reachable, not clipped off-screen.
+  await page.setViewportSize({width:420,height:700});
+  await page.waitForTimeout(60);
+  if(!(await page.locator('[data-cmd="bold"]').isVisible()))throw new Error("Bold button not reachable on a narrow viewport");
+  if(!(await page.locator('[data-cmd="align-justify"]').isVisible()))throw new Error("Justify button not reachable on a narrow viewport");
+  if(!(await page.locator("#saveText").isVisible()))throw new Error("Save button not reachable on a narrow viewport");
+  if(!(await page.locator("#closeText").isVisible()))throw new Error("Close button not reachable on a narrow viewport");
+  await page.setViewportSize({width:1280,height:900});
+  await page.waitForTimeout(60);
+  // scene-long was only scrolled/inspected, never edited -- closing needs no
+  // discard confirmation (same "no changes -> close" contract checked at the
+  // top of this file, re-verified here after a scroll + viewport resize).
+  await page.click("#closeText");
+  if(await isVisible("#discardChangesModal"))throw new Error("Scrolling/resizing alone (no edits) was treated as dirty on close");
 
   console.log("scene rich-text editor browser tests passed");
 }finally{await browser.close();server.kill()}

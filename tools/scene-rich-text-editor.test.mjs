@@ -110,15 +110,74 @@ function applyCommand(getState,setState,command,...args){
   assert.equal(wordsAfter,wordsBefore,"форматирование и разделитель сцены не увеличивают число слов");
 }
 
-// POV insert: plain bold text using the given name, not a permanent node.
+// Justify-by-default alignment semantics (T1 corrective UX pass, items 2/6):
+// unset (null) alignment renders as the platform default (justify); explicit
+// left/center/right/justify are distinct stored states that always survive a
+// round trip; legacy plain-text conversion never bakes in an explicit "left"
+// the author never actually chose, and Justify being default never blocks an
+// author from deliberately choosing Left.
+{
+  const legacyDoc=plainTextToDoc(schema,"Обычный абзац.");
+  assert.equal(legacyDoc.firstChild.attrs.align,null,"легаси-абзац не получает явное align:left при конвертации, а остаётся unset");
+
+  let state=EditorState.create({schema,doc:legacyDoc,plugins:[history()]});
+  const get=()=>state,set=next=>{state=next};
+  assert.ok(alignActive(state,"justify"),"неявное (unset) выравнивание по умолчанию — по ширине");
+  assert.equal(alignActive(state,"left"),false,"неявное выравнивание не путается с явным left");
+
+  assert.ok(applyCommand(get,set,setAlign("left")),"явный Left применяется несмотря на Justify по умолчанию");
+  assert.equal(state.doc.firstChild.attrs.align,"left","явный Left хранится как отдельное значение, а не сливается с default");
+  assert.ok(alignActive(state,"left"),"alignActive видит явный left");
+  assert.equal(alignActive(state,"justify"),false,"после явного left это больше не считается justify");
+
+  for(const value of ["left","center","right","justify"]){
+    assert.ok(applyCommand(get,set,setAlign(value)),`явное ${value} применяется`);
+    const restored=docFromJSON(schema,docToJSON(state.doc));
+    assert.equal(restored.firstChild.attrs.align,value,`${value} переживает сериализацию/десериализацию`);
+  }
+}
+
+// 3. Alignment selection-boundary bug: a selection whose endpoint sits exactly
+// at the start of the next paragraph (e.g. Home, Shift+Down x4 across 4
+// lines) must not also align that next paragraph. Reproduces the exact
+// reported case (4 paragraphs selected, a 5th immediately below) for every
+// alignment value.
+{
+  for(const value of ["left","center","right","justify"]){
+    const doc=plainTextToDoc(schema,"P1\nP2\nP3\nP4\nP5");
+    let state=EditorState.create({schema,doc,plugins:[history()]});
+    const get=()=>state,set=next=>{state=next};
+    const p5Start=doc.content.child(0).nodeSize+doc.content.child(1).nodeSize+doc.content.child(2).nodeSize+doc.content.child(3).nodeSize+1;
+    set(state.apply(state.tr.setSelection(TextSelection.create(state.doc,1,p5Start))));
+    assert.ok(applyCommand(get,set,setAlign(value)),`${value}: команда применяется к выделению 4 абзацев`);
+    const aligns=[];
+    state.doc.forEach(node=>aligns.push(node.attrs.align));
+    assert.deepEqual(aligns.slice(0,4),[value,value,value,value],`${value}: первые 4 абзаца выровнены`);
+    assert.equal(aligns[4],null,`${value}: пятый абзац НЕ затронут (выделение лишь касалось его границы)`);
+  }
+}
+
+// POV insert: plain ordinary text using the given name, not a permanent node,
+// and NOT forcibly bold -- the author applies Bold/Italic manually afterward
+// with the normal editor commands (T1 corrective UX pass, item 5).
 {
   let state=EditorState.create({schema,doc:plainTextToDoc(schema,""),plugins:[history()]});
   const ok=insertPovText("Мартин Моралес")(state,tr=>{state=state.apply(tr)});
   assert.ok(ok,"POV insert применяется");
   assert.ok(docToPlainText(state.doc).includes("pov Мартин Моралес"),"вставленный текст содержит имя персонажа");
-  let sawBold=false;
-  state.doc.descendants(node=>{if(node.isText&&schema.marks.strong.isInSet(node.marks))sawBold=true});
-  assert.ok(sawBold,"POV вставляется полужирным по умолчанию");
+  let sawBold=false,sawAnyMark=false;
+  state.doc.descendants(node=>{if(node.isText){if(schema.marks.strong.isInSet(node.marks))sawBold=true;if(node.marks.length)sawAnyMark=true}});
+  assert.equal(sawBold,false,"POV больше не вставляется полужирным принудительно");
+  assert.equal(sawAnyMark,false,"POV вставляется как обычный текст без каких-либо меток");
+
+  // Selecting the inserted text and applying Bold manually still works
+  // normally -- the author is not blocked from formatting it themselves.
+  const inserted="pov Мартин Моралес";
+  state=state.apply(state.tr.setSelection(TextSelection.create(state.doc,1,1+inserted.length)));
+  assert.ok(toggleBold(state,tr=>{state=state.apply(tr)}),"автор может вручную выделить и выделить жирным вставленный POV");
+  let sawManualBold=false;
+  state.doc.descendants(node=>{if(node.isText&&schema.marks.strong.isInSet(node.marks))sawManualBold=true});
+  assert.ok(sawManualBold,"ручное применение Bold к POV-тексту работает как к обычному тексту");
 }
 
 // 4. Multi-step undo/redo: several independent operations, all reversible and

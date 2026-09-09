@@ -3,9 +3,20 @@ import {Schema} from "prosemirror-model";
 // Paragraph alignment is a paragraph *attribute*, never a separate node type and
 // never stored markup -- alignment/indent are presentation over one structural
 // paragraph kind. See docs: text-formatting architecture audit T1, §5/§7.
-const ALIGN_VALUES=["left","center","right"];
+//
+// align:null means "unset" -- distinct from an author's explicit choice. The
+// platform default *rendering* for unset is justify (Word-like prose), but the
+// stored value stays null so it never gets confused with an explicit "left"/
+// "justify" the author actually picked via the toolbar, and so a legacy scene
+// converted fresh from plain text (always unset) never needs a document
+// rewrite just to pick up a future change to what the default renders as.
+const ALIGN_VALUES=["left","center","right","justify"];
 
-function normalizeAlign(value){return ALIGN_VALUES.includes(value)?value:"left"}
+function normalizeAlign(value){return ALIGN_VALUES.includes(value)?value:null}
+// The class always reflects the *effective* (rendered) alignment -- unset
+// falls back to the platform default (justify) for display purposes only;
+// the underlying attrs.align is never silently rewritten by this.
+function effectiveAlign(align){return ALIGN_VALUES.includes(align)?align:"justify"}
 
 // T1 document schema: doc/paragraph/text + a structural scene-break block, and
 // bold/italic/strike marks. A future inline "footnote" mark (word/phrase -> id of
@@ -17,10 +28,10 @@ export const sceneDocSchema=new Schema({
     paragraph:{
       group:"block",
       content:"inline*",
-      attrs:{align:{default:"left"}},
+      attrs:{align:{default:null}},
       parseDOM:[{tag:"p",getAttrs(dom){return {align:normalizeAlign(dom.style?.textAlign)}}}],
       toDOM(node){
-        const align=normalizeAlign(node.attrs.align);
+        const align=effectiveAlign(node.attrs.align);
         return ["p",{class:`scene-paragraph scene-paragraph-${align}`},0];
       }
     },
@@ -52,4 +63,4 @@ export const sceneDocSchema=new Schema({
   }
 });
 
-export {ALIGN_VALUES,normalizeAlign};
+export {ALIGN_VALUES,normalizeAlign,effectiveAlign};
