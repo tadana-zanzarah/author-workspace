@@ -55,6 +55,25 @@ try{
   if(await isVisible("#textModal"))throw new Error("Modal still open after closing an untouched scene");
   if(await isVisible("#discardChangesModal"))throw new Error("Discard confirmation shown for an untouched (non-dirty) scene");
 
+  // --- Enter creates a new paragraph (natural prose flow, no manual blank-line
+  // management needed) -- discarded afterward, this reopen is throwaway.
+  await page.evaluate(()=>openSceneText("scene-1"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  // A plain single click reliably places a caret only once the editor has had a
+  // prior genuine selection established (observed in this environment); a
+  // triple-click (native paragraph selection) is reliable from a fresh mount, so
+  // select-then-collapse-to-end is used instead of a bare single click here.
+  await page.locator("#fullSceneTextEditor .scene-paragraph").nth(1).click({clickCount:3});
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Новый абзац после Enter.");
+  const paragraphsAfterEnter=await page.$$eval("#fullSceneTextEditor .scene-paragraph",els=>els.map(el=>el.textContent));
+  if(paragraphsAfterEnter.length!==3||paragraphsAfterEnter[2]!=="Новый абзац после Enter.")
+    throw new Error(`Enter did not create a clean new paragraph: ${JSON.stringify(paragraphsAfterEnter)}`);
+  await page.evaluate(()=>document.getElementById("closeText").click());
+  await page.click("#discardChanges");
+  await page.waitForTimeout(80);
+
   // --- Reopen and make a real formatting-only edit.
   await page.evaluate(()=>openSceneText("scene-1"));
   await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
