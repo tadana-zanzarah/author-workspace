@@ -1,3 +1,5 @@
+import {mountSceneEditor} from "./editor/scene-editor-controller.js";
+
 function sceneById(id){return data.scenes.find(s=>s.id===id)}
 
 function sceneIndexById(id){return data.scenes.findIndex(s=>s.id===id)}
@@ -411,6 +413,14 @@ function openSceneText(sceneId){
   return requestEditorTransition(()=>openSceneTextNow(sceneId));
 }
 
+// Defensive destroy-before-create: every close path (Save, Cancel, Escape,
+// backdrop) ends up back here on the next open, so a stray ProseMirror instance
+// from a non-Save close is always cleaned up before a new one is mounted -- no
+// need to hook every individual close handler.
+function destroySceneTextEditor(){
+  if(sceneTextEditor){sceneTextEditor.destroy();sceneTextEditor=null}
+}
+
 function openSceneTextNow(sceneId){
   textEditingSceneId=sceneId;
   const scene=sceneById(sceneId);
@@ -421,10 +431,15 @@ function openSceneTextNow(sceneId){
   if(scene.time)parts.push(scene.time);
   parts.push(scene.status==="fixed"?"сцена на своём месте":"сцену ещё нужно разместить");
   document.getElementById("textModalMeta").textContent=parts.join(" · ");
-  document.getElementById("fullSceneText").value=scene.sceneText||"";
-  showModal("textModal");
+  destroySceneTextEditor();
+  sceneTextEditor=mountSceneEditor({
+    editorContainer:document.getElementById("fullSceneTextEditor"),
+    toolbarContainer:document.getElementById("fullSceneTextToolbar"),
+    scene,
+    characters:data.characters
+  });
+  showModal("textModal",{initialFocus:sceneTextEditor.view.dom});
   trackerFor("textModal").captureInitialState();
-  setTimeout(()=>document.getElementById("fullSceneText").focus(),0);
 }
 
 async function toggleIncluded(sceneId,checked){
@@ -470,5 +485,5 @@ async function deleteScene(sceneId){
   render();
 }
 
-Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
-export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};
+Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
+export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};

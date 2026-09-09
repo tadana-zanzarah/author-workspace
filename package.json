@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "review": "node tools/review.mjs",
-    "test:unit": "node tools/data-safety.test.mjs && node tools/character-images-data.test.mjs && node tools/cloud-character-image-api.test.mjs && node tools/character-links-data.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs && node tools/auth-flow.test.mjs && node tools/cloud-foundation.test.mjs && node tools/cloud-content-api.test.mjs && node tools/cloud-character-api.test.mjs && node tools/cloud-project-sync.test.mjs && node tools/local-to-cloud-migration.test.mjs && node tools/local-to-cloud-migration-execution.test.mjs && node tools/local-to-cloud-migration-ui.test.mjs && node tools/character-order.test.mjs && node tools/cloud-scene-participant-search.test.mjs && node tools/scene-chronology.test.mjs && node tools/last-open-project-preference.test.mjs && node tools/scene-position-model.test.mjs && node tools/review-launcher.test.mjs && node tools/production-db-guardrails.test.mjs && node tools/migration-history-reconcile.test.mjs && node tools/location-base-profile.test.mjs && node tools/location-children-derivation.test.mjs && node tools/location-module-selection.test.mjs && node tools/cloud-location-media-api.test.mjs && node tools/location-media.test.mjs && node tools/location-history-events.test.mjs && node tools/location-history-async-race.test.mjs && node tools/location-media-async-race.test.mjs",
+    "test:unit": "node tools/data-safety.test.mjs && node tools/character-images-data.test.mjs && node tools/cloud-character-image-api.test.mjs && node tools/character-links-data.test.mjs && node tools/storage-safety.test.mjs && node tools/recovery-date.test.mjs && node tools/dirty-state.test.mjs && node tools/auth-flow.test.mjs && node tools/cloud-foundation.test.mjs && node tools/cloud-content-api.test.mjs && node tools/cloud-character-api.test.mjs && node tools/cloud-project-sync.test.mjs && node tools/local-to-cloud-migration.test.mjs && node tools/local-to-cloud-migration-execution.test.mjs && node tools/local-to-cloud-migration-ui.test.mjs && node tools/character-order.test.mjs && node tools/cloud-scene-participant-search.test.mjs && node tools/scene-chronology.test.mjs && node tools/last-open-project-preference.test.mjs && node tools/scene-position-model.test.mjs && node tools/review-launcher.test.mjs && node tools/production-db-guardrails.test.mjs && node tools/migration-history-reconcile.test.mjs && node tools/location-base-profile.test.mjs && node tools/location-children-derivation.test.mjs && node tools/location-module-selection.test.mjs && node tools/cloud-location-media-api.test.mjs && node tools/location-media.test.mjs && node tools/location-history-events.test.mjs && node tools/location-history-async-race.test.mjs && node tools/location-media-async-race.test.mjs && node tools/scene-rich-text-editor.test.mjs",
     "test:migration-wizard": "node tools/local-to-cloud-migration-ui.test.mjs",
     "test:smoke": "node tools/browser-smoke.mjs",
     "test:dirty-browser": "node tools/dirty-browser.test.mjs",
@@ -44,6 +44,7 @@
     "test:sidebar-collapse-browser": "node tools/sidebar-collapse-browser.test.mjs",
     "test:scene-participants-browser": "node tools/scene-participants-browser.test.mjs",
     "test:scene-modal-scroll-browser": "node tools/scene-modal-scroll-browser.test.mjs",
+    "test:scene-rich-text-editor-browser": "node tools/scene-rich-text-editor-browser.test.mjs",
     "test:compact-list-empty-state-browser": "node tools/compact-list-empty-state-browser.test.mjs",
     "test:multi-value-browser": "node tools/multi-value-profile-browser.test.mjs",
     "test:character-images-browser": "node tools/character-images-browser.test.mjs",
@@ -79,5 +80,14 @@
   "devDependencies": {
     "@supabase/supabase-js": "2.112.3",
     "pg": "^8.23.0"
+  },
+  "dependencies": {
+    "prosemirror-commands": "^1.7.2",
+    "prosemirror-history": "^1.5.0",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.11",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-transform": "^1.12.1",
+    "prosemirror-view": "^1.42.3"
   }
 }

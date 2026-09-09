@@ -253,12 +253,24 @@ function normalizeProfile(profile,character){
   const primaryPhotoId=photos.some(photo=>photo.id===p.primaryPhotoId)?p.primaryPhotoId:(photos[0]?.id||"");
   return {...base,...p,id:p.id||character.id,characterId:character.id,name:p.name||character.name,photos,primaryPhotoId,favorites:normalizeMultiValue(p.favorites),hobbies:normalizeMultiValue(p.hobbies),birthday:{...base.birthday,...safeOwnCopy(p.birthday||{})},hidden:safeOwnCopy(p.hidden||{}),initialRelations:safeOwnCopy(p.initialRelations||{})};
 }
+// T1 rich-text doc: only trusted when it's a plausible ProseMirror doc-JSON shape
+// (object, type "doc", array content) -- anything else (wrong type, corrupted,
+// foreign data) is dropped here rather than stored. This is a light structural
+// check only; real schema validation happens at editor-load time (loadSceneDocument
+// in js/editor/scene-doc-convert.js), which safely falls back to the plain-text
+// sceneText if the doc turns out not to actually match the schema.
+function normalizeSceneTextDoc(value){
+  if(!value||typeof value!=="object"||Array.isArray(value))return null;
+  if(value.type!=="doc"||!Array.isArray(value.content))return null;
+  return safeOwnCopy(value);
+}
+
 function normalizeProject(value){
   const src=safeOwnCopy(value);
   const characters=src.characters.map((item,index)=>({...safeOwnCopy(item),id:String(item.id),name:String(item.name||`Персонаж ${index+1}`)}));
   const profiles={};
   for(const character of characters)profiles[character.id]=normalizeProfile(src.profiles[character.id],character);
-  const scenes=src.scenes.map(scene=>({...safeOwnCopy(scene),id:String(scene.id),date:String(scene.date||""),time:String(scene.time||""),title:String(scene.title||""),chapterId:scene.chapterId||"chapter-unassigned",locationId:scene.locationId||"",tags:[...new Set(scene.tags||scene.tagIds||[])],writingStatus:WRITING_STATUSES.some(x=>x.id===scene.writingStatus)?scene.writingStatus:"idea",sceneText:String(scene.sceneText??scene.text??""),included:scene.included!==false,status:scene.status==="fixed"?"fixed":"floating",dateReview:!!scene.dateReview,people:safeOwnCopy(scene.people||{})}));
+  const scenes=src.scenes.map(scene=>({...safeOwnCopy(scene),id:String(scene.id),date:String(scene.date||""),time:String(scene.time||""),title:String(scene.title||""),chapterId:scene.chapterId||"chapter-unassigned",locationId:scene.locationId||"",tags:[...new Set(scene.tags||scene.tagIds||[])],writingStatus:WRITING_STATUSES.some(x=>x.id===scene.writingStatus)?scene.writingStatus:"idea",sceneText:String(scene.sceneText??scene.text??""),sceneTextDoc:normalizeSceneTextDoc(scene.sceneTextDoc),included:scene.included!==false,status:scene.status==="fixed"?"fixed":"floating",dateReview:!!scene.dateReview,people:safeOwnCopy(scene.people||{})}));
   return {...src,version:11,characters,profiles,characterLinks:(Array.isArray(src.characterLinks)?src.characterLinks:[]).map(normalizeCharacterLink),chapters:normalizeChapters(src.chapters),locations:normalizeLocations(src.locations),tags:normalizeTags(src.tags),future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[],...safeOwnCopy(src.future||{})},scenes};
 }
 const normalizeData=normalizeProject;
@@ -303,5 +315,5 @@ function defaultData(){
   return {version:11,characters:[],profiles:{},characterLinks:[],chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false}],locations:[],tags:[],future:{plotlines:[],characterArcs:[],worldMap:null,causalLinks:[]},scenes:[]};
 }
 
-Object.assign(globalThis,{makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,normalizeCrop,normalizePhoto,defaultData,emptyProfile,normalizeProfile,normalizeData});
-export {makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,normalizeCrop,normalizePhoto,defaultData,emptyProfile,normalizeProfile,normalizeData};
+Object.assign(globalThis,{makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,normalizeSceneTextDoc,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,normalizeCrop,normalizePhoto,defaultData,emptyProfile,normalizeProfile,normalizeData});
+export {makeId,safeOwnCopy,parseProjectJson,detectProjectVersion,validateProjectStructure,migrateProject,normalizeProject,normalizeSceneTextDoc,prepareProject,normalizeChapters,normalizeLocations,canonicalTagName,normalizeTags,normalizeMultiValue,normalizeCrop,normalizePhoto,defaultData,emptyProfile,normalizeProfile,normalizeData};

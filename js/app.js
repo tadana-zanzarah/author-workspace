@@ -27,13 +27,15 @@ import "./render.js";
 import "./matrix-sticky.js";
 import "./drag-drop.js";
 import "./import-export.js";
+import {sceneDocSchema} from "./editor/scene-doc-schema.js";
+import {sceneTextDocPlainText} from "./editor/scene-doc-convert.js";
 
 // Инициализация данных выполняется после регистрации функций миграции и хранения.
 data=loadDataSafe();
 
 const editorTrackers={
   sceneModal:createDirtyTracker("sceneModal",()=>serializeForm("sceneModal",{tags:[...sceneTagDraft],newTags:{...sceneNewTagDraft}})),
-  textModal:createDirtyTracker("textModal",()=>serializeForm("textModal")),
+  textModal:createDirtyTracker("textModal",()=>serializeForm("textModal",{doc:sceneTextEditor?.getDocJSON()||null})),
   allScenesModal:createDirtyTracker("allScenesModal",()=>serializeForm("allScenesModal")),
   profileEditorModal:createDirtyTracker("profileEditorModal",()=>serializeForm("profileEditorModal",{photos:safeOwnCopy(profileDraftPhotos),primaryPhotoId:profileDraftPrimaryPhotoId,characterLinks:safeOwnCopy(profileDraftCharacterLinks),favorites:multiValueInputs.favorites?.getValues()||[],hobbies:multiValueInputs.hobbies?.getValues()||[]})),
   characterLinkModal:createDirtyTracker("characterLinkModal",()=>serializeForm("characterLinkModal")),
@@ -453,6 +455,19 @@ document.getElementById("tagsModal").onclick=e=>{if(e.target.id==="tagsModal")re
 
 
 
+// The T1 rich-text editor lives only on the "Текст сцены" surface (#textModal);
+// this plain-textarea Scene modal is untouched. If a Scene already has a rich
+// sceneTextDoc and the plain textarea here still matches its extracted plain
+// text (i.e. nothing was actually typed here), the rich document is preserved.
+// If the plain text was genuinely edited here, the now-stale rich document is
+// dropped rather than silently kept out of sync with the prose it no longer
+// matches -- formatting reverts to none, but no prose character is ever lost
+// (the plain textarea's value is exactly what gets saved either way).
+function preservedSceneTextDoc(existingScene,plainTextValue){
+  if(!existingScene?.sceneTextDoc)return null;
+  return sceneTextDocPlainText(sceneDocSchema,existingScene.sceneTextDoc)===plainTextValue?existingScene.sceneTextDoc:null;
+}
+
 document.getElementById("saveScene").onclick=async()=>{
   const existingScene=editingSceneId?sceneById(editingSceneId):null;
   const targetIndex=existingScene
@@ -473,6 +488,7 @@ document.getElementById("saveScene").onclick=async()=>{
     tags:[...sceneTagDraft],
     writingStatus:document.getElementById("sceneWritingStatus").value||"idea",
     sceneText:document.getElementById("sceneText").value,
+    sceneTextDoc:preservedSceneTextDoc(existingScene,document.getElementById("sceneText").value),
     included:document.getElementById("sceneIncluded").checked,
     status:document.getElementById("sceneStatus").value,
     dateReview:existingScene?((existingScene.date||"")!==sceneDate||(existingScene.time||"")!==sceneTime||(existingScene.chapterId||"chapter-unassigned")!==(document.getElementById("sceneChapter").value||"chapter-unassigned")?true:!!existingScene.dateReview):!!(sceneDate||sceneTime),
@@ -524,6 +540,15 @@ document.getElementById("saveScene").onclick=async()=>{
       }
       const relationResult=await runCloudMutation("setSceneRelationChanges",(_api,revision)=>cloudState.characterApi.setSceneRelationChanges(cloudProjectSync.projectId,sceneId,revision,changes.filter(item=>item.fromProjectCharacterId&&item.toProjectCharacterId)),{renderAfter:false});
       if(!relationResult.ok)return;
+      // updateScene never touches the metadata column (see updateSceneText below),
+      // so a rich sceneTextDoc invalidated above by preservedSceneTextDoc would
+      // otherwise survive untouched server-side and resurface stale formatting the
+      // next time this Scene is opened in the rich editor. Clear it explicitly to
+      // keep server metadata consistent with the plain text just saved here.
+      if(existingScene?.sceneTextDoc&&!scene.sceneTextDoc){
+        const clearResult=await runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,sceneId,revision,{sceneText:scene.sceneText,metadata:{}}),{renderAfter:false});
+        if(!clearResult.ok)return;
+      }
     }
     data=cloudProjectSync.confirmedProject;trackerFor("sceneModal").captureInitialState();forceHideModal("sceneModal");render();return;
   }
@@ -549,15 +574,24 @@ document.getElementById("saveScene").onclick=async()=>{
 
 document.getElementById("saveText").onclick=async()=>{
   const scene=sceneById(textEditingSceneId);
-  if(!scene)return;
-  const value=document.getElementById("fullSceneText").value;
+  if(!scene||!sceneTextEditor)return;
+  const {sceneText,sceneTextDoc}=sceneTextEditor.serialize();
   if(isCloudWorkspace()){
-    const result=await runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,scene.id,revision,sceneToCloud({...scene,sceneText:value})));
-    if(!result.ok)return;trackerFor("textModal").captureInitialState();forceHideModal("textModal");return;
+    // Narrow, scoped RPC (scene_text + metadata.richText only) instead of the
+    // full-field updateScene -- see docs/text-formatting-t1-persistence.md: this
+    // modal only ever touches those two columns, and updating them atomically in
+    // one RPC means a mid-save failure can never leave prose and formatting out of
+    // sync with each other.
+    const result=await runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,scene.id,revision,{sceneText,metadata:{richText:sceneTextDoc}}));
+    if(!result.ok)return;
+    trackerFor("textModal").captureInitialState();forceHideModal("textModal");destroySceneTextEditor();return;
   }
-  const result=commitDataChange(next=>{next.scenes.find(s=>s.id===textEditingSceneId).sceneText=value},{renderAfter:false});
+  const result=commitDataChange(next=>{
+    const target=next.scenes.find(s=>s.id===textEditingSceneId);
+    target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
+  },{renderAfter:false});
   if(!result.ok)return;
-  trackerFor("textModal").captureInitialState();forceHideModal("textModal");
+  trackerFor("textModal").captureInitialState();forceHideModal("textModal");destroySceneTextEditor();
 };
 document.getElementById("closeText").onclick=()=>requestCloseModal("textModal","button");
 document.getElementById("textModal").onclick=e=>{if(e.target.id==="textModal")requestCloseModal("textModal","backdrop")};

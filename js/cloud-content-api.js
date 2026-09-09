@@ -108,6 +108,11 @@ function createCloudContentApi(client){
     deleteTag:(projectId,tagId,expectedRevision)=>call("delete_tag",{target_project_id:projectId,target_tag_id:tagId,expected_revision:expectedRevision}),
     createScene:(projectId,expectedRevision,scene)=>call("create_scene",sceneArgs(projectId,expectedRevision,scene)),
     updateScene:(projectId,sceneId,expectedRevision,scene)=>call("update_scene",{target_scene_id:sceneId,...sceneArgs(projectId,expectedRevision,scene, false)}),
+    // Narrow, T1 rich-text-only RPC: touches only scene_text + metadata, atomically,
+    // and never the other Scene fields update_scene handles (chapter/location/tags/
+    // dates/status/...) -- see supabase/migrations/20260909120000_scene_rich_text.sql
+    // and the T1 persistence decision doc.
+    updateSceneText:(projectId,sceneId,expectedRevision,{sceneText,metadata})=>call("update_scene_text",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision,scene_text_value:sceneText??"",scene_metadata:metadata??{}}),
     deleteScene:(projectId,sceneId,expectedRevision)=>call("delete_scene",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision}),
     moveScene:(projectId,sceneId,expectedRevision,{chapterId=null,beforeSceneId=null})=>call("move_scene",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision,target_chapter_id:chapterId,before_scene_id:beforeSceneId}),
     setSceneTags:(projectId,sceneId,expectedRevision,tagIds)=>call("set_scene_tags",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision,tag_ids:[...new Set(tagIds||[])]})

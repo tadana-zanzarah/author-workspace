@@ -14,7 +14,7 @@ function hasProjectContent(project){
 function localAdjunctByScene(project){
   return Object.fromEntries((project?.scenes||[]).map(scene=>[scene.id,{
     people:scene.people||{},relationChanges:scene.relationChanges||{},
-    ...Object.fromEntries(Object.entries(scene).filter(([key])=>!new Set(["id","chapterId","locationId","title","sceneText","date","time","status","writingStatus","included","dateReview","tags"]).has(key)))
+    ...Object.fromEntries(Object.entries(scene).filter(([key])=>!new Set(["id","chapterId","locationId","title","sceneText","sceneTextDoc","date","time","status","writingStatus","included","dateReview","tags"]).has(key)))
   }]));
 }
 function effectiveProfile(base,overrides){return {...(base||{}),...(overrides||{})}}
@@ -62,7 +62,12 @@ function hydrateProjectFromCloudSnapshot(snapshot,localProject={}){
   const scenes=(payload.scenes||[]).map(row=>({
     ...Object.fromEntries(Object.entries(adjunct[row.id]||{}).filter(([key])=>key!=="people")),id:row.id,date:row.scene_date||"",time:String(row.scene_time||"").slice(0,5),title:row.title||"",
     chapterId:row.chapter_id||UNASSIGNED_CHAPTER_ID,locationId:row.location_id||"",tags:tagIdsByScene[row.id]||[],
-    writingStatus:CLOUD_TO_LOCAL_WRITING[row.writing_status]||"draft",sceneText:row.scene_text||"",included:row.included!==false,
+    writingStatus:CLOUD_TO_LOCAL_WRITING[row.writing_status]||"draft",sceneText:row.scene_text||"",
+    // scenes.metadata is currently fully owned by the T1 rich-text feature (see
+    // supabase/migrations/20260909120000_scene_rich_text.sql) -- server-authoritative,
+    // never carried over from the local adjunct above.
+    sceneTextDoc:row.metadata?.richText??null,
+    included:row.included!==false,
     status:row.placement_status==="placed"?"fixed":"floating",dateReview:row.date_review===true,position:Number(row.position),people:participantsByScene[row.id]||{}
   }));
   // scenes.position — единственный canonical порядок на сервере и не группируется по главе

@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="css/profiles.css">
 <link rel="stylesheet" href="css/layout.css">
 <link rel="stylesheet" href="css/locations.css">
+<link rel="stylesheet" href="css/editor.css">
 </head>
 <body>
 <div id="cloudShell">
@@ -911,7 +912,8 @@
   <div class="modal" style="width:min(1100px,100%)">
     <h2 id="textModalTitle">Текст сцены</h2>
     <div class="scene-text-meta" id="textModalMeta"></div>
-    <textarea id="fullSceneText" data-initial-focus class="scene-text-area" aria-label="Текст сцены" placeholder="Текст сцены"></textarea>
+    <div id="fullSceneTextToolbar"></div>
+    <div id="fullSceneTextEditor" class="rte-editor" aria-label="Текст сцены"></div>
     <div class="modal-actions">
       <button id="closeText">Закрыть</button>
       <button class="primary" id="saveText">Сохранить текст</button>
@@ -1311,6 +1313,22 @@
   <option value="Садоводство"><option value="Коллекционирование"><option value="Неизвестно">
 </datalist>
 
+<script type="importmap">
+{
+  "imports": {
+    "prosemirror-model": "./vendor/prosemirror/prosemirror-model.js",
+    "prosemirror-state": "./vendor/prosemirror/prosemirror-state.js",
+    "prosemirror-view": "./vendor/prosemirror/prosemirror-view.js",
+    "prosemirror-transform": "./vendor/prosemirror/prosemirror-transform.js",
+    "prosemirror-commands": "./vendor/prosemirror/prosemirror-commands.js",
+    "prosemirror-keymap": "./vendor/prosemirror/prosemirror-keymap.js",
+    "prosemirror-history": "./vendor/prosemirror/prosemirror-history.js",
+    "orderedmap": "./vendor/prosemirror/orderedmap.js",
+    "rope-sequence": "./vendor/prosemirror/rope-sequence.js",
+    "w3c-keyname": "./vendor/prosemirror/w3c-keyname.js"
+  }
+}
+</script>
 <script type="module" src="js/app.js"></script>
 <script type="module" src="js/dev-review-badge.js"></script>
 </body>

@@ -1,0 +1,42 @@
+/* T1 rich-text scene editor (single-scene "Текст сцены" modal only). Deliberately
+   not pixel-polished -- visual review happens before T2 propagates this further. */
+.rte-toolbar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:4px;
+  padding:6px;margin-bottom:8px;
+  border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+  background:var(--surface);
+}
+.rte-toolbar button{padding:4px 9px;min-width:32px;font-size:var(--text-sm)}
+.rte-toolbar button[aria-pressed="true"]{
+  background:var(--brand-tint);border-color:var(--brand);color:var(--brand-strong);
+}
+.rte-toolbar-sep{width:1px;align-self:stretch;background:var(--border-subtle);margin:2px 4px}
+.rte-toolbar select{padding:4px 6px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle)}
+.rte-btn-italic{font-style:italic}
+.rte-btn-strike{text-decoration:line-through}
+
+.rte-editor{
+  min-height:62vh;
+  border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+  padding:12px 14px;
+  background:var(--paper);
+}
+.rte-editor .ProseMirror{
+  outline:none;white-space:pre-wrap;
+  line-height:1.55;font-family:Georgia,"Times New Roman",serif;font-size:16px;
+}
+.rte-editor:focus-within{outline:2px solid var(--focus-ring);outline-offset:1px}
+
+/* First-line indent and paragraph spacing live entirely in CSS, over structural
+   paragraph nodes -- never literal tabs/blank lines in stored content. */
+.rte-editor .scene-paragraph{margin:0 0 .6em;text-indent:1.5em}
+.rte-editor .scene-paragraph:empty{min-height:1.1em}
+.rte-editor .scene-paragraph-center,
+.rte-editor .scene-paragraph-right{text-indent:0}
+.rte-editor .scene-paragraph-center{text-align:center}
+.rte-editor .scene-paragraph-right{text-align:right}
+
+.rte-editor .scene-break{
+  text-align:center;text-indent:0;margin:1em 0;
+  color:var(--muted);letter-spacing:.3em;user-select:none;
+}

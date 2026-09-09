@@ -1,3 +1,6 @@
+import {sceneDocSchema} from "./editor/scene-doc-schema.js";
+import {sceneTextDocPlainText} from "./editor/scene-doc-convert.js";
+
 function includedScenes(){
   return data.scenes
     .map((scene,index)=>({scene,index}))
@@ -31,13 +34,32 @@ function openAllScenesNow(){
   trackerFor("allScenesModal").captureInitialState();
 }
 
+// This screen still edits plain text only in T1 (the rich editor is scoped to
+// #textModal, see architecture audit T1). If a Scene already has a sceneTextDoc
+// and its plain text no longer matches what was just typed here, the now-stale
+// doc is dropped rather than silently left out of sync -- same rule as the main
+// Scene modal's preservedSceneTextDoc.
 async function saveAllScenes(){
   const values=new Map([...document.querySelectorAll(".all-scene-text")].map(area=>[area.dataset.sceneId,area.value]));
   if(isCloudWorkspace()){
-    for(const scene of data.scenes)if(values.has(scene.id)&&values.get(scene.id)!==scene.sceneText){const result=await runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,scene.id,revision,sceneToCloud({...scene,sceneText:values.get(scene.id)})),{renderAfter:false});if(!result.ok)return result}
+    for(const scene of data.scenes)if(values.has(scene.id)&&values.get(scene.id)!==scene.sceneText){
+      const newText=values.get(scene.id);
+      const result=await runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,scene.id,revision,sceneToCloud({...scene,sceneText:newText})),{renderAfter:false});
+      if(!result.ok)return result;
+      if(scene.sceneTextDoc&&sceneTextDocPlainText(sceneDocSchema,scene.sceneTextDoc)!==newText){
+        const sceneId=scene.id;
+        const clearResult=await runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,sceneId,revision,{sceneText:newText,metadata:{}}),{renderAfter:false});
+        if(!clearResult.ok)return clearResult;
+      }
+    }
     data=cloudProjectSync.confirmedProject;render();return {ok:true};
   }
-  return commitDataChange(next=>next.scenes.forEach(scene=>{if(values.has(scene.id))scene.sceneText=values.get(scene.id)}),{renderAfter:false});
+  return commitDataChange(next=>next.scenes.forEach(scene=>{
+    if(!values.has(scene.id))return;
+    const newText=values.get(scene.id);
+    scene.sceneText=newText;
+    if(scene.sceneTextDoc&&sceneTextDocPlainText(sceneDocSchema,scene.sceneTextDoc)!==newText)scene.sceneTextDoc=null;
+  }),{renderAfter:false});
 }
 
 function exportWholeText(){

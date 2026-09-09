@@ -3,6 +3,7 @@ const initialState={
   insertBeforeSceneId:null,insertChapterId:null,draggedSceneId:null,
   textEditingSceneId:null,profileEditingId:null,profileDraftCharacter:null,profileDraftPhotos:[],profileDraftPhotoFiles:new Map(),profileDraftPrimaryPhotoId:"",profileDraftActivePhotoId:"",profileDraftCharacterLinks:[],characterLinkEditingId:null,photoCropState:null,
   locationMediaCropState:null,
+  sceneTextEditor:null,
   sceneTagDraft:[],sceneNewTagDraft:{},selectedSceneIndex:null,selectedSceneId:null,
   filters:{search:"",chapter:"",character:[],location:"",tag:[],writing:"",placement:""},
   currentView:"table",infoPanelCollapsed:true,navigationVisible:true,
