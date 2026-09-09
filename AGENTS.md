@@ -36,7 +36,7 @@
 - `favorites` и `hobbies` — multi-value поля анкеты и канонически хранятся как массивы строк; UI не должен сохранять их обратно как comma-separated строки.
 - Оригинальное изображение персонажа нельзя уничтожать или заменять результатом crop; crop хранится отдельно как metadata.
 - Нормализация и persistence изображений обязаны сохранять неизвестные безопасные metadata-поля.
-- При будущем переходе в облако binary изображения переносится в Supabase Storage, а photo ID, storage path, crop, порядок, primary state и caption остаются в базе данных.
+- В cloud-режиме binary изображения персонажа хранятся в Supabase Storage, а photo ID, storage path, crop, порядок, primary state и caption остаются в базе данных.
 - Структурные связи персонажей (`characterLinks`) независимы от эмоциональных `initialRelations` и изменений отношений в сценах.
 - Structural links используют только устойчивые character IDs; одна логическая link хранит прямую и обратную семантику.
 - Self links запрещены, а reversed semantic duplicates должны выявляться до записи; разные виды связей одной пары допустимы.
@@ -58,7 +58,7 @@
 - Пустой cloud snapshot запрещено записывать поверх непустых legacy local данных; такой первый вход блокируется до явного решения пользователя.
 - Project-scoped cloud mutations выполняются сериализованной revision-aware очередью и используют только последний подтверждённый сервером revision.
 - Cloud-authoritative state и cache обновляются только после успешного RPC; failure/conflict не должны изображать локальный успех.
-- Пока character phase отложен, local-only scene adjunct (people/actions/relations и другие несинхронизируемые поля) сохраняется и присоединяется к cloud scene core по stable scene ID.
+- Участники сцены (action, legacy state) и relation changes — Supabase-authoritative через `set_scene_characters`/`set_scene_relation_changes` и присоединяются к cloud scene core по stable scene ID; local cache этих данных — только last-good copy, не источник истины.
 - Binary character images никогда не хранятся в Postgres; база хранит только metadata и canonical `storage_path`.
 - Оригинал character image хранится отдельно от crop metadata и не заменяется cropped preview.
 - Signed/private URL является только transient runtime value и не сохраняется как canonical project data.
