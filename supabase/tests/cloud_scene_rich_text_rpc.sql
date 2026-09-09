@@ -15,7 +15,7 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','f1000000-0000-4000-8000-000000000001',true);
 
 do $$
-declare r jsonb; scene_id uuid; doc jsonb;
+declare r jsonb; scene_id uuid; doc jsonb; doc2 jsonb;
 begin
   r:=public.create_scene('f2000000-0000-4000-8000-000000000001',0,null,null,'Scene','legacy plain text',null,null,'unplaced','draft',true,false,1000);
   if not (r->>'ok')::boolean then raise exception 'scene setup failed %',r; end if;
@@ -35,13 +35,11 @@ begin
 
   -- Formatting-only change: scene_text identical, metadata differs -- still a
   -- real change, one revision, both columns end up exactly as sent.
-  declare doc2 jsonb:='{"richText":{"type":"doc","content":[{"type":"paragraph","attrs":{"align":"center"},"content":[{"type":"text","marks":[{"type":"strong"}],"text":"Rich text."}]}]}}'::jsonb;
-  begin
-    r:=public.update_scene_text('f2000000-0000-4000-8000-000000000001',scene_id,2,'Rich text.',doc2);
-    if not (r->>'changed')::boolean or (r->>'revision')::bigint<>3 then raise exception 'formatting-only change contract %',r; end if;
-    if (select scene_text from public.scenes where id=scene_id)<>'Rich text.' then raise exception 'formatting-only change altered scene_text'; end if;
-    if (select metadata from public.scenes where id=scene_id)<>doc2 then raise exception 'formatting-only change did not persist metadata'; end if;
-  end;
+  doc2:='{"richText":{"type":"doc","content":[{"type":"paragraph","attrs":{"align":"center"},"content":[{"type":"text","marks":[{"type":"strong"}],"text":"Rich text."}]}]}}'::jsonb;
+  r:=public.update_scene_text('f2000000-0000-4000-8000-000000000001',scene_id,2,'Rich text.',doc2);
+  if not (r->>'changed')::boolean or (r->>'revision')::bigint<>3 then raise exception 'formatting-only change contract %',r; end if;
+  if (select scene_text from public.scenes where id=scene_id)<>'Rich text.' then raise exception 'formatting-only change altered scene_text'; end if;
+  if (select metadata from public.scenes where id=scene_id)<>doc2 then raise exception 'formatting-only change did not persist metadata'; end if;
 
   -- Prose-only change: metadata identical, scene_text differs -- one revision,
   -- metadata untouched.
@@ -67,7 +65,7 @@ end $$;
 -- Cross-user RPC calls cannot read or mutate another account's scene.
 do $$ declare r jsonb; other_scene uuid; begin
   select id into other_scene from public.scenes where project_id='f2000000-0000-4000-8000-000000000001' limit 1;
-  select set_config('request.jwt.claim.sub','f1000000-0000-4000-8000-000000000002',true) into r;
+  perform set_config('request.jwt.claim.sub','f1000000-0000-4000-8000-000000000002',true);
   r:=public.update_scene_text('f2000000-0000-4000-8000-000000000001',other_scene,4,'attack','{}'::jsonb);
   if r->>'code'<>'NOT_FOUND' then raise exception 'cross-user mutation %',r; end if;
   if (select scene_text from public.scenes where id=other_scene)<>'Edited prose.' then raise exception 'cross-user RPC changed data'; end if;
