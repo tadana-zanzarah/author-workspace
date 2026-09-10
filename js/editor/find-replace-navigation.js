@@ -1,0 +1,93 @@
+// Find/Replace Stage D1: the reusable navigation adapter,
+// navigateToSceneMatch(sceneId, matchRange, options). This is the ONLY place
+// project search results turn into "select this exact occurrence inside a
+// real editor" -- the project search layer itself
+// (find-replace-project-search.js) never touches modals, routes, or
+// EditorViews, exactly as docs/find-replace-architecture.md requires.
+//
+// Two cases (product brief section 8):
+//   A. The scene already has a suitable mounted registration (mounted-scene-
+//      registry.js) -- activate/reveal that surface, target that exact
+//      EditorView, select the match, scroll it into view (Stage C's own
+//      reveal behavior, reused via find-replace-controller.js's exported
+//      revealDocPosition -- not reimplemented).
+//   B. Otherwise -- delegate through the caller-supplied generic
+//      `openSceneForEditing(sceneId)` (the current implementation passes
+//      `openSceneText`, per the product brief) and, once mounted, resolve and
+//      select the same way.
+// This module has zero knowledge of modals/routes beyond calling that one
+// injected function -- it stays future-route-compatible by construction.
+import {TextSelection} from "prosemirror-state";
+import {getPreferredLiveSceneView} from "./mounted-scene-registry.js";
+import {reresolveMatch} from "./find-replace-project-search.js";
+import {findReplacePluginKey,buildMatchDecorations} from "./find-replace-decorations.js";
+import {isViewUsable,revealDocPosition} from "./find-replace-controller.js";
+
+// The one EditorView a project-result navigation most recently highlighted,
+// so a LATER navigation to a different scene/view always clears the earlier
+// one first -- "do not leave stale decorations attached to previously
+// targeted editors" (product brief section 13). Module-level (not per-call)
+// deliberately: navigation targets are transient UI focus, not something any
+// caller needs to thread through explicitly.
+let lastHighlightedView=null;
+
+function clearHighlight(view){
+  if(!isViewUsable(view))return;
+  view.dispatch(view.state.tr.setMeta(findReplacePluginKey,{decorations:buildMatchDecorations(view.state.doc,[],-1)}).setMeta("addToHistory",false));
+}
+
+// Exposed so leaving project scope / closing the panel can proactively clear
+// whatever project-navigation highlight is currently showing, even if the
+// user never navigates elsewhere afterward.
+export function clearProjectNavigationHighlight(){
+  clearHighlight(lastHighlightedView);
+  lastHighlightedView=null;
+}
+
+function selectAndReveal(view,match){
+  if(lastHighlightedView&&lastHighlightedView!==view)clearHighlight(lastHighlightedView);
+  const selection=TextSelection.create(view.state.doc,match.from,match.to);
+  const tr=view.state.tr.setSelection(selection).scrollIntoView()
+    .setMeta(findReplacePluginKey,{decorations:buildMatchDecorations(view.state.doc,[match],0)})
+    .setMeta("addToHistory",false);
+  view.dispatch(tr);
+  revealDocPosition(view,match.from);
+  view.focus();
+  lastHighlightedView=view;
+}
+
+// matchRange: {from,to,text,occurrenceIndex} -- exactly what
+// find-replace-project-search.js's per-match result entries carry.
+// options.query/options.caseSensitive are required for stale revalidation
+// (see find-replace-project-search.js's reresolveMatch); options.
+// openSceneForEditing is the case-B fallback described above (may be async;
+// its return value is treated as "did the transition proceed" -- falsy means
+// the user declined an unsaved-changes prompt or similar, and navigation
+// stops there without pretending to have navigated).
+//
+// Returns {ok:true} on success, or {ok:false,reason} for every rejected case
+// -- callers decide how/whether to surface a reason; this function never
+// throws for an ordinary "can't navigate right now" outcome.
+export async function navigateToSceneMatch(sceneId,matchRange,{query,caseSensitive=false,openSceneForEditing}={}){
+  let preferred=getPreferredLiveSceneView(sceneId);
+  if(!preferred||preferred.status!=="ok"){
+    if(typeof openSceneForEditing!=="function")return {ok:false,reason:"not-mounted"};
+    const opened=await openSceneForEditing(sceneId);
+    if(!opened)return {ok:false,reason:"open-declined"};
+    preferred=getPreferredLiveSceneView(sceneId);
+    if(!preferred||preferred.status!=="ok")return {ok:false,reason:"open-failed"};
+  }
+  const {registration}=preferred;
+  if(!isViewUsable(registration.view))return {ok:false,reason:"view-destroyed"};
+  registration.activate?.();
+  const view=registration.view;
+  if(!isViewUsable(view))return {ok:false,reason:"view-destroyed"};
+  // Stale-result safety (product brief section 9): never trust matchRange's
+  // from/to blindly -- re-derive the intended occurrence against whatever is
+  // actually in the document right now, deterministically (see
+  // reresolveMatch's own documented policy).
+  const resolved=reresolveMatch(view.state.doc,query,{caseSensitive},matchRange);
+  if(!resolved)return {ok:false,reason:"stale"};
+  selectAndReveal(view,resolved);
+  return {ok:true};
+}

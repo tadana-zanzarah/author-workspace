@@ -1,0 +1,193 @@
+// Find/Replace Stage D1: the headless, reusable PROJECT-WIDE search layer.
+// Depends only on:
+//   - canonical project data (a plain `{chapters,scenes}`-shaped object --
+//     never imported as a global; always passed in, exactly like Stage B's
+//     engine takes a `doc` rather than reaching for one itself);
+//   - the Stage B matching engine (find-replace-model.js);
+//   - the mounted-scene registry (mounted-scene-registry.js), for the
+//     live-vs-persisted resolution policy.
+// It must NOT depend on "Весь текст"'s own DOM/state, `import-export.js`'s
+// `allScenesEditorGroup`, or any modal. See docs/find-replace-architecture.md
+// for why ("Весь текст" is one editing surface among three; project search
+// must work with none of them open at all).
+//
+// "Весь проект" scope = every active (non-deleted) project scene, regardless
+// of `scene.included` -- NOT `includedScenes()`/"Весь текст" export
+// semantics. `get_project_content` (cloud) already never returns soft-deleted
+// scenes to the client, so `projectData.scenes` already *is* "every active
+// scene" -- no extra filtering is needed or performed here.
+import {sceneDocSchema} from "./scene-doc-schema.js";
+import {loadSceneDocument} from "./scene-doc-convert.js";
+import {findMatches} from "./find-replace-model.js";
+import {getPreferredLiveSceneView} from "./mounted-scene-registry.js";
+
+const SNIPPET_CONTEXT_CHARS=42;
+
+// Canonical project order: chapters in `projectData.chapters`' own stored
+// order (this already includes the synthetic "chapter-unassigned" pseudo-
+// chapter as a real entry -- see AGENTS.md/docs/find-replace-architecture.md
+// -- so no separate "unassigned" special case exists here), then scenes
+// within each chapter in `projectData.scenes`' own stored order. This is
+// exactly the ordering `js/import-export.js`'s `openAllScenesNow` already
+// builds for "Весь текст" -- not a new ordering model, just the same walk
+// reused headlessly. `sceneOrder` is a 1-based running index across the
+// WHOLE project (every active scene counts towards it, matched or not), so
+// it stays meaningful as a stable "which position in the manuscript" number
+// regardless of which scenes happen to contain a match for a given query.
+export function canonicalProjectScenes(projectData){
+  const chapters=projectData?.chapters||[];
+  const scenes=projectData?.scenes||[];
+  const result=[];
+  let sceneOrder=0;
+  chapters.forEach(chapter=>{
+    scenes.filter(scene=>scene.chapterId===chapter.id).forEach(scene=>{
+      sceneOrder++;
+      result.push({scene,chapter,sceneOrder});
+    });
+  });
+  return result;
+}
+
+// Live-vs-persisted resolution for ONE scene (search-only -- never triggers a
+// save, per docs/find-replace-architecture.md's Stage D2 boundary). Returns
+// {doc,source,conflict} where source is "live"|"persisted" and `conflict` is
+// true when a genuine multi-view divergence forced the safe persisted
+// fallback (see mounted-scene-registry.js's getPreferredLiveSceneView for the
+// exact deterministic policy this defers to).
+function resolveSceneDoc(scene){
+  const preferred=getPreferredLiveSceneView(scene.id);
+  if(preferred&&preferred.status==="ok"){
+    return {doc:preferred.registration.view.state.doc,source:"live",conflict:false};
+  }
+  const persistedDoc=loadSceneDocument(sceneDocSchema,scene);
+  return {doc:persistedDoc,source:"persisted",conflict:preferred?.status==="conflict"};
+}
+
+// Builds a readable snippet around one match FROM THE ORIGINAL SOURCE TEXT of
+// its own paragraph -- never from the normalized comparison string
+// (find-replace-text.js's buildComparisonIndex output is comparison-only and
+// is never surfaced to a user). Paragraph content in this schema is always
+// pure text nodes (see find-replace-model.js's own collectParagraphRuns
+// comment), so `paragraph.textContent` IS the exact original prose with no
+// loss. Returns plain strings only ({before,match,after}) -- rendering code
+// is responsible for using them as text content, never as HTML, so manuscript
+// text can never be interpreted as markup (see docs/find-replace-
+// architecture.md and this stage's own product brief, section 7).
+function buildMatchSnippet(doc,match){
+  const paragraph=doc.nodeAt(match.paragraphPos);
+  if(!paragraph)return {before:"",match:match.text,after:""};
+  const paragraphText=paragraph.textContent;
+  const paragraphContentStart=match.paragraphPos+1;
+  const localFrom=match.from-paragraphContentStart;
+  const localTo=match.to-paragraphContentStart;
+  const rawBefore=paragraphText.slice(0,localFrom);
+  const rawAfter=paragraphText.slice(localTo);
+  const truncatedBefore=rawBefore.length>SNIPPET_CONTEXT_CHARS;
+  const truncatedAfter=rawAfter.length>SNIPPET_CONTEXT_CHARS;
+  const before=(truncatedBefore?"…":"")+rawBefore.slice(-SNIPPET_CONTEXT_CHARS).trimStart();
+  const after=rawAfter.slice(0,SNIPPET_CONTEXT_CHARS).trimEnd()+(truncatedAfter?"…":"");
+  return {before,match:paragraphText.slice(localFrom,localTo),after};
+}
+
+// One project-wide search. Never mutates anything, never saves, never reads
+// from network -- pure computation over whatever doc snapshots
+// resolveSceneDoc hands it at the moment of the call. Result shape:
+//
+// {
+//   query, caseSensitive,
+//   totalMatches, affectedSceneCount,
+//   scenes: [{
+//     sceneId, sceneTitle, chapterId, chapterTitle, sceneOrder, source,
+//     doc,           // the exact ProseMirror doc snapshot searched -- kept
+//                     // for stale-navigation revalidation (see
+//                     // reresolveMatch below); never serialized/compared by
+//                     // reference elsewhere, only via Node#eq or re-search.
+//     matches: [{matchId,from,to,text,occurrenceIndex,snippet}]
+//   }],
+//   conflictedSceneIds: [sceneId, ...] // scenes whose live views disagreed
+//                                       // with no safe preference -- see
+//                                       // resolveSceneDoc/mounted-scene-
+//                                       // registry.js. Search still ran
+//                                       // (against the persisted doc), this
+//                                       // is only a surfaced advisory.
+// }
+//
+// Only scenes with at least one match are included in `scenes` (keeps the
+// result compact for the UI -- see product brief section 6) -- sceneOrder
+// still reflects true project position since it is assigned during the full
+// canonical walk, not re-numbered after filtering.
+export function searchProject(projectData,query,{caseSensitive=false}={}){
+  const ordered=canonicalProjectScenes(projectData);
+  const scenes=[];
+  const conflictedSceneIds=[];
+  let totalMatches=0;
+  if(query){
+    for(const {scene,chapter,sceneOrder} of ordered){
+      const {doc,source,conflict}=resolveSceneDoc(scene);
+      if(conflict)conflictedSceneIds.push(scene.id);
+      const rawMatches=findMatches(doc,query,{caseSensitive});
+      if(!rawMatches.length)continue;
+      const matches=rawMatches.map((match,occurrenceIndex)=>({
+        matchId:`${scene.id}#${match.from}-${match.to}#${occurrenceIndex}`,
+        from:match.from,to:match.to,text:match.text,
+        occurrenceIndex,
+        snippet:buildMatchSnippet(doc,match)
+      }));
+      totalMatches+=matches.length;
+      scenes.push({
+        sceneId:scene.id,sceneTitle:scene.title||"Без названия",
+        chapterId:chapter.id,chapterTitle:chapter.title||"",
+        sceneOrder,source,doc,matches
+      });
+    }
+  }
+  return {query,caseSensitive,totalMatches,affectedSceneCount:scenes.length,scenes,conflictedSceneIds};
+}
+
+// Flat, navigation-order list of every {sceneId,sceneTitle,chapterTitle,
+// sceneOrder,...match} across every scene, in the same canonical order the
+// result itself already carries. The panel's Next/Previous-in-project-
+// results navigation is just "advance an index into this array" -- no
+// separate ordering logic anywhere else.
+export function flattenProjectMatches(result){
+  const flat=[];
+  for(const sceneResult of result.scenes){
+    for(const match of sceneResult.matches){
+      flat.push({
+        sceneId:sceneResult.sceneId,sceneTitle:sceneResult.sceneTitle,
+        chapterId:sceneResult.chapterId,chapterTitle:sceneResult.chapterTitle,
+        sceneOrder:sceneResult.sceneOrder,source:sceneResult.source,
+        doc:sceneResult.doc,...match
+      });
+    }
+  }
+  return flat;
+}
+
+// Stale-result safety (product brief section 9): a project result's
+// from/to/text is only valid against the EXACT doc snapshot it was found
+// against. Before navigating, this re-derives the intended occurrence
+// against whatever doc is CURRENT right now:
+//   1. If a match with the identical from/to/text still exists in a fresh
+//      search of `currentDoc`, use it verbatim -- the common case where
+//      nothing relevant changed.
+//   2. Otherwise fall back to the same positional `occurrenceIndex` in the
+//      fresh match list, if one still exists at that index -- "the Nth
+//      occurrence of this query is still roughly the same edit target" is a
+//      reasonable, deterministic, testable policy when exact position/text
+//      no longer matches (e.g. an edit earlier in the doc shifted positions
+//      without touching the match itself).
+//   3. If neither holds, return null -- callers must NOT fall back to the
+//      stale from/to on a doc that has actually diverged; selecting
+//      unrelated text after an edit is exactly what this function exists to
+//      prevent.
+// Never mutates `currentDoc`; never reads from network; pure and synchronous.
+export function reresolveMatch(currentDoc,query,{caseSensitive=false}={},{from,to,text,occurrenceIndex}){
+  const freshMatches=findMatches(currentDoc,query,{caseSensitive});
+  const exact=freshMatches.find(match=>match.from===from&&match.to===to&&match.text===text);
+  if(exact)return exact;
+  if(Number.isInteger(occurrenceIndex)&&freshMatches[occurrenceIndex])return freshMatches[occurrenceIndex];
+  return null;
+}
+
+export {buildMatchSnippet};

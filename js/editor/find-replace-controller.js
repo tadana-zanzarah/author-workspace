@@ -21,6 +21,7 @@
 // matching/replacement logic is duplicated or reimplemented here.
 import {findMatches,replaceOneMatch,replaceAllMatches} from "./find-replace-model.js";
 import {findReplacePluginKey,buildMatchDecorations} from "./find-replace-decorations.js";
+import {searchProject,flattenProjectMatches} from "./find-replace-project-search.js";
 import {TextSelection} from "prosemirror-state";
 
 function isViewUsable(view){
@@ -110,7 +111,29 @@ function revealDocPosition(view,pos){
   }
 }
 
-export function createFindReplaceController(){
+// Find/Replace Stage D1: `getProjectData`/`navigateToSceneMatch`/
+// `clearProjectNavigationHighlight` are optional dependency-injection hooks
+// for the new "Весь проект" scope -- every Stage C caller/test that omits
+// them keeps working exactly as before (setScope("project") simply produces
+// an empty, inert project result rather than throwing). Deliberately NOT a
+// direct import of find-replace-navigation.js here: that module imports
+// isViewUsable/revealDocPosition FROM this file, so this file taking a
+// concrete dependency back on it would make the two modules mutually
+// import each other for no real benefit -- the integration point
+// (scene-editor-controller.js) already imports find-replace-navigation.js
+// and wires its real navigateToSceneMatch/clearProjectNavigationHighlight in
+// here as plain callbacks, keeping this file's own dependency graph
+// one-directional (only find-replace-project-search.js, never navigation).
+//   - getProjectData(): () => the current canonical project data object
+//     (`{chapters,scenes,...}`) -- called fresh on every project search, so
+//     it always sees the live project, never a stale captured copy.
+//   - navigateToSceneMatch(sceneId,matchRange,{query,caseSensitive}): the
+//     real find-replace-navigation.js adapter, pre-bound by the caller to
+//     its own openSceneForEditing fallback.
+//   - clearProjectNavigationHighlight(): clears whatever editor highlight a
+//     previous project-result navigation left behind -- called when leaving
+//     project scope or closing the panel (see setScope/close below).
+export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null,clearProjectNavigationHighlight=null}={}){
   let view=null;
   let query="";
   let replaceText="";
@@ -120,10 +143,23 @@ export function createFindReplaceController(){
   let activeIndex=-1;
   let openSequence=0; // bumped by every open() call -- see open() below for why
   let focusTarget="find"; // "find" | "replace" -- which input the panel should focus for this openSequence
+  // Find/Replace Stage D1: "scene" (Stage C's only mode, unchanged) or
+  // "project" ("Весь проект" -- see recomputeProject/setScope below). Every
+  // scene-scope code path below is gated so it behaves identically to Stage
+  // C whenever scope is "scene", which is the default and the only value any
+  // pre-D1 caller ever sees.
+  let scope="scene";
+  let projectResult=null; // last searchProject() result, or null
+  let activeProjectMatchIndex=-1; // index into flattenProjectMatches(projectResult)
   const listeners=new Set();
 
   function snapshot(){
-    return {query,replaceText,caseSensitive,open:open_,matchCount:matches.length,activeIndex,openSequence,focusTarget};
+    const flatProjectMatches=projectResult?flattenProjectMatches(projectResult):[];
+    const activeProjectMatch=activeProjectMatchIndex>=0?flatProjectMatches[activeProjectMatchIndex]:null;
+    return {
+      query,replaceText,caseSensitive,open:open_,matchCount:matches.length,activeIndex,openSequence,focusTarget,
+      scope,projectResult,activeProjectMatchIndex,activeProjectMatchId:activeProjectMatch?.matchId??null
+    };
   }
   function notify(){
     const value=snapshot();
@@ -156,6 +192,16 @@ export function createFindReplaceController(){
   // policy -- not an attempt at exact match identity preservation across an
   // edit, which the product brief explicitly says not to over-engineer.
   function recompute(){
+    // Find/Replace Stage D1: the ONE gate that redirects every existing
+    // scene-scope trigger (attachView, handleTransaction, setQuery,
+    // setCaseSensitive -- all of which call recompute()/recomputeAndReveal()
+    // exactly as Stage C left them, unmodified below) to the project search
+    // instead, whenever scope is "project". Scene-scope activeIndex is left
+    // at -1 throughout project scope (see setScope), so recomputeAndReveal's
+    // own "reveal the active match" step safely never fires while in project
+    // scope -- typing a project-scope query recomputes RESULTS only, it
+    // never auto-navigates (see product brief section 12).
+    if(scope==="project"){recomputeProject();return}
     if(!isViewUsable(view)){matches=[];activeIndex=-1;notify();return}
     if(!open_||!query){
       matches=[];activeIndex=-1;
@@ -168,6 +214,54 @@ export function createFindReplaceController(){
     else if(activeIndex<0||activeIndex>=matches.length)activeIndex=0;
     dispatchDecorations(view,currentDecorations());
     notify();
+  }
+
+  // The project-scope counterpart of recompute() above -- searches the WHOLE
+  // project (via find-replace-project-search.js), never the attached `view`
+  // alone. `getProjectData` is called fresh every time (never cached), so
+  // this always reflects the live project, including live-vs-persisted doc
+  // resolution through the mounted-scene registry (see find-replace-project-
+  // search.js's own resolveSceneDoc). A missing `getProjectData` (a caller
+  // that never wired project search in) degrades to an inert empty result
+  // rather than throwing, matching every other optional-dependency guard in
+  // this file.
+  function recomputeProject(){
+    if(!open_||!query||typeof getProjectData!=="function"){
+      projectResult=null;activeProjectMatchIndex=-1;
+      notify();
+      return;
+    }
+    projectResult=searchProject(getProjectData(),query,{caseSensitive});
+    const flat=flattenProjectMatches(projectResult);
+    // Same "clamp, don't always reset to 0" policy as scene-scope recompute()
+    // above -- important here specifically because navigateToSceneMatch's
+    // case-A path (an already-mounted registration) calls attachView() as
+    // part of activating that scene, and attachView() itself always runs
+    // recomputeAndReveal()/recompute() -- which, in project scope, means
+    // clicking a project result triggers a SYNCHRONOUS re-entrant
+    // recomputeProject() as a side effect of navigating to it. Always
+    // resetting to index 0 here would silently clobber activateProjectMatch's
+    // own just-set activeProjectMatchIndex back to the FIRST result every
+    // time the user clicked anything else.
+    if(!flat.length)activeProjectMatchIndex=-1;
+    else if(activeProjectMatchIndex<0||activeProjectMatchIndex>=flat.length)activeProjectMatchIndex=0;
+    notify();
+  }
+
+  // Delegates one project result's navigation to the injected adapter (the
+  // real find-replace-navigation.js's navigateToSceneMatch, pre-bound to this
+  // surface's openSceneForEditing fallback by the caller -- see this
+  // factory's own doc comment above). Fire-and-forget from this file's point
+  // of view: an expected "can't navigate" outcome (stale/not-mounted/
+  // declined) is reported via the adapter's own return value, never a
+  // thrown/rejected promise, so nothing here needs to react to it; `.catch`
+  // is only a defensive backstop against a genuinely unexpected rejection.
+  function triggerProjectNavigation(){
+    if(typeof navigateToSceneMatch!=="function")return;
+    const flat=projectResult?flattenProjectMatches(projectResult):[];
+    const target=flat[activeProjectMatchIndex];
+    if(!target)return;
+    navigateToSceneMatch(target.sceneId,{from:target.from,to:target.to,text:target.text,occurrenceIndex:target.occurrenceIndex},{query,caseSensitive})?.catch?.(()=>{});
   }
 
   // recompute() is deliberately PASSIVE: it never moves the selection or
@@ -227,6 +321,15 @@ export function createFindReplaceController(){
   // recompute). Reacts to any real document change -- typing, formatting,
   // Undo/Redo, Replace/Replace All alike -- by recomputing fresh, which is
   // exactly what prevents ever navigating/replacing against stale positions.
+  //
+  // Find/Replace Stage D1 limitation (see this stage's completion report):
+  // in project scope, recompute() (via the scope gate above) refreshes
+  // project results whenever THIS attached view's own doc changes -- the
+  // realistic case of "author edits the scene they're currently in while the
+  // project-search panel is open". It does NOT know about edits happening in
+  // a completely different surface/controller instance (e.g. a second modal
+  // open at the same time) -- that would need a project-wide edit event bus,
+  // which is a larger change than this stage's product brief calls for.
   function handleTransaction(newState,tr){
     if(tr.getMeta(findReplacePluginKey))return;
     if(!tr.docChanged)return;
@@ -275,9 +378,18 @@ export function createFindReplaceController(){
   // a now-hidden panel control) -- `view` is already the live EditorView
   // this controller owns, so it is simplest and most reliable to do this
   // here rather than have every caller (button click, Escape) repeat it.
+  // Find/Replace Stage D1: also clears project-scope state and whatever
+  // project-navigation highlight might currently be showing on some OTHER
+  // scene's editor (closing this panel is exactly the "the user is done
+  // looking at project results" moment -- see product brief section 13's "no
+  // stale decorations left behind").
   function close(){
     open_=false;
     matches=[];activeIndex=-1;
+    if(scope==="project"){
+      projectResult=null;activeProjectMatchIndex=-1;
+      clearProjectNavigationHighlight?.();
+    }
     if(isViewUsable(view)){
       dispatchDecorations(view,buildMatchDecorations(view.state.doc,[],-1));
       view.focus();
@@ -285,16 +397,70 @@ export function createFindReplaceController(){
     notify();
   }
 
+  // Find/Replace Stage D1: switches between "scene" (Stage C's only mode)
+  // and "project" ("Весь проект"). A no-op if already in the requested
+  // scope. Leaving project scope clears its result state and any lingering
+  // project-navigation highlight, then restores ordinary current-scene
+  // highlighting via the normal recompute path; entering it clears the
+  // current view's scene-scope decorations (project scope does not decorate
+  // every match in the attached view -- see product brief section 13) and
+  // runs an initial project search for whatever query is already typed.
+  function setScope(newScope){
+    const next_=newScope==="project"?"project":"scene";
+    if(scope===next_)return;
+    scope=next_;
+    activeIndex=-1;
+    if(scope==="scene"){
+      projectResult=null;activeProjectMatchIndex=-1;
+      clearProjectNavigationHighlight?.();
+      recomputeAndReveal();
+      return;
+    }
+    matches=[];
+    if(isViewUsable(view))dispatchDecorations(view,buildMatchDecorations(view.state.doc,[],-1));
+    activeProjectMatchIndex=-1;
+    recomputeProject();
+  }
+
   function next(){
+    if(scope==="project"){
+      const flat=projectResult?flattenProjectMatches(projectResult):[];
+      if(!flat.length)return;
+      activeProjectMatchIndex=(activeProjectMatchIndex+1)%flat.length;
+      triggerProjectNavigation();
+      notify();
+      return;
+    }
     if(!matches.length)return;
     activeIndex=(activeIndex+1)%matches.length;
     dispatchNavigation();
     notify();
   }
   function previous(){
+    if(scope==="project"){
+      const flat=projectResult?flattenProjectMatches(projectResult):[];
+      if(!flat.length)return;
+      activeProjectMatchIndex=(activeProjectMatchIndex-1+flat.length)%flat.length;
+      triggerProjectNavigation();
+      notify();
+      return;
+    }
     if(!matches.length)return;
     activeIndex=(activeIndex-1+matches.length)%matches.length;
     dispatchNavigation();
+    notify();
+  }
+
+  // Jumps directly to one specific project result (a clicked row in the
+  // result list), by its stable matchId -- never by a raw array index the
+  // panel would have to keep in sync itself.
+  function activateProjectMatch(matchId){
+    if(scope!=="project"||!projectResult)return;
+    const flat=flattenProjectMatches(projectResult);
+    const index=flat.findIndex(match=>match.matchId===matchId);
+    if(index<0)return;
+    activeProjectMatchIndex=index;
+    triggerProjectNavigation();
     notify();
   }
 
@@ -304,7 +470,13 @@ export function createFindReplaceController(){
   // replaced match is now gone, the SAME numeric activeIndex (clamped by
   // recompute) naturally lands on what was the next remaining match, with no
   // separate "find the next match" bookkeeping needed here.
+  // Find/Replace Stage D1 guard: "never perform a current-scene mutation
+  // under a project-scope label" (product brief section 14) -- the panel
+  // already disables these buttons in project scope, but this file never
+  // relies on the UI alone to enforce that; calling either function
+  // programmatically while scope is "project" is also a safe no-op.
   function replaceCurrent(){
+    if(scope==="project")return false;
     if(!isViewUsable(view)||activeIndex<0||!matches[activeIndex])return false;
     const transform=replaceOneMatch(view.state.doc,matches[activeIndex],replaceText);
     const tr=view.state.tr;
@@ -323,6 +495,7 @@ export function createFindReplaceController(){
   // on `view`, the one attached EditorView, never anything else; project-
   // wide scope is explicitly Stage D's job, not this one's.
   function replaceAll(){
+    if(scope==="project")return {count:0};
     if(!isViewUsable(view)||!matches.length)return {count:0};
     const count=matches.length;
     const transform=replaceAllMatches(view.state.doc,matches,replaceText);
@@ -342,7 +515,16 @@ export function createFindReplaceController(){
     attachView,detachView,handleTransaction,
     setQuery,setReplaceText,setCaseSensitive,
     open,close,next,previous,replaceCurrent,replaceAll,
+    setScope,activateProjectMatch,
     subscribe,getSnapshot:snapshot,
     get view(){return view}
   };
 }
+
+// Find/Replace Stage D1: exported (Stage C kept these module-private) so the
+// project-wide navigation adapter (find-replace-navigation.js) can reuse the
+// exact same "reveal a doc position inside whichever scrollable ancestor is
+// hiding it" logic instead of re-implementing the sticky-header-aware
+// geometry walk this file already carefully tuned across several corrective
+// passes. No behavior here changed for Stage C's own current-scene callers.
+export {isViewUsable,revealDocPosition};
