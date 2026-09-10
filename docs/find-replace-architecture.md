@@ -1,12 +1,75 @@
 # Find / Replace — architecture
 
-Status: **Stage A** (atomic cloud persistence foundation) and **Stage B**
-(headless matching/replacement engine) are implemented. No panel, keyboard
-shortcuts, highlighting, mounted-scene registry, navigation, project-wide
-search, or any user-facing Find/Replace behavior exists yet. This document
-records the decisions those later stages must follow; it is deliberately not
-a full UI spec — unfinished UI details are not documented here until they're
-built.
+Status: **Stage A** (atomic cloud persistence foundation), **Stage B**
+(headless matching/replacement engine), **Stage C** (current-scene panel,
+shortcuts, highlighting, Replace/Replace All, across all three rich-text
+surfaces) and **Stage D1** (project-wide search, results, navigation) are
+implemented. Project-wide **Replace All** is explicitly **not** implemented
+yet — Stage D1's panel keeps the Replace field visible in "Весь проект" scope
+but disables the replace actions with an explanation; `bulkUpdateSceneText`
+remains unwired. This document records the decisions those later stages must
+follow; it is deliberately not a full UI spec — unfinished UI details are not
+documented here until they're built.
+
+## Stage D1: project-wide search, results, navigation (this stage)
+
+- **Mounted-scene registry** (`js/editor/mounted-scene-registry.js`):
+  `sceneId -> Map<registrationId, {view,surfaceId,activate}>`, never a
+  single-entry map — the same scene can have multiple simultaneous live
+  registrations (e.g. the standalone editor and "Весь текст" open at once).
+  Deterministic live-view preference when several registrations for one
+  scene disagree: identical docs -> any of them; divergent docs -> the most
+  recently `markMountedSceneActive`-marked registration (mount time counts as
+  activation, so this is always resolvable today) -> only if genuinely
+  unresolvable, an explicit `{status:"conflict"}` rather than arbitrary Map
+  iteration order.
+- **Project search** (`js/editor/find-replace-project-search.js`): headless,
+  depends only on canonical project data (passed in, never imported), Stage
+  B's `findMatches`, and the registry. Canonical order = `projectData.chapters`
+  stored order (already includes `chapter-unassigned`) then
+  `projectData.scenes` stored order within each chapter — the same walk
+  `js/import-export.js`'s `openAllScenesNow` already does. Scope is every
+  active scene regardless of `scene.included` (never `includedScenes()`).
+  Live-vs-persisted resolution goes through the registry per scene; snippets
+  are built from each match's own paragraph's real `textContent`, never the
+  normalized comparison string. `reresolveMatch` re-derives a match against
+  a current doc (exact from/to/text match, else same `occurrenceIndex`, else
+  `null`) — the stale-navigation safety net.
+- **Navigation adapter** (`js/editor/find-replace-navigation.js`):
+  `navigateToSceneMatch(sceneId, matchRange, {query, caseSensitive,
+  openSceneForEditing})`. Case A (already mounted): calls the registration's
+  own `activate()`, re-resolves the match against the live doc, selects and
+  reveals it (reusing `find-replace-controller.js`'s own `revealDocPosition`).
+  Case B (not mounted): awaits the injected `openSceneForEditing` (the app
+  wires this to `openSceneText`), then resolves case A against the freshly
+  mounted registration. Knows nothing about modals/routes beyond that one
+  injected function.
+- **Controller/panel**: `find-replace-controller.js` gained a `scope`
+  ("scene"|"project") plus project-result state, gated so every scene-scope
+  code path Stage C already had is unchanged when scope is "scene" (the
+  default). `find-replace-panel.js` gained the "Эта сцена"/"Весь проект"
+  toggle and a compact grouped-by-scene results list. The results list is
+  inserted as a DOM **sibling** of the find/replace row (after the whole
+  `.rte-sticky-controls` wrapper in "Весь текст" specifically), never a
+  child of it — a hidden child would corrupt Stage C's own accepted
+  control-row geometry check, and in "Весь текст" a child would also join
+  the sticky-pinned area and cover the manuscript.
+- **Known D1 limitation**: navigating to a scene that isn't mounted anywhere
+  goes through `openSceneText`, which (existing, pre-D1 behavior) enforces
+  "exactly one rich-text editing surface open at a time" and closes whatever
+  surface is currently open first. So cross-surface navigation to an
+  unmounted scene does not preserve the *originating* panel's search
+  context in that specific case — accepted per this stage's own product
+  brief ("use the smallest safe behavior and report the limitation" rather
+  than building new routing infrastructure). Same-surface navigation (already
+  mounted, case A) and cross-surface navigation to an *already-mounted*
+  scene both preserve the originating panel fully.
+- **Known D1 limitation**: live project-result refresh on document edits
+  (product brief section 12) only reacts to edits on the panel's own
+  currently-attached `view` — it has no visibility into edits happening in a
+  completely different, simultaneously-open surface/controller instance.
+  A full cross-surface refresh would need a project-wide edit event bus,
+  out of scope for this stage.
 
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 
