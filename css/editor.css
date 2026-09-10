@@ -1,13 +1,31 @@
 /* T1 rich-text scene editor (single-scene "Текст сцены" modal only). Deliberately
    not pixel-polished -- visual review happens before T2 propagates this further. */
 
-/* Full-bleed sticky toolbar bar -- mirrors the accepted .sticky-modal-footer
-   technique (js/scenes.js's own comment on that class explains the negative-
-   margin trick) so the toolbar stays reachable at the top of a long scene
-   without a second, nested scroll region: #textModal's .modal is still the
-   only scrolling container, this just pins two elements within it. */
+/* #textModal uses ONE internal scrolling region -- the bordered manuscript
+   panel itself -- instead of scrolling the whole modal shell like every other
+   modal in the app (see css/modals.css's own comment on the shared
+   `.modal{overflow:auto}` rule, which this deliberately overrides only for
+   #textModal). Title/toolbar/Save-Close are plain, non-scrolling flex
+   children that stay fully visible; only .rte-editor scrolls, so its own
+   top/bottom border never scrolls out of view mid-edit -- "a real document
+   editor," not a form that happens to contain a text box. height (not
+   max-height) gives the flex column a definite size to allocate, using the
+   same 92vh constant the rest of the app already uses for modal sizing. */
+#textModal .modal{
+  display:flex;flex-direction:column;
+  height:92vh;overflow:hidden;
+}
+#textModal .modal>h2,
+#textModal .modal>.scene-text-meta{flex:none}
+/* The toolbar/actions no longer need to be pinned via position:sticky -- the
+   modal shell itself doesn't scroll any more, so they're just ordinary,
+   always-visible flex children. .sticky-modal-footer is shared with other
+   modals that still use the single-big-scroll pattern (Scene modal, "Все
+   сцены"), so it's overridden here rather than changed generically. */
+#textModal .modal-actions.sticky-modal-footer{position:static;bottom:auto;flex:none}
+
 .rte-toolbar{
-  position:sticky;top:-18px;z-index:5;
+  flex:none;
   display:flex;flex-wrap:wrap;align-items:center;gap:4px;
   margin:0 -18px 10px;padding:8px 18px;
   background:var(--surface-elevated);
@@ -19,7 +37,15 @@
 }
 .rte-toolbar button:disabled{opacity:.45}
 .rte-toolbar-sep{width:1px;align-self:stretch;background:var(--border-subtle);margin:2px 4px}
-.rte-toolbar select{padding:4px 6px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle)}
+/* Compact, content-sized insert control at the toolbar's right end (grouped
+   with the scene-break button right before it as "insertions") -- a
+   constrained max-width keeps its own long placeholder/option text from
+   forcing it onto a full-width row of its own; flex-wrap still lets it drop
+   to its own line naturally on narrow viewports where it doesn't fit. */
+.rte-pov-select{
+  padding:4px 6px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);
+  max-width:220px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .rte-btn-italic{font-style:italic}
 .rte-btn-strike{text-decoration:line-through}
 /* Alignment icons: plain SVG line glyphs (see scene-editor-toolbar.js's
@@ -33,7 +59,7 @@
 .rte-btn-icon-text{font-size:16px;line-height:1;padding:3px 9px}
 
 .rte-editor{
-  min-height:62vh;
+  flex:1 1 auto;min-height:0;overflow-y:auto;
   border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
   padding:12px 14px;
   background:var(--paper);

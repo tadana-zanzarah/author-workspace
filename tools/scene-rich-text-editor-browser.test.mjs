@@ -231,41 +231,73 @@ try{
   await page.click("#discardChanges");
   await page.waitForTimeout(80);
 
-  // --- Sticky toolbar/actions on a long scene: scrolling down must keep the
-  // formatting toolbar reachable at the top and Close/Save reachable at the
-  // bottom, with the manuscript as the one scrolling region between them (no
-  // nested scroll, no background scroll leak).
+  // --- Single internal scroll region on a long scene: the manuscript panel's
+  // own border must stay fully visible (never scroll away), only its content
+  // scrolls, and the toolbar/Save/Close (now plain non-scrolling flex
+  // children, not scrolled-and-pinned) never move at all.
   await page.evaluate(()=>openSceneText("scene-long"));
   await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
-  const modalBox=page.locator("#textModal .modal");
-  const toolbarTopBeforeScroll=await page.locator("#fullSceneTextToolbar").boundingBox().then(b=>b.y);
-  await modalBox.evaluate(el=>{el.scrollTop=el.scrollHeight/2});
+  const editorBoxBefore=await page.locator("#fullSceneTextEditor").boundingBox();
+  const toolbarBoxBefore=await page.locator("#fullSceneTextToolbar").boundingBox();
+  const actionsBoxBefore=await page.locator("#textModal .modal-actions").boundingBox();
+  const modalBoxBefore=await page.locator("#textModal .modal").boundingBox();
+  // The manuscript box must actually have internal overflow to scroll --
+  // otherwise this check would trivially pass without proving anything.
+  const overflowsInternally=await page.locator("#fullSceneTextEditor").evaluate(el=>el.scrollHeight>el.clientHeight+2);
+  if(!overflowsInternally)throw new Error("Test setup failed: long scene did not actually overflow the manuscript panel");
+  await page.locator("#fullSceneTextEditor").evaluate(el=>{el.scrollTop=el.scrollHeight/2});
   await page.waitForTimeout(60);
-  const toolbarBoxAfterScroll=await page.locator("#fullSceneTextToolbar").boundingBox();
-  const actionsBoxAfterScroll=await page.locator("#textModal .modal-actions").boundingBox();
-  const modalViewport=await modalBox.boundingBox();
-  if(!(toolbarBoxAfterScroll.y>=modalViewport.y-2&&toolbarBoxAfterScroll.y<=toolbarTopBeforeScroll+2))
-    throw new Error(`Toolbar did not stay pinned near the top after scrolling (y=${toolbarBoxAfterScroll.y}, was ${toolbarTopBeforeScroll})`);
-  if(actionsBoxAfterScroll.y+actionsBoxAfterScroll.height>modalViewport.y+modalViewport.height+2)
-    throw new Error("Save/Close actions are not reachable within the modal viewport after scrolling");
+  const scrolledTop=await page.locator("#fullSceneTextEditor").evaluate(el=>el.scrollTop);
+  if(scrolledTop<10)throw new Error("Manuscript panel did not actually scroll internally");
+  const editorBoxAfter=await page.locator("#fullSceneTextEditor").boundingBox();
+  const toolbarBoxAfter=await page.locator("#fullSceneTextToolbar").boundingBox();
+  const actionsBoxAfter=await page.locator("#textModal .modal-actions").boundingBox();
+  const modalBoxAfter=await page.locator("#textModal .modal").boundingBox();
+  const closeEnough=(a,b)=>Math.abs(a-b)<=1;
+  if(!(closeEnough(editorBoxBefore.y,editorBoxAfter.y)&&closeEnough(editorBoxBefore.height,editorBoxAfter.height)))
+    throw new Error(`Manuscript panel's own border moved/resized while scrolling its content (before y=${editorBoxBefore.y} h=${editorBoxBefore.height}, after y=${editorBoxAfter.y} h=${editorBoxAfter.height})`);
+  if(!(closeEnough(toolbarBoxBefore.y,toolbarBoxAfter.y)))throw new Error("Toolbar moved while scrolling the manuscript (should be a fixed, non-scrolling region)");
+  if(!(closeEnough(actionsBoxBefore.y,actionsBoxAfter.y)))throw new Error("Save/Close actions moved while scrolling the manuscript (should be a fixed, non-scrolling region)");
+  if(!(closeEnough(modalBoxBefore.y,modalBoxAfter.y)&&closeEnough(modalBoxBefore.height,modalBoxAfter.height)))
+    throw new Error("The modal shell itself moved/resized -- it should not scroll at all any more");
   // Toolbar buttons and Save/Close must actually be clickable (not just
   // visually present) after scrolling deep into a long scene.
   if(!(await page.locator('[data-cmd="bold"]').isVisible()))throw new Error("Bold button not reachable after scrolling a long scene");
   if(!(await page.locator("#saveText").isVisible()))throw new Error("Save button not reachable after scrolling a long scene");
+  // Keyboard/selection still work inside the now-independently-scrolling editor.
+  await page.locator("#fullSceneTextEditor .scene-paragraph").nth(5).click({clickCount:3});
+  await page.click('[data-cmd="bold"]');
+  if((await page.getAttribute('[data-cmd="bold"]',"aria-pressed"))!=="true")throw new Error("Formatting a selection made after internal scrolling did not apply");
+  await page.click('[data-cmd="bold"]'); // toggle back off
   // No background scroll leak: the page behind the modal must not have moved.
   const bodyScrollBefore=await page.evaluate(()=>document.documentElement.scrollTop);
-  await modalBox.evaluate(el=>{el.scrollTop=0});
   await page.mouse.wheel(0,400);
   await page.waitForTimeout(60);
   const bodyScrollAfter=await page.evaluate(()=>document.documentElement.scrollTop);
   if(bodyScrollAfter!==bodyScrollBefore)throw new Error("Scrolling inside the long-scene editor leaked to the page behind the modal");
+  // Bold was toggled on then off on the same selection -- a net no-op, so no
+  // discard confirmation is expected here.
+  await page.click("#closeText");
+  if(await isVisible("#discardChangesModal"))throw new Error("Toggling formatting back to its original state was still treated as dirty");
+  await page.waitForTimeout(80);
 
-  // Narrow viewport: the toolbar wraps but every essential control (incl.
-  // Save/Close) stays reachable, not clipped off-screen.
+  // --- Short scene: the manuscript panel must not show unnecessary internal
+  // scroll (no overflow) even though it still fills the available height.
+  await page.evaluate(()=>openSceneText("scene-1"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  const shortOverflows=await page.locator("#fullSceneTextEditor").evaluate(el=>el.scrollHeight>el.clientHeight+2);
+  if(shortOverflows)throw new Error("Short scene created unnecessary internal scroll in the manuscript panel");
+  await page.click("#closeText");
+
+  // Narrow viewport: the toolbar wraps but every essential control (incl. the
+  // compact POV control and Save/Close) stays reachable, not clipped off-screen.
+  await page.evaluate(()=>openSceneText("scene-long"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
   await page.setViewportSize({width:420,height:700});
   await page.waitForTimeout(60);
   if(!(await page.locator('[data-cmd="bold"]').isVisible()))throw new Error("Bold button not reachable on a narrow viewport");
   if(!(await page.locator('[data-cmd="align-justify"]').isVisible()))throw new Error("Justify button not reachable on a narrow viewport");
+  if(!(await page.locator('[data-cmd="pov"]').isVisible()))throw new Error("POV control not reachable on a narrow viewport");
   if(!(await page.locator("#saveText").isVisible()))throw new Error("Save button not reachable on a narrow viewport");
   if(!(await page.locator("#closeText").isVisible()))throw new Error("Close button not reachable on a narrow viewport");
   await page.setViewportSize({width:1280,height:900});
@@ -275,6 +307,25 @@ try{
   // top of this file, re-verified here after a scroll + viewport resize).
   await page.click("#closeText");
   if(await isVisible("#discardChangesModal"))throw new Error("Scrolling/resizing alone (no edits) was treated as dirty on close");
+
+  // --- Compact POV control: at a normal desktop width it sits inline on the
+  // main toolbar row (not forced onto its own full-width row), positioned
+  // among the toolbar's "insertions" controls (grouped with scene-break, at
+  // the toolbar's right end) rather than spanning the modal.
+  await page.evaluate(()=>openSceneText("scene-1"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  const toolbarBox=await page.locator("#fullSceneTextToolbar").boundingBox();
+  const povBox=await page.locator('[data-cmd="pov"]').boundingBox();
+  const sceneBreakBox=await page.locator('[data-cmd="scene-break"]').boundingBox();
+  if(povBox.width>toolbarBox.width*0.5)throw new Error(`POV control is not compact -- width ${povBox.width} vs toolbar width ${toolbarBox.width}`);
+  // "Same row" via vertical-range overlap rather than near-equal y -- a
+  // <select> and a <button> have different natural heights even when
+  // sitting on the identical flex row (align-items:center), so their top
+  // edges differ by a few px while genuinely being row-mates.
+  const sameRow=povBox.y<sceneBreakBox.y+sceneBreakBox.height&&sceneBreakBox.y<povBox.y+povBox.height;
+  if(!sameRow)throw new Error(`POV control is not on the same toolbar row as the scene-break button at normal desktop width (pov y=${povBox.y}..${povBox.y+povBox.height}, scene-break y=${sceneBreakBox.y}..${sceneBreakBox.y+sceneBreakBox.height})`);
+  if(povBox.x<sceneBreakBox.x)throw new Error("POV control is not positioned at the right end of the toolbar (after scene-break)");
+  await page.click("#closeText");
 
   console.log("scene rich-text editor browser tests passed");
 }finally{await browser.close();server.kill()}
