@@ -49,19 +49,62 @@ function isViewUsable(view){
 // ancestor) is what lets "Весь текст" additionally scroll its own outer
 // modal list when a whole Scene block is out of view, without ever needing
 // surface-specific code.
+//
+// Second corrective pass -- two real bugs found by actually reproducing a
+// realistic "Весь текст" case (many scenes, one long, scrolled away, a
+// single big navigation jump -- not just many small incremental Next
+// presses, which happened to mostly "catch up" one step at a time and
+// masked this) and inspecting the resulting DOM geometry rather than
+// trusting that "a scrollTop changed" meant success:
+//
+// 1. `coords` was computed ONCE, before the ancestor loop, and reused for
+//    every ancestor. After adjusting the FIRST (innermost) scrollable
+//    ancestor's scrollTop, the match's actual on-screen position changes --
+//    continuing to use the pre-scroll coordinates for the NEXT (outer)
+//    ancestor's visibility check made that decision against stale data.
+//    Fixed by recomputing view.coordsAtPos(pos) fresh at the start of each
+//    ancestor's own check.
+// 2. The "visible top boundary" of a scrollable ancestor was just its own
+//    getBoundingClientRect().top plus a small fixed margin -- correct for
+//    an ordinary container, but "Весь текст"'s outer .modal has the sticky
+//    toolbar+Find/Replace wrapper (.rte-sticky-controls, see css/editor.css)
+//    pinned across its own top ~100px, which is geometrically INSIDE the
+//    modal's rect but visually opaque on top of the manuscript. A match
+//    landing in that band was previously reported/left as "within the
+//    modal's bounds" while being completely hidden under the controls.
+//    Fixed by measuring any sticky-positioned child currently pinned at a
+//    container's own top edge and treating its height as additional
+//    obstruction the reveal must scroll past. Generic (inspects the
+//    scrollable container's own children, not anything surface-specific),
+//    so it applies correctly if a future surface ever adds its own sticky
+//    header, and does nothing extra for containers (the two .rte-editor
+//    levels) that have no sticky children at all.
+function stickyTopObstruction(container){
+  const containerTop=container.getBoundingClientRect().top;
+  let obstruction=0;
+  for(const child of container.children){
+    if(getComputedStyle(child).position!=="sticky")continue;
+    const childRect=child.getBoundingClientRect();
+    if(childRect.top<=containerTop+1&&childRect.bottom>containerTop)obstruction=Math.max(obstruction,childRect.bottom-containerTop);
+  }
+  return obstruction;
+}
+
 function revealDocPosition(view,pos){
   if(!isViewUsable(view))return;
-  let coords;
-  try{coords=view.coordsAtPos(pos)}catch{return}
-  const margin=24;
+  const margin=16;
   let node=view.dom.parentElement;
   while(node&&node!==document.body&&node!==document.documentElement){
     const style=getComputedStyle(node);
     const scrollableY=/(auto|scroll)/.test(style.overflowY)&&node.scrollHeight>node.clientHeight+1;
     if(scrollableY){
+      let coords;
+      try{coords=view.coordsAtPos(pos)}catch{return}
       const rect=node.getBoundingClientRect();
-      if(coords.top<rect.top+margin)node.scrollTop-=(rect.top+margin-coords.top);
-      else if(coords.bottom>rect.bottom-margin)node.scrollTop+=(coords.bottom-(rect.bottom-margin));
+      const topBound=rect.top+stickyTopObstruction(node)+margin;
+      const bottomBound=rect.bottom-margin;
+      if(coords.top<topBound)node.scrollTop-=(topBound-coords.top);
+      else if(coords.bottom>bottomBound)node.scrollTop+=(coords.bottom-bottomBound);
     }
     node=node.parentElement;
   }
@@ -76,10 +119,11 @@ export function createFindReplaceController(){
   let matches=[];
   let activeIndex=-1;
   let openSequence=0; // bumped by every open() call -- see open() below for why
+  let focusTarget="find"; // "find" | "replace" -- which input the panel should focus for this openSequence
   const listeners=new Set();
 
   function snapshot(){
-    return {query,replaceText,caseSensitive,open:open_,matchCount:matches.length,activeIndex,openSequence};
+    return {query,replaceText,caseSensitive,open:open_,matchCount:matches.length,activeIndex,openSequence,focusTarget};
   }
   function notify(){
     const value=snapshot();
@@ -206,24 +250,24 @@ export function createFindReplaceController(){
 
   // open()/close() are the panel-visibility state -- decorations only ever
   // render while open, so closing always clears them immediately rather than
-  // leaving a frozen highlight set behind. Corrective pass: the panel is now
-  // one compact row with Find AND Replace controls always shown together
-  // (see find-replace-panel.js) -- there is no more separate "find" vs
-  // "replace" layout mode, so open() takes no mode argument any more.
-  // openFind()/openReplace() (the two names every call site already uses --
-  // toolbar button, Ctrl+F/Ctrl+H) both just open this one panel; keeping
-  // both names, rather than collapsing to a single open(), costs nothing and
-  // leaves room for a future, genuinely different default (e.g. focusing the
-  // Replace input) without another round of call-site changes.
+  // leaving a frozen highlight set behind. The panel is one compact row with
+  // Find AND Replace controls always shown together (see
+  // find-replace-panel.js) -- there is no separate "find" vs "replace"
+  // LAYOUT mode -- but Ctrl+F and Ctrl+H are still two distinct actions:
+  // since both inputs are always visible together now, which one gets
+  // FOCUSED is the only thing left for them to usefully differ on. `target`
+  // ("find" or "replace") records that; the panel reads it to focus the
+  // right input.
   //
   // openSequence bumps on EVERY open() call, not only on a closed->open
   // transition, so the panel can tell "the user just explicitly asked for
-  // Find" apart from any other snapshot change and (re)focus the Find input
-  // accordingly -- including the case where the panel was already open and
-  // Ctrl+F/the toolbar button was pressed again, which should still
-  // refocus/reselect it.
-  function open(){
+  // this" apart from any other snapshot change and (re)focus accordingly --
+  // including the case where the panel was already open and Ctrl+F/Ctrl+H is
+  // pressed again (same target or the other one), which should still
+  // refocus/reselect that input.
+  function open(target="find"){
     open_=true;
+    focusTarget=target==="replace"?"replace":"find";
     openSequence++;
     recomputeAndReveal();
   }

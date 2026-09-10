@@ -71,8 +71,11 @@ export function createFindReplacePanel(container,controller){
   replaceAllButton.type="button";
   replaceAllButton.className="rte-replace-all";
   replaceAllButton.title="Заменить все совпадения в этой сцене";
-  replaceAllButton.setAttribute("aria-label","Заменить все совпадения");
-  replaceAllButton.textContent="Все";
+  // Corrective pass (2nd visual review): the compact "Все" label failed
+  // review because its meaning wasn't obvious on its own -- restored to the
+  // full "Заменить все" text. No separate aria-label needed any more since
+  // the visible text itself is now fully descriptive.
+  replaceAllButton.textContent="Заменить все";
 
   const caseButton=document.createElement("button");
   caseButton.type="button";
@@ -133,12 +136,17 @@ export function createFindReplacePanel(container,controller){
 
     // Per-open() focus request, not a closed->open transition check -- see
     // find-replace-controller.js's own comment on why openSequence exists
-    // (so pressing Ctrl+F again while already open still refocuses/reselects
-    // the Find input, matching ordinary browser/Word Find behavior).
+    // (so pressing Ctrl+F/Ctrl+H again while already open still refocuses/
+    // reselects the relevant input, matching ordinary browser/Word Find
+    // behavior). Ctrl+F and Ctrl+H open the exact same panel/row now, but
+    // still differ in which input gets focused -- snapshot.focusTarget is
+    // the only thing left for them to usefully disagree on once both inputs
+    // are always visible together.
     if(snapshot.openSequence!==lastOpenSequence){
       lastOpenSequence=snapshot.openSequence;
-      findInput.focus();
-      findInput.select();
+      const target=snapshot.focusTarget==="replace"?replaceInput:findInput;
+      target.focus();
+      target.select();
     }
   });
 

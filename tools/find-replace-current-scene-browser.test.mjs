@@ -78,6 +78,27 @@ try{
   if(!(await page.locator("#fullSceneTextToolbar .rte-btn-find").getAttribute("aria-label")).includes("Найти и заменить"))
     throw new Error("Find/Replace toolbar entry must have an accessible label naming the feature");
 
+  // --- Toolbar visual normalization (corrective pass #4): every button AND
+  // the POV <select> share one consistent control height -- the POV select
+  // in particular must no longer render taller than its neighbors.
+  {
+    const heights=await page.$$eval(
+      "#fullSceneTextToolbar > button, #fullSceneTextToolbar > select",
+      els=>els.map(el=>Math.round(el.getBoundingClientRect().height))
+    );
+    const spread=Math.max(...heights)-Math.min(...heights);
+    if(spread>1)throw new Error(`Expected one consistent toolbar control height, got heights ${JSON.stringify(heights)} (spread ${spread}px)`);
+  }
+
+  // --- Alignment icons (corrective pass #5): lighter stroke than the
+  // original, still line-based glyphs (never text labels).
+  {
+    const strokeWidth=await page.locator('#fullSceneTextToolbar [data-cmd="align-left"] svg line').first().getAttribute("stroke-width");
+    if(Number(strokeWidth)>=1.6)throw new Error(`Expected a lighter alignment-icon stroke width than the original 1.6, got ${strokeWidth}`);
+    if(await page.locator('#fullSceneTextToolbar [data-cmd="align-left"] svg').count()!==1)
+      throw new Error("Alignment control must still be a line-based SVG icon, not a text label");
+  }
+
   // --- Toolbar entry point opens Find.
   if(await page.locator("#fullSceneTextFindReplace.rte-find-replace").isVisible())throw new Error("Find/Replace panel must start hidden");
   await page.click("#fullSceneTextToolbar .rte-btn-find");
@@ -105,15 +126,28 @@ try{
   if(!await page.locator("#fullSceneTextFindReplace .rte-replace-input").isVisible())throw new Error("Replace input must be visible immediately, no expand step");
   if(await page.locator("#fullSceneTextFindReplace .rte-find-toggle").count())throw new Error("The old expand/collapse toggle must be gone");
 
-  // --- Ctrl+H also opens the SAME compact panel (still focusing Find, since
-  // a search term is needed before anything can be replaced).
+  // --- Ctrl+F and Ctrl+H open the SAME compact panel/row but now differ in
+  // which input gets focused -- the only thing left for them to usefully
+  // disagree on once both inputs are always shown together (corrective pass
+  // #1 of this round).
   await page.click("#fullSceneTextFindReplace .rte-find-close");
   await page.locator("#fullSceneTextEditor .ProseMirror").click();
-  await page.keyboard.press("Control+h");
-  if(!await page.locator("#fullSceneTextFindReplace.rte-find-replace").isVisible())throw new Error("Ctrl+H did not open the panel");
-  if(!await page.locator("#fullSceneTextFindReplace .rte-replace-input").isVisible())throw new Error("Ctrl+H's panel must already show the Replace input");
+  await page.keyboard.press("Control+f");
+  if(!await page.locator("#fullSceneTextFindReplace.rte-find-replace").isVisible())throw new Error("Ctrl+F did not open the panel");
   if(!await page.locator("#fullSceneTextFindReplace .rte-find-input").evaluate(el=>el===document.activeElement))
-    throw new Error("Ctrl+H must still focus the Find input by default");
+    throw new Error("Ctrl+F must focus the Find input");
+
+  await page.keyboard.press("Control+h");
+  if(!await page.locator("#fullSceneTextFindReplace .rte-replace-input").isVisible())throw new Error("Ctrl+H's panel must already show the Replace input (no expand step)");
+  if(!await page.locator("#fullSceneTextFindReplace .rte-replace-input").evaluate(el=>el===document.activeElement))
+    throw new Error("Ctrl+H must focus the Replace input");
+
+  // Pressing Ctrl+F again while already open (Replace currently focused)
+  // moves focus back to Find -- confirms this is driven by which shortcut
+  // was pressed, not merely "first open ever".
+  await page.keyboard.press("Control+f");
+  if(!await page.locator("#fullSceneTextFindReplace .rte-find-input").evaluate(el=>el===document.activeElement))
+    throw new Error("Ctrl+F while already open (Replace focused) did not move focus back to Find");
 
   // --- Root cause of the real-browser interception failure: event.key
   // reflects the ACTIVE KEYBOARD LAYOUT, not the physical key. On a Russian
@@ -136,6 +170,20 @@ try{
     throw new Error("A Cyrillic-keyboard-layout Ctrl+F (code=KeyF, key=\"а\") did not open Find -- event.key-only detection regressed");
   if(!await page.evaluate(()=>window.__frLayoutEventPrevented))
     throw new Error("The Cyrillic-layout Ctrl+F keydown was not preventDefault()-ed");
+  if(!await page.locator("#fullSceneTextFindReplace .rte-find-input").evaluate(el=>el===document.activeElement))
+    throw new Error("Cyrillic-layout Ctrl+F did not focus the Find input");
+
+  // Same for Ctrl+H (physical H key, code=KeyH; Russian ЙЦУКЕН produces
+  // key:"р" for that physical key, never "h").
+  await page.evaluate(()=>{
+    const event=new KeyboardEvent("keydown",{key:"р",code:"KeyH",ctrlKey:true,bubbles:true,cancelable:true});
+    document.dispatchEvent(event);
+    window.__frLayoutEventPrevented=event.defaultPrevented;
+  });
+  if(!await page.evaluate(()=>window.__frLayoutEventPrevented))
+    throw new Error("The Cyrillic-layout Ctrl+H keydown was not preventDefault()-ed");
+  if(!await page.locator("#fullSceneTextFindReplace .rte-replace-input").evaluate(el=>el===document.activeElement))
+    throw new Error("Cyrillic-layout Ctrl+H (code=KeyH, key=\"р\") did not focus the Replace input");
 
   // --- Browser Find shortcut is not stolen outside the relevant context:
   // close the panel and the modal entirely, then Ctrl+F on the bare app must
@@ -230,7 +278,11 @@ try{
 
   // --- Replace All: one transaction, one Undo step, and formatting behavior
   // stays whatever Stage B established (plain text here, so a straightforward
-  // full replacement is the correct pin).
+  // full replacement is the correct pin). Corrective pass #3: the compact
+  // "Все" label failed visual review for being unclear -- must read the full
+  // "Заменить все" again.
+  if((await page.locator("#fullSceneTextFindReplace .rte-replace-all").textContent())!=="Заменить все")
+    throw new Error("Replace All button must read exactly \"Заменить все\", not a truncated/ambiguous label");
   await page.fill("#fullSceneTextFindReplace .rte-find-input","кот");
   await page.fill("#fullSceneTextFindReplace .rte-replace-input","пёс");
   const beforeReplaceAll=await page.locator("#fullSceneTextEditor .ProseMirror").textContent();
@@ -412,6 +464,62 @@ try{
     if(toolbarRect.top>50)throw new Error("Sticky toolbar scrolled away with the manuscript instead of staying pinned");
     if(panelRect.top<toolbarRect.bottom-1)throw new Error("Sticky Find/Replace panel overlaps the sticky toolbar");
     if(panelRect.top>toolbarRect.bottom+4)throw new Error("Sticky Find/Replace panel is not immediately beneath the sticky toolbar");
+  }
+
+  // --- Difficult nested-scroll case (corrective pass #2), reproducing the
+  // exact failure a single small Next/Enter step does not expose: a BIG,
+  // single-jump navigation (Shift+Enter wrapping from match 1 straight to
+  // the last match) inside a long Scene, from a state where the outer
+  // "Весь текст" list is scrolled away from that Scene entirely. This
+  // requires the inner .rte-editor scroll AND the outer .modal scene-list
+  // scroll to both move correctly together, and the final position must
+  // clear the sticky toolbar+panel band, not just land "inside" the outer
+  // container's own bounding rect.
+  await page.locator("#allSceneEditor-scene-long-all .ProseMirror").click();
+  await page.locator("#allScenesModal .modal").evaluate(el=>{el.scrollTop=0});
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.fill("#allScenesFindReplace .rte-find-input","кота");
+  if((await page.locator("#allScenesFindReplace .rte-find-count").textContent())!=="1 из 60")
+    throw new Error("Expected the long Scene's own 60 matches after retargeting to it");
+  await page.locator("#allScenesFindReplace .rte-find-input").press("Shift+Enter"); // wrap: match 1 -> match 60, one jump
+  if((await page.locator("#allScenesFindReplace .rte-find-count").textContent())!=="60 из 60")
+    throw new Error("Shift+Enter did not wrap to the last match");
+  {
+    const geometry=await page.evaluate(()=>{
+      const active=document.querySelector("#allSceneEditor-scene-long-all .rte-find-match-active");
+      if(!active)return {found:false};
+      const a=active.getBoundingClientRect();
+      const editor=document.getElementById("allSceneEditor-scene-long-all");
+      const e=editor.getBoundingClientRect();
+      const modal=document.querySelector("#allScenesModal .modal");
+      const m=modal.getBoundingClientRect();
+      const sticky=document.querySelector("#allScenesModal .rte-sticky-controls");
+      const s=sticky.getBoundingClientRect();
+      return {
+        found:true,
+        visibleWithinEditor:a.top>=e.top-1&&a.bottom<=e.bottom+1,
+        visibleWithinModal:a.top>=m.top-1&&a.bottom<=m.bottom+1,
+        clearsSticky:a.top>=s.bottom-1
+      };
+    });
+    if(!geometry.found)throw new Error("No active match decoration found after the jump");
+    if(!geometry.visibleWithinEditor)throw new Error("Active match is outside its own Scene's internal editor viewport after a big single-jump navigation");
+    if(!geometry.visibleWithinModal)throw new Error("Active match is outside the outer \"Весь текст\" scene-list viewport after a big single-jump navigation");
+    if(!geometry.clearsSticky)throw new Error("Active match is geometrically \"inside\" the outer viewport but hidden UNDERNEATH the sticky toolbar/panel -- this is the exact case the first scroll fix missed");
+  }
+  // And the reverse big jump (last -> first, one Enter) must clear equally.
+  await page.locator("#allScenesFindReplace .rte-find-input").press("Enter");
+  if((await page.locator("#allScenesFindReplace .rte-find-count").textContent())!=="1 из 60")
+    throw new Error("Enter from the last match did not wrap back to the first");
+  {
+    const clearsSticky=await page.evaluate(()=>{
+      const active=document.querySelector("#allSceneEditor-scene-long-all .rte-find-match-active");
+      const a=active.getBoundingClientRect();
+      const sticky=document.querySelector("#allScenesModal .rte-sticky-controls");
+      const s=sticky.getBoundingClientRect();
+      return a.top>=s.bottom-1;
+    });
+    if(!clearsSticky)throw new Error("Active match hidden under sticky controls after wrapping back to the first match");
   }
 
   console.log("find-replace current-scene browser tests passed");

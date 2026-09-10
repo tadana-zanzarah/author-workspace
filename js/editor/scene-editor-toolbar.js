@@ -19,6 +19,13 @@ function characterDisplayName(character){
 // read as "align left/center/right/justify" at a glance rather than as
 // cryptic custom letters. currentColor so the existing aria-pressed active-
 // state color rule (css/editor.css) colors the icon too, with no extra CSS.
+// Corrective pass (2nd visual review): these read noticeably heavier/bolder
+// than the rest of the toolbar -- stroke-width dropped from 1.6 to 1.1 (the
+// line geometry/spacing itself is unchanged, still fully recognizable as the
+// same four alignment glyphs) and stroke-linecap switched from "round" to
+// "butt" (sharp ends), since rounded caps at this stroke width were adding
+// to the "bolder" look; the active/selected alignment's own color contrast
+// (css/editor.css's aria-pressed rule) still carries the state distinction.
 function alignIcon(kind){
   const lines={
     left:[[1,3,15,3],[1,6.3,10,6.3],[1,9.7,15,9.7],[1,13,10,13]],
@@ -27,7 +34,7 @@ function alignIcon(kind){
     justify:[[1,3,15,3],[1,6.3,15,6.3],[1,9.7,15,9.7],[1,13,15,13]]
   }[kind];
   const segs=lines.map(([x1,y1,x2,y2])=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`).join("");
-  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">${segs}</g></svg>`;
+  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="butt">${segs}</g></svg>`;
 }
 
 // One flat command list -- toolbar buttons and keyboard shortcuts both end up
