@@ -102,9 +102,17 @@ async function requestEditorTransition(openAction){
   openAction();return true;
 }
 
+// data-dirty-ignore opts a whole DOM subtree out of the dirty-tracking scan
+// below -- e.g. the Find/Replace panel (js/editor/find-replace-panel.js)
+// marks its own root with it, so typing a search/replace term into its plain
+// <input>s (otherwise indistinguishable from a real form field to the
+// blanket querySelectorAll scan here) can never register as an unsaved
+// scene-form change. Generic on purpose: any future non-persisted UI control
+// mounted inside a tracked modal can reuse the same attribute rather than
+// this scan growing more special cases.
 function serializeForm(root,extra={}){
   if(typeof root==="string")root=document.getElementById(root);
-  const controls=[...(root?.querySelectorAll("input,select,textarea")||[])].filter(el=>el.type!=="file").map((el,index)=>({
+  const controls=[...(root?.querySelectorAll("input,select,textarea")||[])].filter(el=>el.type!=="file").filter(el=>!el.closest("[data-dirty-ignore]")).map((el,index)=>({
     key:el.id||el.name||`${el.className}:${el.dataset.id||el.dataset.draftId||el.dataset.charId||""}:${el.dataset.targetId||""}:${index}`,
     value:el.type==="checkbox"||el.type==="radio"?!!el.checked:el.value,
     explicit:el.dataset.explicit

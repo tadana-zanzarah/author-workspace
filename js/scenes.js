@@ -434,6 +434,7 @@ function mountSceneModalTextEditor(scene){
   sceneModalTextEditor=mountSceneEditor({
     editorContainer:document.getElementById("sceneTextEditor"),
     toolbarContainer:document.getElementById("sceneTextToolbar"),
+    findReplaceContainer:document.getElementById("sceneTextFindReplace"),
     scene,
     characters:data.characters
   });
@@ -448,6 +449,7 @@ function openSceneTextNow(sceneId){
   sceneTextEditor=mountSceneEditor({
     editorContainer:document.getElementById("fullSceneTextEditor"),
     toolbarContainer:document.getElementById("fullSceneTextToolbar"),
+    findReplaceContainer:document.getElementById("fullSceneTextFindReplace"),
     scene,
     characters:data.characters
   });

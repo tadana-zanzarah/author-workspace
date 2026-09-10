@@ -108,6 +108,44 @@
    scroll is specifically for long manuscript text. */
 #sceneModal .rte-editor{height:320px;overflow-y:auto}
 
+/* Find/Replace Stage C: first working panel -- deliberately plain/functional
+   (see docs/find-replace-architecture.md), not a final visual pass. Compact
+   horizontal row rather than a modal, so it reads as part of the editor
+   chrome; exact spacing/icons are expected to change after user visual
+   review. Hidden entirely (not just visually) via the `hidden` attribute
+   when closed -- js/modal-manager.js's Escape handling and this file's own
+   `:not([hidden])` styling both key off that. */
+.rte-find-replace{
+  flex:none;
+  display:flex;flex-direction:column;gap:6px;
+  margin:0 -18px 10px;padding:8px 18px;
+  background:var(--surface-elevated);
+  border-bottom:1px solid var(--border-faint);
+}
+.rte-find-row,.rte-replace-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.rte-find-input,.rte-replace-input{
+  flex:1 1 220px;min-width:120px;
+  padding:5px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);
+  font-size:var(--text-sm);
+}
+.rte-find-count{font-size:var(--text-sm);color:var(--muted);white-space:nowrap;min-width:5em}
+.rte-find-replace button{padding:4px 9px;min-width:32px;font-size:var(--text-sm)}
+.rte-find-replace button:disabled{opacity:.45}
+.rte-find-case[aria-pressed="true"]{
+  background:var(--brand-tint);border-color:var(--brand);color:var(--brand-strong);
+}
+.rte-find-toggle{transition:transform .1s ease}
+.rte-find-toggle[aria-expanded="true"]{transform:rotate(180deg)}
+
+/* Match highlighting: ProseMirror inline decorations only, never raw DOM text
+   wrapping inside the editable content -- see find-replace-decorations.js.
+   Warm/amber tokens (already used for warning states elsewhere) read as "a
+   found match" without borrowing the brand-tint color already used for
+   active toolbar buttons/case-toggle above, which would read as "formatting
+   applied" instead. */
+.rte-editor .rte-find-match{background:var(--warning-tint)}
+.rte-editor .rte-find-match-active{background:var(--warning);color:#fff;border-radius:2px}
+
 /* "Весь текст": ONE shared toolbar for every mounted Scene, kept reachable
    while scrolling through a long manuscript by sticking to the top of the
    modal's own scroll region -- same full-bleed technique as

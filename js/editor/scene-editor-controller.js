@@ -2,29 +2,50 @@ import {sceneDocSchema} from "./scene-doc-schema.js";
 import {loadSceneDocument,serializeSceneDocument} from "./scene-doc-convert.js";
 import {createSceneEditor} from "./scene-editor-view.js";
 import {createSceneEditorToolbar} from "./scene-editor-toolbar.js";
+import {createFindReplaceController} from "./find-replace-controller.js";
+import {createFindReplacePanel} from "./find-replace-panel.js";
 
 // The one entry point app.js/scenes.js touch -- everything ProseMirror-specific
 // (schema, conversion, commands, view, toolbar) stays inside js/editor/. T2 can
 // reuse this same function per Scene on the "Весь текст" screen without any of
 // those internals leaking into the surrounding app code.
-export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[]}){
+//
+// Find/Replace Stage C: findReplaceContainer is optional (defaults to no
+// panel at all, matching every pre-Stage-C caller/test unchanged) -- when
+// supplied, this owns creating one controller + one panel for this single
+// editor, exactly the same way it already owns creating the toolbar. Callers
+// never talk to find-replace-controller.js/find-replace-panel.js directly;
+// they only ever see the thin openFind()/openReplace() surface below (used
+// to wire Ctrl+F/Ctrl+H and the discard/reopen lifecycle).
+export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null}){
   editorContainer.innerHTML="";
   const doc=loadSceneDocument(sceneDocSchema,scene);
-  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters});
+  const findReplace=findReplaceContainer?createFindReplaceController():null;
+  const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
+  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
   const editor=createSceneEditor({
     mount:editorContainer,
     schema:sceneDocSchema,
     doc,
-    onUpdate:state=>toolbar.update(state)
+    onUpdate:(state,transaction)=>{toolbar.update(state);findReplace?.handleTransaction(state,transaction)}
   });
   toolbar.bind(editor.view);
   toolbar.update(editor.view.state);
+  findReplace?.attachView(editor.view);
   return {
     view:editor.view,
     focus(){editor.focus()},
     getDocJSON(){return editor.getDocJSON()},
     serialize(){return serializeSceneDocument(editor.getDoc())},
-    destroy(){editor.destroy();toolbarContainer.innerHTML=""}
+    openFind(){findReplace?.open("find")},
+    openReplace(){findReplace?.open("replace")},
+    destroy(){
+      findReplace?.detachView(editor.view);
+      findReplacePanel?.destroy();
+      editor.destroy();
+      toolbarContainer.innerHTML="";
+      if(findReplaceContainer)findReplaceContainer.innerHTML="";
+    }
   };
 }
 
@@ -45,8 +66,22 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
 // NEW focusin) means the toolbar always still points at the editor the user
 // was just in, and that editor's own bind()-installed handler already calls
 // view.focus() at the end, which simply re-fires focusin as a no-op.
-export function createSceneEditorGroup({toolbarContainer,characters=[]}){
-  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters});
+//
+// Find/Replace Stage C: exactly ONE shared controller + panel (analogous to
+// the one shared toolbar above), created once, that always targets whichever
+// Scene is currently active. activate(sceneId) is the single place that
+// retargets BOTH the toolbar and the find-replace controller together --
+// findReplace.attachView() (see find-replace-controller.js) is what clears
+// stale highlights off the previously-active Scene and recomputes matches
+// against the newly-active one. Query/replace text/case-sensitive state
+// intentionally survive a retarget (the controller only resets its match
+// list/active index, never the panel's own inputs) so switching which Scene
+// has focus while Find is open keeps showing the same search applied to
+// whichever Scene the author is now in. Never one Find panel per Scene.
+export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null}){
+  const findReplace=findReplaceContainer?createFindReplaceController():null;
+  const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
+  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
   const instances=new Map();
   let activeId=null;
 
@@ -64,6 +99,7 @@ export function createSceneEditorGroup({toolbarContainer,characters=[]}){
     inst.editor.view.dom.tabIndex=0;
     toolbar.bind(inst.editor.view);
     toolbar.update(inst.editor.view.state);
+    findReplace?.attachView(inst.editor.view);
   }
 
   function mountScene(sceneId,{editorContainer,scene}){
@@ -71,7 +107,7 @@ export function createSceneEditorGroup({toolbarContainer,characters=[]}){
     const doc=loadSceneDocument(sceneDocSchema,scene);
     const editor=createSceneEditor({
       mount:editorContainer,schema:sceneDocSchema,doc,
-      onUpdate:state=>{if(activeId===sceneId)toolbar.update(state)}
+      onUpdate:(state,transaction)=>{if(activeId===sceneId){toolbar.update(state);findReplace?.handleTransaction(state,transaction)}}
     });
     editor.view.dom.tabIndex=-1;
     const onFocusIn=()=>activate(sceneId);
@@ -84,6 +120,7 @@ export function createSceneEditorGroup({toolbarContainer,characters=[]}){
     const inst=instances.get(sceneId);
     if(!inst)return;
     inst.editorContainer.removeEventListener("focusin",inst.onFocusIn);
+    if(findReplace&&activeId===sceneId)findReplace.detachView(inst.editor.view);
     inst.editor.destroy();
     instances.delete(sceneId);
     if(activeId===sceneId)activeId=null;
@@ -92,11 +129,17 @@ export function createSceneEditorGroup({toolbarContainer,characters=[]}){
   function destroyAll(){
     [...instances.keys()].forEach(destroyScene);
     toolbarContainer.innerHTML="";
+    findReplacePanel?.destroy();
+    if(findReplaceContainer)findReplaceContainer.innerHTML="";
   }
 
   function getDocJSON(sceneId){return instances.get(sceneId)?.editor.getDocJSON()??null}
   function serializeScene(sceneId){const inst=instances.get(sceneId);return inst?serializeSceneDocument(inst.editor.getDoc()):null}
   function sceneIds(){return [...instances.keys()]}
 
-  return {mountScene,destroyScene,destroyAll,getDocJSON,serializeScene,sceneIds,getActiveSceneId(){return activeId}};
+  return {
+    mountScene,destroyScene,destroyAll,getDocJSON,serializeScene,sceneIds,getActiveSceneId(){return activeId},
+    openFind(){findReplace?.open("find")},
+    openReplace(){findReplace?.open("replace")}
+  };
 }

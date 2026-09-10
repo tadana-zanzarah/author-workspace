@@ -592,6 +592,23 @@ document.getElementById("saveText").onclick=async()=>{
 };
 document.getElementById("closeText").onclick=()=>requestCloseModal("textModal","button");
 document.getElementById("textModal").onclick=e=>{if(e.target.id==="textModal")requestCloseModal("textModal","backdrop")};
+// Find/Replace Stage C: Ctrl+F/Ctrl+H (Cmd on Mac) open Find/Replace for this
+// modal's editor. Scoped to bubbling up through #textModal rather than a
+// global document-level listener, so it can never fire for any other screen
+// -- but an explicit `style.display==="flex"` check is still required: a
+// hidden ancestor (modal.style.display="none" on close) does NOT reliably,
+// synchronously blur a still-focused descendant (e.g. the Close button
+// itself, immediately after its own onclick just hid the modal) -- without
+// this guard, a keypress landing on that still-focused-but-now-invisible
+// element would bubble through #textModal and reopen Find right after the
+// modal was closed.
+document.getElementById("textModal").addEventListener("keydown",event=>{
+  if(!(event.ctrlKey||event.metaKey))return;
+  if(event.currentTarget.style.display!=="flex")return;
+  const key=event.key.toLowerCase();
+  if(key==="f"){event.preventDefault();sceneTextEditor?.openFind()}
+  else if(key==="h"){event.preventDefault();sceneTextEditor?.openReplace()}
+});
 
 
 
@@ -655,6 +672,15 @@ document.getElementById("sceneChapter").onchange=function(){
 };
 document.getElementById("cancelScene").onclick=()=>requestCloseModal("sceneModal","button");
 document.getElementById("sceneModal").onclick=e=>{if(e.target.id==="sceneModal")requestCloseModal("sceneModal","backdrop")};
+// Find/Replace Stage C: same scoped Ctrl+F/Ctrl+H wiring, and same explicit
+// open-check, as #textModal above.
+document.getElementById("sceneModal").addEventListener("keydown",event=>{
+  if(!(event.ctrlKey||event.metaKey))return;
+  if(event.currentTarget.style.display!=="flex")return;
+  const key=event.key.toLowerCase();
+  if(key==="f"){event.preventDefault();sceneModalTextEditor?.openFind()}
+  else if(key==="h"){event.preventDefault();sceneModalTextEditor?.openReplace()}
+});
 
 
 function openCharactersManager(){

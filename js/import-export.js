@@ -45,7 +45,7 @@ function openAllScenesNow(){
   root.innerHTML=html||'<div class="empty-work">Нет сцен, включённых в общий текст.</div>';
   destroyAllScenesEditorGroup();
   if(items.length){
-    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),characters:data.characters});
+    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters});
     items.forEach(scene=>allScenesEditorGroup.mountScene(scene.id,{editorContainer:document.getElementById(`allSceneEditor-${scene.id}`),scene}));
   }
   showModal("allScenesModal");
@@ -121,6 +121,18 @@ function exportWholeText(){
   const blob=new Blob(["\ufeff",documentHtml],{type:"application/msword"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="текст_романа.doc";a.click();URL.revokeObjectURL(a.href);
 }
+
+// Find/Replace Stage C: same scoped Ctrl+F/Ctrl+H wiring as #textModal/
+// #sceneModal (js/app.js) -- targets whichever scene the shared group
+// currently considers active via its own openFind()/openReplace(), which are
+// no-ops if "Весь текст" isn't open (no group mounted yet).
+document.getElementById("allScenesModal").addEventListener("keydown",event=>{
+  if(!(event.ctrlKey||event.metaKey))return;
+  if(event.currentTarget.style.display!=="flex")return;
+  const key=event.key.toLowerCase();
+  if(key==="f"){event.preventDefault();allScenesEditorGroup?.openFind()}
+  else if(key==="h"){event.preventDefault();allScenesEditorGroup?.openReplace()}
+});
 
 Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText});
 export {includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText};

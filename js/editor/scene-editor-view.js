@@ -5,6 +5,7 @@ import {keymap} from "prosemirror-keymap";
 import {baseKeymap} from "prosemirror-commands";
 import {toggleBold,toggleItalic,undo,redo} from "./scene-editor-commands.js";
 import {docToJSON} from "./scene-doc-convert.js";
+import {createFindReplaceDecorationPlugin} from "./find-replace-decorations.js";
 
 function buildKeymap(){
   return keymap({
@@ -19,8 +20,15 @@ function buildKeymap(){
 // history (prosemirror-history's own undo/redo stack). One instance == one
 // editable Scene; nothing here is shared across instances, so undo/redo can never
 // bleed across Scenes once multiple instances exist (T2).
+// Find/Replace Stage C: the decoration plugin is included unconditionally,
+// for every editor instance, whether or not a find-replace controller ever
+// attaches to this view. It renders nothing (DecorationSet.empty) until a
+// controller actively dispatches decorations into it, so this is purely
+// additive -- no change to any existing editor behavior when find/replace
+// isn't in use. See find-replace-decorations.js for why this must be a
+// plugin present at state-creation time rather than bolted on afterward.
 export function createSceneEditor({mount,schema,doc,onUpdate}){
-  const state=EditorState.create({schema,doc,plugins:[history(),buildKeymap()]});
+  const state=EditorState.create({schema,doc,plugins:[history(),buildKeymap(),createFindReplaceDecorationPlugin()]});
   let view=new EditorView(mount,{
     state,
     dispatchTransaction(transaction){

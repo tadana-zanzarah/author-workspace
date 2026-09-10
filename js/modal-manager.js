@@ -146,6 +146,14 @@ function handleKeydown(event){
     if(event.target instanceof HTMLSelectElement)return;
     const expanded=modal.querySelector('[role="combobox"][aria-expanded="true"]');
     if(expanded){event.preventDefault();event.stopImmediatePropagation();expanded.dispatchEvent(new CustomEvent("multi-value-close"));return}
+    // Find/Replace Stage C: same "something nested inside this modal wants
+    // Escape for itself first" idiom as the open-combobox case just above --
+    // an open Find/Replace panel (js/editor/find-replace-panel.js) consumes
+    // this Escape to close ITSELF, leaving the parent modal open; a SECOND
+    // Escape press (panel now hidden, so this query no longer matches) then
+    // falls through to the normal modal-close branch below.
+    const findReplaceOpen=modal.querySelector(".rte-find-replace:not([hidden])");
+    if(findReplaceOpen){event.preventDefault();event.stopImmediatePropagation();findReplaceOpen.dispatchEvent(new CustomEvent("find-replace-escape"));return}
     event.preventDefault();event.stopImmediatePropagation();
     if(modal.id==="discardChangesModal")globalThis.resolveDiscardConfirmation?.(false);
     else if(modal.id==="confirmActionModal")resolveConfirmAction(false);
