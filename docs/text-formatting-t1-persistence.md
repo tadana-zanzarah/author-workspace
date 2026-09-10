@@ -1,7 +1,11 @@
-# Text formatting T1 — persistence decision
+# Text formatting T1/T2 — persistence decision
 
-Scope: the single-scene rich-text editor (`#textModal` / `#fullSceneText`) only.
-See the architecture audit for the full survey this decision is based on.
+Scope: originally the single-scene rich-text editor (`#textModal` /
+`#fullSceneText`) only; T2 propagated the same editor/document model
+(unchanged persistence contract below) to the regular Scene modal
+(`#sceneModal`) and "Весь текст" (`#allScenesModal`) — see "Coexistence"
+below, updated for T2. See the architecture audit for the full survey this
+decision is based on.
 
 ## What was rejected
 
@@ -69,26 +73,38 @@ catches the failure and falls back to the plain-text `sceneText`, so the
 editor can never crash on load and prose is never lost — only formatting
 metadata that could not be trusted is dropped.
 
-## Coexistence with the still-plain-text Scene modal
+## Coexistence with the Scene modal and "Весь текст" (T1 → T2)
 
-T1 intentionally leaves the main Scene modal (`#sceneText`) and "Все
-сцены"/"Весь текст" (`#allScenesModal`) as plain textareas. If a Scene
-already has a `sceneTextDoc` and is then edited through one of those plain
-surfaces, `preservedSceneTextDoc()` (`js/app.js`) / the equivalent guard in
-`saveAllScenes()` (`js/import-export.js`) compares the newly typed plain text
-against the existing doc's own extracted plain text:
+T1 intentionally left the main Scene modal (`#sceneText`) and "Все
+сцены"/"Весь текст" (`#allScenesModal`) as plain textareas. Because a Scene
+already carrying a `sceneTextDoc` could still be edited as plain text through
+either of those surfaces, T1 shipped a temporary guard:
+`preservedSceneTextDoc()` (`js/app.js`) and the equivalent inline check in
+`saveAllScenes()` (`js/import-export.js`) compared the newly typed plain text
+against the existing doc's own extracted plain text (via
+`sceneTextDocPlainText()`) and dropped (nulled) the now-stale rich document
+whenever it no longer matched, rather than leaving it silently inconsistent.
 
-- unchanged → the rich document is kept as-is;
-- changed → the now-stale rich document is dropped (locally: the scene's
-  `sceneTextDoc` becomes `null`; in cloud mode: a follow-up `update_scene_text`
-  call clears `metadata` to `{}` after the normal `update_scene` save
-  succeeds) rather than silently left inconsistent with the prose it no
-  longer describes.
+**T2 removed this guard.** Both surfaces now mount the same ProseMirror editor
+(`mountSceneEditor()` for the single-scene Scene modal; a new
+`createSceneEditorGroup()` — one shared toolbar, N independent per-scene
+documents — for "Весь текст"). Every save from any of the three surfaces now
+produces a real, editor-derived `sceneTextDoc` directly (never a
+plain-text-only write with no accompanying doc), so there is no longer a
+"stale doc vs. plain text" case for the guard to protect against.
+`preservedSceneTextDoc()` and the `saveAllScenes()` stale-clearing branches
+were deleted, and `sceneTextDocPlainText()` (the primitive they were built
+on) was removed as dead code once nothing referenced it. All three surfaces
+share one persistence contract:
 
-No prose character is ever lost by this — the plain textarea's value is
-exactly what gets saved either way. Only formatting can be lost, and only
-when the author genuinely edited the text somewhere that cannot represent
-formatting.
+- `sceneText`/`scene_text`: always the plain-text projection of the current
+  document (`docToPlainText()`), regenerated on every save.
+- `sceneTextDoc`/`metadata.richText`: the structured document, written via
+  the same narrow `update_scene_text` RPC from all three surfaces.
+- "Весь текст" additionally only writes scenes whose structured document
+  actually changed (including formatting-only changes) — see
+  `saveAllScenes()`'s baseline comparison against
+  `docToJSON(loadSceneDocument(schema,scene))`.
 
 ## Migration/RPC status
 
@@ -96,8 +112,8 @@ formatting.
 **It has not been applied to any database** (no local Supabase/Docker
 instance was available in this environment to apply and exercise it against
 real Postgres, and applying to production is out of scope for this task).
-`npm test` covers the client-side contract (schema/serialization,
-`sceneTextDocPlainText`, the RPC argument shape via a mocked `rpc()`) but not
-the SQL function body itself. This should be run through the project's normal
+`npm test` covers the client-side contract (schema/serialization, the RPC
+argument shape via a mocked `rpc()`) but not the SQL function body itself.
+This should be run through the project's normal
 disposable-CI + read-only pre-flight workflow (`docs/supabase-workflow.md`)
 before any production apply is requested.

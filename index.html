@@ -839,7 +839,8 @@
 
     <section class="scene-section">
       <h3 class="scene-section-title" id="sceneTextSectionTitle">Текст сцены</h3>
-      <textarea id="sceneText" class="scene-modal-text" aria-labelledby="sceneTextSectionTitle" placeholder="Здесь можно хранить и редактировать полный текст сцены"></textarea>
+      <div id="sceneTextToolbar"></div>
+      <div id="sceneTextEditor" class="rte-editor" aria-labelledby="sceneTextSectionTitle"></div>
     </section>
 
     <section class="scene-section">
@@ -911,7 +912,6 @@
 <div class="modal-backdrop" id="textModal" role="dialog" aria-modal="true" aria-labelledby="textModalTitle">
   <div class="modal" style="width:min(1100px,100%)">
     <h2 id="textModalTitle">Текст сцены</h2>
-    <div class="scene-text-meta" id="textModalMeta"></div>
     <div id="fullSceneTextToolbar"></div>
     <div id="fullSceneTextEditor" class="rte-editor" aria-label="Текст сцены"></div>
     <div class="modal-actions sticky-modal-footer">
@@ -928,6 +928,7 @@
     <p class="scene-text-meta" id="allScenesModalDescription">
       Сцены идут в том же порядке, что и на таймлайне. Изменения сохраняются обратно в каждую отдельную сцену.
     </p>
+    <div id="allScenesToolbar"></div>
     <div id="allScenesList" class="all-scenes-list"></div>
     <div class="modal-actions sticky-modal-footer">
       <button id="closeAllScenes">Закрыть</button>

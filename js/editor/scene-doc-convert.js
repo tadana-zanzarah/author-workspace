@@ -74,14 +74,3 @@ export function loadSceneDocument(schema,scene){
 export function serializeSceneDocument(doc){
   return {sceneText:docToPlainText(doc),sceneTextDoc:docToJSON(doc)};
 }
-
-// Used by every plain-text-only save path (main Scene modal, "Весь текст") to
-// decide whether an existing sceneTextDoc is still consistent with a plain-text
-// edit made outside the rich editor. Never throws -- a corrupt/foreign doc is
-// treated as "no longer matching" so it gets safely dropped rather than kept
-// silently stale. See architecture audit §6 and the T1 persistence decision.
-export function sceneTextDocPlainText(schema,sceneTextDocJSON){
-  if(!sceneTextDocJSON)return null;
-  try{return docToPlainText(docFromJSON(schema,sceneTextDocJSON))}
-  catch{return null}
-}

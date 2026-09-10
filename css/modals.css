@@ -104,12 +104,6 @@
      the title's own margin-bottom would stack on top of that gap and leave
      a bigger gap under "ОСНОВНОЕ" than between any other two rows. */
   .scene-section-primary .scene-section-title{margin-bottom:0}
-  /* Plain single-line title now — no min-height override; a textarea's
-     tall-block footprint doesn't apply to an <input type="text">. */
-  .scene-modal-text{
-    min-height:320px;line-height:1.55;font-size:16px;
-    font-family:Georgia,"Times New Roman",serif;
-  }
   .modal-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3)}
   /* Date / Time / Writing status / Scene status: one equal-height row on
      desktop, degrading to 2x2 then a single column before anything can
@@ -295,12 +289,6 @@
     font-size:var(--text-xs);
     font-weight:400;
     white-space:nowrap;
-  }
-  .all-scene-text{
-    min-height:280px;
-    line-height:1.6;
-    font-family:Georgia,"Times New Roman",serif;
-    font-size:16px;
   }
   .empty-work{
     padding:40px;

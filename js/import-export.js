@@ -1,5 +1,7 @@
 import {sceneDocSchema} from "./editor/scene-doc-schema.js";
-import {sceneTextDocPlainText} from "./editor/scene-doc-convert.js";
+import {docToJSON,loadSceneDocument} from "./editor/scene-doc-convert.js";
+import {createSceneEditorGroup} from "./editor/scene-editor-controller.js";
+import {normalizedEqual} from "./dirty-state.js";
 
 function includedScenes(){
   return data.scenes
@@ -9,15 +11,26 @@ function includedScenes(){
 
 function openAllScenes(){return requestEditorTransition(()=>openAllScenesNow())}
 
+// Defensive destroy-before-create: every close path (Save, Cancel, Escape,
+// backdrop) ends up back here on the next open, so any stray ProseMirror
+// instances from a non-Save close are always cleaned up before a fresh group
+// is mounted -- same pattern as scenes.js's destroySceneTextEditor/
+// destroySceneModalTextEditor.
+function destroyAllScenesEditorGroup(){
+  if(allScenesEditorGroup){allScenesEditorGroup.destroyAll();allScenesEditorGroup=null}
+}
+
 function openAllScenesNow(){
   const root=document.getElementById("allScenesList");
   let html="",order=0;
+  const items=[];
   data.chapters.forEach(chapter=>{
-    const items=includedScenes().filter(x=>x.scene.chapterId===chapter.id);
-    if(!items.length)return;
+    const chapterItems=includedScenes().filter(x=>x.scene.chapterId===chapter.id);
+    if(!chapterItems.length)return;
     html+=`<h2 class="all-scene-chapter-title">${esc(chapter.title)}</h2>`;
-    items.forEach(({scene,index})=>{
+    chapterItems.forEach(({scene,index})=>{
       order++;
+      items.push(scene);
       html+=`<section class="all-scene-block ${scene.status==="fixed"?"fixed":"floating"}">
         <div class="all-scene-header">
           <div class="all-scene-title"><span class="all-scene-number">${order}.</span> ${esc(scene.title||"Без названия")}</div>
@@ -25,40 +38,59 @@ function openAllScenesNow(){
             ${esc(readableDate(scene)||"дата не указана")} · ${esc(locationById(scene.locationId)?.name||"локация не указана")} · ${esc(writingStatusById(scene.writingStatus).label)}
           </div>
         </div>
-        <textarea class="all-scene-text" data-scene-id="${esc(scene.id)}" placeholder="Текст сцены">${esc(scene.sceneText||"")}</textarea>
+        <div class="rte-editor" id="allSceneEditor-${esc(scene.id)}" data-scene-id="${esc(scene.id)}" aria-label="Текст сцены: ${esc(scene.title||"Без названия")}"></div>
       </section>`;
     });
   });
   root.innerHTML=html||'<div class="empty-work">Нет сцен, включённых в общий текст.</div>';
+  destroyAllScenesEditorGroup();
+  if(items.length){
+    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),characters:data.characters});
+    items.forEach(scene=>allScenesEditorGroup.mountScene(scene.id,{editorContainer:document.getElementById(`allSceneEditor-${scene.id}`),scene}));
+  }
   showModal("allScenesModal");
   trackerFor("allScenesModal").captureInitialState();
 }
 
-// This screen still edits plain text only in T1 (the rich editor is scoped to
-// #textModal, see architecture audit T1). If a Scene already has a sceneTextDoc
-// and its plain text no longer matches what was just typed here, the now-stale
-// doc is dropped rather than silently left out of sync -- same rule as the main
-// Scene modal's preservedSceneTextDoc.
+// "Only write scenes that actually changed" (critical requirement, T2): the
+// baseline for "unchanged" is recomputed here, on demand, as the exact same
+// pure conversion each mounted editor actually started from
+// (docToJSON(loadSceneDocument(...))) rather than stored once at mount time --
+// data.scenes cannot legitimately change out from under an open "Весь текст"
+// modal (no realtime/polling in this app), so this stays correct and avoids a
+// separate baseline map. A formatting-only change (same prose, different
+// marks/alignment) counts as a real change here because the comparison is on
+// the full doc JSON, not the plain-text projection.
 async function saveAllScenes(){
-  const values=new Map([...document.querySelectorAll(".all-scene-text")].map(area=>[area.dataset.sceneId,area.value]));
+  if(!allScenesEditorGroup)return {ok:true};
+  const changed=[];
+  for(const sceneId of allScenesEditorGroup.sceneIds()){
+    const scene=data.scenes.find(s=>s.id===sceneId);
+    if(!scene)continue;
+    const baseline=docToJSON(loadSceneDocument(sceneDocSchema,scene));
+    const current=allScenesEditorGroup.getDocJSON(sceneId);
+    if(!normalizedEqual(baseline,current))changed.push({scene,...allScenesEditorGroup.serializeScene(sceneId)});
+  }
+  if(!changed.length)return {ok:true};
   if(isCloudWorkspace()){
-    for(const scene of data.scenes)if(values.has(scene.id)&&values.get(scene.id)!==scene.sceneText){
-      const newText=values.get(scene.id);
-      const result=await runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,scene.id,revision,sceneToCloud({...scene,sceneText:newText})),{renderAfter:false});
+    for(const {scene,sceneText,sceneTextDoc} of changed){
+      // This surface only ever touches text+metadata now, never chapter/
+      // location/tags/etc, so the narrow updateSceneText RPC alone is correct
+      // (replaces the old two-RPC-per-scene updateScene+stale-clear pattern).
+      // On the first failure, stop and return immediately WITHOUT touching the
+      // modal's dirty baseline or destroying any editor -- scenes saved before
+      // the failure are already persisted server-side (a harmless redundant
+      // resend on retry, since the RPC itself no-ops when nothing changed),
+      // and every editor (including in-progress edits in untouched scenes)
+      // stays mounted so nothing unsaved is ever silently lost.
+      const result=await runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,scene.id,revision,{sceneText,metadata:{richText:sceneTextDoc}}),{renderAfter:false});
       if(!result.ok)return result;
-      if(scene.sceneTextDoc&&sceneTextDocPlainText(sceneDocSchema,scene.sceneTextDoc)!==newText){
-        const sceneId=scene.id;
-        const clearResult=await runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,sceneId,revision,{sceneText:newText,metadata:{}}),{renderAfter:false});
-        if(!clearResult.ok)return clearResult;
-      }
     }
     data=cloudProjectSync.confirmedProject;render();return {ok:true};
   }
-  return commitDataChange(next=>next.scenes.forEach(scene=>{
-    if(!values.has(scene.id))return;
-    const newText=values.get(scene.id);
-    scene.sceneText=newText;
-    if(scene.sceneTextDoc&&sceneTextDocPlainText(sceneDocSchema,scene.sceneTextDoc)!==newText)scene.sceneTextDoc=null;
+  return commitDataChange(next=>changed.forEach(({scene,sceneText,sceneTextDoc})=>{
+    const target=next.scenes.find(s=>s.id===scene.id);
+    target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
   }),{renderAfter:false});
 }
 
@@ -90,5 +122,5 @@ function exportWholeText(){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="текст_романа.doc";a.click();URL.revokeObjectURL(a.href);
 }
 
-Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,exportWholeText});
-export {includedScenes,openAllScenes,saveAllScenes,exportWholeText};
+Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText});
+export {includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText};

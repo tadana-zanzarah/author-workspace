@@ -157,7 +157,7 @@ function openNewSceneAtNow(beforeSceneId=null,chapterId=""){
   document.getElementById("sceneDate").value="";
   document.getElementById("sceneTime").value="";
   document.getElementById("sceneTitle").value="";
-  document.getElementById("sceneText").value="";
+  mountSceneModalTextEditor(null);
   document.getElementById("sceneStatus").value=positional?"fixed":"floating";
   document.getElementById("sceneIncluded").checked=true;
   populateSceneSelectors();
@@ -194,7 +194,7 @@ function editSceneNow(sceneId){
   document.getElementById("sceneDate").value=s.date||"";
   document.getElementById("sceneTime").value=s.time||"";
   document.getElementById("sceneTitle").value=s.title||"";
-  document.getElementById("sceneText").value=s.sceneText||"";
+  mountSceneModalTextEditor(s);
   document.getElementById("sceneStatus").value=s.status||"floating";
   document.getElementById("sceneIncluded").checked=s.included!==false;
   populateSceneSelectors();
@@ -421,16 +421,29 @@ function destroySceneTextEditor(){
   if(sceneTextEditor){sceneTextEditor.destroy();sceneTextEditor=null}
 }
 
+// Same defensive destroy-before-create pattern as destroySceneTextEditor,
+// applied to the Scene modal's own rich-text field (T2). `scene` may be null
+// (the "new scene" open path) -- mountSceneEditor/loadSceneDocument already
+// handle a missing scene safely, producing one empty paragraph.
+function destroySceneModalTextEditor(){
+  if(sceneModalTextEditor){sceneModalTextEditor.destroy();sceneModalTextEditor=null}
+}
+
+function mountSceneModalTextEditor(scene){
+  destroySceneModalTextEditor();
+  sceneModalTextEditor=mountSceneEditor({
+    editorContainer:document.getElementById("sceneTextEditor"),
+    toolbarContainer:document.getElementById("sceneTextToolbar"),
+    scene,
+    characters:data.characters
+  });
+}
+
 function openSceneTextNow(sceneId){
   textEditingSceneId=sceneId;
   const scene=sceneById(sceneId);
   if(!scene)return;
   document.getElementById("textModalTitle").textContent=scene.title||"Текст сцены";
-  const parts=[];
-  if(scene.date)parts.push(scene.date.split("-").reverse().join("."));
-  if(scene.time)parts.push(scene.time);
-  parts.push(scene.status==="fixed"?"сцена на своём месте":"сцену ещё нужно разместить");
-  document.getElementById("textModalMeta").textContent=parts.join(" · ");
   destroySceneTextEditor();
   sceneTextEditor=mountSceneEditor({
     editorContainer:document.getElementById("fullSceneTextEditor"),
@@ -485,5 +498,5 @@ async function deleteScene(sceneId){
   render();
 }
 
-Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
-export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};
+Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
+export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};

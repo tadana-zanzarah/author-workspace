@@ -1,5 +1,9 @@
-/* T1 rich-text scene editor (single-scene "Текст сцены" modal only). Deliberately
-   not pixel-polished -- visual review happens before T2 propagates this further. */
+/* Rich-text scene editor. T1 shipped it scoped to the single-scene "Текст
+   сцены" modal only (#textModal-specific rules below); T2 propagated the
+   same editor to the regular Scene modal (#sceneModal) and "Весь текст"
+   (#allScenesModal) -- their own surface-specific sizing lives at the bottom
+   of this file. Deliberately not pixel-polished -- visual review happens
+   before further polish. */
 
 /* #textModal uses ONE internal scrolling region -- the bordered manuscript
    panel itself -- instead of scrolling the whole modal shell like every other
@@ -15,8 +19,7 @@
   display:flex;flex-direction:column;
   height:92vh;overflow:hidden;
 }
-#textModal .modal>h2,
-#textModal .modal>.scene-text-meta{flex:none}
+#textModal .modal>h2{flex:none}
 /* The toolbar/actions no longer need to be pinned via position:sticky -- the
    modal shell itself doesn't scroll any more, so they're just ordinary,
    always-visible flex children. .sticky-modal-footer is shared with other
@@ -90,3 +93,27 @@
   text-align:center;text-indent:0;margin:1em 0;
   color:var(--muted);letter-spacing:.3em;user-select:none;
 }
+
+/* T2, PROVISIONAL pending user visual review: #sceneModal keeps its existing
+   whole-modal-scroll layout untouched (unlike #textModal, see the flex/
+   overflow:hidden rules above) -- no second, independently-scrolling region
+   is introduced here. The editor is simply a normal block that grows with
+   its own content inside that single scroll, exactly like the old
+   <textarea id="sceneText"> did; min-height only keeps a short/empty scene
+   from looking cramped among the modal's other fields. Revisit if a very
+   long scene makes this feel unwieldy once reviewed. */
+#sceneModal .rte-editor{min-height:220px}
+
+/* "Весь текст": ONE shared toolbar for every mounted Scene, kept reachable
+   while scrolling through a long manuscript by sticking to the top of the
+   modal's own scroll region -- same full-bleed technique as
+   .sticky-modal-footer (css/modals.css) at the opposite edge, offsetting by
+   the modal's own 18px padding so it sits flush with the true top edge once
+   stuck instead of floating 18px below it. */
+#allScenesModal .rte-toolbar{position:sticky;top:-18px;z-index:2}
+/* Each Scene keeps its own bounded, internally-scrolling box (same
+   min/max-height shape the old per-scene textarea already had) so one very
+   long scene can never make the rest of the manuscript impractical to
+   scroll through -- an explicit requirement for this surface, unlike the
+   single-form #sceneModal above. */
+#allScenesModal .rte-editor{min-height:200px;max-height:60vh}
