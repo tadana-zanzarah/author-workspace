@@ -89,7 +89,7 @@ for(const [title,text] of [["Утро","Тихое начало дня"],["Ве�
   await page.click("#addFirst");
   await page.waitForSelector("#sceneModal",{state:"visible"});
   await page.fill("#sceneTitle",title);
-  await page.fill("#sceneText",text);
+  await page.locator("#sceneTextEditor .ProseMirror").click();await page.keyboard.type(text);
   await page.click("#saveScene");
   await page.getByText(title,{exact:true}).first().waitFor();
 }

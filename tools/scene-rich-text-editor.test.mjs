@@ -4,7 +4,7 @@ import {history} from "prosemirror-history";
 import {sceneDocSchema as schema} from "../js/editor/scene-doc-schema.js";
 import {
   plainTextToDoc,docToPlainText,docToJSON,docFromJSON,loadSceneDocument,
-  serializeSceneDocument,sceneTextDocPlainText
+  serializeSceneDocument
 } from "../js/editor/scene-doc-convert.js";
 import {
   toggleBold,toggleItalic,toggleStrike,setAlign,alignActive,insertSceneBreak,insertPovText
@@ -211,16 +211,6 @@ function applyCommand(getState,setState,command,...args){
   assert.deepEqual(get().doc.toJSON(),afterSecond);
   assert.ok(redo(get(),tr=>set(get().apply(tr))),"redo #3");
   assert.deepEqual(get().doc.toJSON(),afterThird,"redo восстанавливает все три шага по порядку");
-}
-
-// sceneTextDocPlainText / preservedSceneTextDoc contract used by the still-plain
-// Scene modal and "Весь текст" to avoid leaving a rich doc silently stale.
-{
-  const doc=plainTextToDoc(schema,"Текст сцены.");
-  const docJson=docToJSON(doc);
-  assert.equal(sceneTextDocPlainText(schema,docJson),"Текст сцены.","извлечение текста из сохранённого документа совпадает с оригиналом");
-  assert.equal(sceneTextDocPlainText(schema,null),null,"отсутствующий документ не ломает проверку");
-  assert.equal(sceneTextDocPlainText(schema,{type:"not-a-doc"}),null,"чужеродный JSON не ломает проверку, а считается несовпадением");
 }
 
 // normalizeSceneTextDoc (js/migrations.js): only a plausible doc-JSON shape is

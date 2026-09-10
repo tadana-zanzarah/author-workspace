@@ -42,8 +42,16 @@ try{
   await page.addInitScript(value=>{if(sessionStorage.getItem("scene-surfaces-seeded"))return;sessionStorage.setItem("scene-surfaces-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
   for(let i=0;i<30;i++){try{await page.goto(`http://127.0.0.1:${port}/?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(r=>setTimeout(r,100))}}
 
+  // Checks the inline style the app itself sets (openModal/forceCloseModal write style.display
+  // directly) rather than a computed-style-based visibility check for "is this modal closed" --
+  // a closing modal's computed display briefly lags behind the app's own allow-discrete
+  // close-fade transition (see modal-manager.js's own comment on it). Same idiom already used in
+  // tools/scene-rich-text-editor-browser.test.mjs and tools/dirty-browser.test.mjs. Mounting the
+  // T2 rich-text editor made this modal-close race reliably observable here (heavier synchronous
+  // mount work than the plain textareas they replaced shifts timing).
+  const closed=async id=>!await page.$eval(`#${id}`,node=>node.style.display==="flex").catch(()=>false);
   const sectionTitles=async()=>page.evaluate(()=>[...document.querySelectorAll("#sceneModal .scene-section-title")].map(el=>el.textContent.trim()));
-  const fieldIds=["sceneDate","sceneTime","sceneTitle","sceneChapter","sceneLocation","sceneTagInput","sceneWritingStatus","sceneText","sceneIncluded","sceneStatus","sceneParticipantSelect","addSceneParticipant","scenePersons","saveScene","cancelScene","quickAddLocation"];
+  const fieldIds=["sceneDate","sceneTime","sceneTitle","sceneChapter","sceneLocation","sceneTagInput","sceneWritingStatus","sceneTextEditor","sceneIncluded","sceneStatus","sceneParticipantSelect","addSceneParticipant","scenePersons","saveScene","cancelScene","quickAddLocation"];
 
   // ================= 1+2+4+5. CREATE — structure/hierarchy/field survival =================
   await page.click("#addFirst");
@@ -77,11 +85,11 @@ try{
   const missingCreate=await page.evaluate(ids=>ids.filter(id=>!document.getElementById(id)),fieldIds);
   if(missingCreate.length)throw new Error(`Scene fields missing in Create: ${missingCreate.join(", ")}`);
   // 2. Core metadata (chapter select) precedes the text section in DOM order.
-  const domOrderOk=await page.evaluate(()=>!!(document.getElementById("sceneChapter").compareDocumentPosition(document.getElementById("sceneText"))&Node.DOCUMENT_POSITION_FOLLOWING));
+  const domOrderOk=await page.evaluate(()=>!!(document.getElementById("sceneChapter").compareDocumentPosition(document.getElementById("sceneTextEditor"))&Node.DOCUMENT_POSITION_FOLLOWING));
   if(!domOrderOk)throw new Error("Core metadata (Глава) does not precede Текст сцены in DOM order");
   // 3. Scene text reachable in the first viewport at 1440x900 without scrolling the modal.
   await page.evaluate(()=>{document.querySelector("#sceneModal .modal").scrollTop=0});
-  const textInViewport=await page.locator("#sceneText").evaluate(el=>{const r=el.getBoundingClientRect();return r.top>0&&r.top<window.innerHeight});
+  const textInViewport=await page.locator("#sceneTextEditor").evaluate(el=>{const r=el.getBoundingClientRect();return r.top>0&&r.top<window.innerHeight});
   if(!textInViewport)throw new Error("Scene text is not reachable in the first viewport at 1440x900");
   // 5. Field-caption wording preserved (writing status vs placement status stay distinct).
   const captions=await page.evaluate(()=>({
@@ -152,14 +160,14 @@ try{
   await page.click("#cancelScene");
   if(!await page.locator("#discardChangesModal").isVisible())throw new Error("Dirty close guard did not appear on Cancel");
   await page.click("#discardChanges");
-  if(await page.locator("#sceneModal").isVisible())throw new Error("Scene modal did not close after discarding");
+  if(!await closed("sceneModal"))throw new Error("Scene modal did not close after discarding");
 
   // ================= 13. CREATE SAVE =================
   await page.click("#addFirst");
   await page.fill("#sceneTitle","Новая сцена из теста");
   await page.selectOption("#sceneChapter","chapter-one");
   await page.click("#saveScene");
-  if(await page.locator("#sceneModal").isVisible())throw new Error("Scene modal stayed open after Create save");
+  if(!await closed("sceneModal"))throw new Error("Scene modal stayed open after Create save");
   let saved=await page.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
   if(!saved.scenes.some(s=>s.title==="Новая сцена из теста"))throw new Error("New scene was not persisted");
   // Clean up this throwaway fixture scene so the later All Scenes ordering
@@ -177,7 +185,7 @@ try{
     throw new Error("Existing explicit relation did not reload as explicit");
   await page.fill("#sceneTitle","Первая встреча (изменено)");
   await page.click("#saveScene");
-  if(await page.locator("#sceneModal").isVisible())throw new Error("Scene modal stayed open after Edit save");
+  if(!await closed("sceneModal"))throw new Error("Scene modal stayed open after Edit save");
   saved=await page.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
   if(saved.scenes.find(s=>s.id==="scene-1")?.title!=="Первая встреча (изменено)")throw new Error("Edited scene title was not persisted");
 
@@ -188,10 +196,14 @@ try{
   const chapterTitles=await page.evaluate(()=>[...document.querySelectorAll("#allScenesModal .all-scene-chapter-title")].map(el=>el.textContent.trim()));
   if(JSON.stringify(chapterTitles)!==JSON.stringify(["Глава первая","Глава вторая"]))
     throw new Error(`All Scenes chapter hierarchy/order wrong: ${JSON.stringify(chapterTitles)}`);
-  const sceneOrder=await page.evaluate(()=>[...document.querySelectorAll("#allScenesModal .all-scene-text")].map(el=>el.dataset.sceneId));
+  await page.waitForSelector("#allScenesModal .rte-editor .ProseMirror");
+  const sceneOrder=await page.evaluate(()=>[...document.querySelectorAll("#allScenesModal .rte-editor")].map(el=>el.dataset.sceneId));
   if(JSON.stringify(sceneOrder)!==JSON.stringify(["scene-1","scene-2"]))throw new Error(`All Scenes scene order wrong: ${JSON.stringify(sceneOrder)}`);
+  // Exactly one shared toolbar, not one per scene (T2 architectural requirement).
+  const toolbarCount=await page.locator("#allScenesModal .rte-toolbar").count();
+  if(toolbarCount!==1)throw new Error(`All Scenes must have exactly one shared toolbar, found ${toolbarCount}`);
   const textTypography=await page.evaluate(()=>{
-    const cs=getComputedStyle(document.querySelector("#allScenesModal .all-scene-text"));
+    const cs=getComputedStyle(document.querySelector("#allScenesModal .rte-editor .ProseMirror"));
     return {fontFamily:cs.fontFamily,lineHeight:cs.lineHeight};
   });
   if(!/Georgia/.test(textTypography.fontFamily))throw new Error(`All Scenes text is not the editorial serif face: ${textTypography.fontFamily}`);
@@ -207,10 +219,13 @@ try{
   const lastBlockBottom=await page.locator("#allScenesModal .all-scene-block").last().evaluate(el=>el.getBoundingClientRect().bottom);
   const footerTop=await page.locator("#allScenesModal .sticky-modal-footer").evaluate(el=>el.getBoundingClientRect().top);
   if(lastBlockBottom>footerTop+1)throw new Error("All Scenes sticky footer overlaps the last scene block");
-  // 18. Save All persists an edited scene text.
-  await page.fill('#allScenesModal .all-scene-text[data-scene-id="scene-2"]',"Отредактированный текст второй сцены.");
+  // 18. Save All persists an edited scene text. Triple-click selects the
+  // whole (single-paragraph) fixture text so typing replaces it entirely,
+  // same convention as tools/scene-rich-text-editor-browser.test.mjs.
+  await page.locator('#allScenesModal .rte-editor[data-scene-id="scene-2"] .scene-paragraph').click({clickCount:3});
+  await page.keyboard.type("Отредактированный текст второй сцены.");
   await page.click("#saveAllScenes");
-  if(await page.locator("#allScenesModal").isVisible())throw new Error("All Scenes modal stayed open after Save All");
+  if(!await closed("allScenesModal"))throw new Error("All Scenes modal stayed open after Save All");
   saved=await page.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
   if(saved.scenes.find(s=>s.id==="scene-2")?.sceneText!=="Отредактированный текст второй сцены.")throw new Error("Save All did not persist the edited scene text");
 

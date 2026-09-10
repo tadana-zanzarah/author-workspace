@@ -10,7 +10,16 @@ const errors=[];page.on("pageerror",error=>errors.push(error.message));page.on("
 const project={version:11,characters:[{id:"character-a",name:"Анна"}],profiles:{"character-a":{id:"character-a",characterId:"character-a",name:"Анна",photos:[],hidden:{},initialRelations:{}}},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false},{id:"chapter-two",title:"Глава 2",collapsed:false}],locations:[{id:"location-a",name:"Дом",description:""},{id:"location-b",name:"Парк",description:""}],tags:[{id:"tag-a",name:"тест"},{id:"tag-b",name:"другой"}],future:{},scenes:[{id:"scene-a",title:"Исходная",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-unassigned",locationId:"location-a",tags:["tag-a"],writingStatus:"draft",sceneText:"Сохранённый текст",included:true,status:"fixed",people:{"character-a":{action:"Входит",relationChanges:{},visibleRelations:[]}}},{id:"scene-b",title:"Вторая",date:"",time:"",dateReview:false,chapterId:"chapter-two",locationId:"",tags:[],writingStatus:"idea",sceneText:"Второй текст",included:true,status:"floating",people:{}}]};
 await page.addInitScript(value=>localStorage.setItem("novelTimelineV11",JSON.stringify(value)),project);
 await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});
-const visible=id=>page.locator(`#${id}`).isVisible();
+// Checks the inline style the app itself sets (openModal/forceCloseModal write style.display
+// directly) rather than a computed-style-based visibility check: a closing modal's computed
+// display briefly lags behind the app's own allow-discrete close-fade transition (see
+// modal-manager.js's own comment on it), so computed style is not a reliable proxy for "did the
+// app actually open/close this." Same idiom already used in
+// tools/scene-rich-text-editor-browser.test.mjs. Mounting the T2 rich-text editor made this
+// modal-close race reliably observable here for the first time (heavier synchronous mount work
+// than the plain textarea it replaced shifts timing), but the underlying computed-style lag was
+// always present for every modal in this file.
+const visible=id=>page.$eval(`#${id}`,node=>node.style.display==="flex").catch(()=>false);
 
 await page.evaluate(()=>editScene("scene-a"));
 await page.click("#cancelScene");
@@ -33,7 +42,11 @@ await page.evaluate(()=>openSceneText("scene-a"));await page.waitForSelector("#f
 await page.evaluate(()=>{const view=sceneTextEditor.view;view.dispatch(view.state.tr.insertText("Большой текст\n".repeat(200),1))});
 await page.evaluate(()=>document.getElementById("textModal").click());if(!await page.locator("#discardChangesModal").isVisible())throw new Error("длинный текст в редакторе не пометил сцену dirty");
 await page.click("#continueEditing");if(!(await page.evaluate(()=>document.getElementById("fullSceneTextEditor").textContent)).startsWith("Большой"))throw new Error("текст потерян после отмены закрытия");await page.evaluate(()=>document.getElementById("closeText").click());await page.click("#discardChanges");
-await page.evaluate(()=>openAllScenes());await page.locator('.all-scene-text[data-scene-id="scene-a"]').fill("Общий черновик");await page.evaluate(()=>document.getElementById("closeAllScenes").click());if(!await visible("discardChangesModal"))throw new Error("Все сцены не защищены");await page.click("#continueEditing");await page.click("#saveAllScenes");if(await page.evaluate(()=>hasDirtyForms()))throw new Error("Сохранить все не очистило dirty");
+// T2: "Весь текст"'s per-scene <textarea class="all-scene-text"> is now a
+// ProseMirror mount (#allSceneEditor-<id>) sharing one toolbar; dirty-tracking
+// reads every mounted scene's doc JSON (see js/app.js's allScenesModal dirty
+// tracker) instead of textarea values.
+await page.evaluate(()=>openAllScenes());await page.waitForSelector("#allSceneEditor-scene-a .ProseMirror");await page.locator("#allSceneEditor-scene-a .ProseMirror").click();await page.keyboard.type("Общий черновик");await page.evaluate(()=>document.getElementById("closeAllScenes").click());if(!await visible("discardChangesModal"))throw new Error("Все сцены не защищены");await page.click("#continueEditing");await page.click("#saveAllScenes");if(await page.evaluate(()=>hasDirtyForms()))throw new Error("Сохранить все не очистило dirty");
 
 await page.click("#projectMenu > summary");await page.click("#manageChars");await page.click("#addChar");await page.fill("#pf_name","Черновой герой");await page.evaluate(()=>{profileDraftPhotos.push({id:"dirty-photo",source:{kind:"data-url",value:"data:image/png;base64,AAAA"},crop:{x:.5,y:.5,zoom:1},alt:""});renderProfilePhotos();syncBeforeUnload()});await page.evaluate(()=>document.getElementById("cancelProfile").click());if(!await visible("discardChangesModal"))throw new Error("анкета/фото не защищены");await page.click("#discardChanges");if(await page.evaluate(()=>data.characters.some(item=>item.name==="Новый персонаж"||item.name==="Черновой герой")))throw new Error("отмена оставила пустого персонажа");await page.click("#closeChars");
 

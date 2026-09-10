@@ -45,6 +45,8 @@
     "test:scene-participants-browser": "node tools/scene-participants-browser.test.mjs",
     "test:scene-modal-scroll-browser": "node tools/scene-modal-scroll-browser.test.mjs",
     "test:scene-rich-text-editor-browser": "node tools/scene-rich-text-editor-browser.test.mjs",
+    "test:scene-modal-rich-text-browser": "node tools/scene-modal-rich-text-browser.test.mjs",
+    "test:all-scenes-rich-text-browser": "node tools/all-scenes-rich-text-browser.test.mjs",
     "test:compact-list-empty-state-browser": "node tools/compact-list-empty-state-browser.test.mjs",
     "test:multi-value-browser": "node tools/multi-value-profile-browser.test.mjs",
     "test:character-images-browser": "node tools/character-images-browser.test.mjs",

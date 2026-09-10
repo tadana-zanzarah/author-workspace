@@ -114,7 +114,7 @@ await page.click("#addFirst");
 await page.fill("#sceneTitle","Новая тестовая сцена");
 await page.fill("#sceneDate","2026-07-02");
 await page.selectOption("#sceneChapter","chapter-one");
-await page.fill("#sceneText","Тестовый текст сцены");
+await page.locator("#sceneTextEditor .ProseMirror").click();await page.keyboard.type("Тестовый текст сцены");
 await page.click("#saveScene");
 await page.waitForFunction(()=>JSON.parse(localStorage.getItem("novelTimelineV11")).scenes.some(s=>s.title==="Новая тестовая сцена"));
 
