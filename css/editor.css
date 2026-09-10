@@ -111,20 +111,23 @@
 /* Find/Replace Stage C: first working panel -- deliberately plain/functional
    (see docs/find-replace-architecture.md), not a final visual pass. Compact
    horizontal row rather than a modal, so it reads as part of the editor
-   chrome; exact spacing/icons are expected to change after user visual
-   review. Hidden entirely (not just visually) via the `hidden` attribute
+   chrome. Hidden entirely (not just visually) via the `hidden` attribute
    when closed -- js/modal-manager.js's Escape handling and this file's own
-   `:not([hidden])` styling both key off that. */
+   `:not([hidden])` styling both key off that.
+   Corrective pass (first user visual review): Find and Replace controls now
+   share ONE row -- flex-wrap is what lets it degrade to multiple lines at
+   narrow widths (see min-width per control below) instead of either
+   overflowing horizontally or crushing controls unreadably small; there is
+   no separate expand/collapse row any more. */
 .rte-find-replace{
   flex:none;
-  display:flex;flex-direction:column;gap:6px;
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px;
   margin:0 -18px 10px;padding:8px 18px;
   background:var(--surface-elevated);
   border-bottom:1px solid var(--border-faint);
 }
-.rte-find-row,.rte-replace-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .rte-find-input,.rte-replace-input{
-  flex:1 1 220px;min-width:120px;
+  flex:1 1 130px;min-width:90px;max-width:200px;
   padding:5px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);
   font-size:var(--text-sm);
 }
@@ -134,25 +137,42 @@
 .rte-find-case[aria-pressed="true"]{
   background:var(--brand-tint);border-color:var(--brand);color:var(--brand-strong);
 }
-.rte-find-toggle{transition:transform .1s ease}
-.rte-find-toggle[aria-expanded="true"]{transform:rotate(180deg)}
 
 /* Match highlighting: ProseMirror inline decorations only, never raw DOM text
    wrapping inside the editable content -- see find-replace-decorations.js.
-   Warm/amber tokens (already used for warning states elsewhere) read as "a
-   found match" without borrowing the brand-tint color already used for
-   active toolbar buttons/case-toggle above, which would read as "formatting
-   applied" instead. */
-.rte-editor .rte-find-match{background:var(--warning-tint)}
+   A dedicated tint (not the shared --warning-tint token, which is already
+   used elsewhere for actual warning banners/badges -- see date-review and
+   timeline highlighting) so tuning "how visible is a plain match" can never
+   have side effects on unrelated UI. Corrective pass (first user visual
+   review): the original --warning-tint choice read as almost invisible
+   against --paper (#fbf8f3 vs #fbeed9 are nearly the same lightness) --
+   #e9c56d is a noticeably more saturated amber, chosen by checking contrast
+   directly against .rte-editor's own --paper background rather than in
+   isolation, while staying clearly subordinate to the active match's solid
+   --warning fill below (left completely unchanged -- already confirmed
+   good). */
+.rte-editor .rte-find-match{background:#e9c56d}
 .rte-editor .rte-find-match-active{background:var(--warning);color:#fff;border-radius:2px}
 
-/* "Весь текст": ONE shared toolbar for every mounted Scene, kept reachable
-   while scrolling through a long manuscript by sticking to the top of the
-   modal's own scroll region -- same full-bleed technique as
-   .sticky-modal-footer (css/modals.css) at the opposite edge, offsetting by
-   the modal's own 18px padding so it sits flush with the true top edge once
-   stuck instead of floating 18px below it. */
-#allScenesModal .rte-toolbar{position:sticky;top:-18px;z-index:2}
+/* "Весь текст": the shared toolbar + Find/Replace panel stick TOGETHER as
+   one control area while manuscript scenes scroll underneath -- a single
+   sticky wrapper (rather than two independently-sticky elements) so the
+   panel can never overlap the toolbar or vice versa regardless of the
+   toolbar's own wrapped height at a given width: the wrapper just reserves
+   whatever total height its (normal-flow) children need, and the whole
+   block moves as one unit. Same full-bleed technique as .sticky-modal-footer
+   (css/modals.css) at the opposite edge, offsetting by the modal's own 18px
+   padding so it sits flush with the true top edge once stuck instead of
+   floating 18px below it. */
+#allScenesModal .rte-sticky-controls{position:sticky;top:-18px;z-index:2}
+/* .rte-toolbar's own margin-bottom:10px exists to space it from whatever
+   comes after it -- previously the editor content directly, now the
+   Find/Replace panel when the panel is open. Zeroed here specifically
+   (rather than editing the shared .rte-toolbar rule, which every surface
+   uses) so the toolbar and panel sit flush together as one visual block;
+   the panel keeps its OWN margin-bottom:10px for the gap before the
+   manuscript list that follows the whole sticky wrapper. */
+#allScenesModal .rte-sticky-controls .rte-toolbar{margin-bottom:0}
 /* Each Scene keeps its own bounded, internally-scrolling box (same
    min/max-height shape the old per-scene textarea already had) so one very
    long scene can never make the rest of the manuscript impractical to

@@ -122,17 +122,12 @@ function exportWholeText(){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="текст_романа.doc";a.click();URL.revokeObjectURL(a.href);
 }
 
-// Find/Replace Stage C: same scoped Ctrl+F/Ctrl+H wiring as #textModal/
-// #sceneModal (js/app.js) -- targets whichever scene the shared group
-// currently considers active via its own openFind()/openReplace(), which are
-// no-ops if "Весь текст" isn't open (no group mounted yet).
-document.getElementById("allScenesModal").addEventListener("keydown",event=>{
-  if(!(event.ctrlKey||event.metaKey))return;
-  if(event.currentTarget.style.display!=="flex")return;
-  const key=event.key.toLowerCase();
-  if(key==="f"){event.preventDefault();allScenesEditorGroup?.openFind()}
-  else if(key==="h"){event.preventDefault();allScenesEditorGroup?.openReplace()}
-});
+// Find/Replace Stage C: same centralized registration as #textModal/
+// #sceneModal (js/app.js, js/modal-manager.js) -- targets whichever scene the
+// shared group currently considers active via its own openFind()/
+// openReplace(), which are no-ops if "Весь текст" isn't open (no group
+// mounted yet).
+registerFindReplaceShortcuts("allScenesModal",{openFind:()=>allScenesEditorGroup?.openFind(),openReplace:()=>allScenesEditorGroup?.openReplace()});
 
 Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText});
 export {includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText};

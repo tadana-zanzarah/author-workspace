@@ -19,14 +19,6 @@ function characterDisplayName(character){
 // read as "align left/center/right/justify" at a glance rather than as
 // cryptic custom letters. currentColor so the existing aria-pressed active-
 // state color rule (css/editor.css) colors the icon too, with no extra CSS.
-// Find/Replace Stage C: one recognizable magnifying-glass glyph for the
-// toolbar entry point, same currentColor/no-icon-library convention as
-// alignIcon below -- deliberately not a text button ("Найти"), per the
-// product brief's preference for one recognizable search control.
-function findIcon(){
-  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4.3"/><line x1="9.6" y1="9.6" x2="14" y2="14"/></g></svg>`;
-}
-
 function alignIcon(kind){
   const lines={
     left:[[1,3,15,3],[1,6.3,10,6.3],[1,9.7,15,9.7],[1,13,10,13]],
@@ -82,6 +74,32 @@ export function createSceneEditorToolbar(container,{characters=[],onFindReplace}
     container.appendChild(button);
     entries.push({...spec,button});
   });
+
+  // Find/Replace Stage C corrective pass: moved to right after *** (scene
+  // break) and before POV, per user visual review -- a magnifying glass read
+  // as "search only" and was ambiguous once Replace exists too. "a→z" reads
+  // as a find/replace control at a glance without an icon library. Not one
+  // of the command-style BUTTONS entries above -- opening a panel isn't a
+  // ProseMirror command (no state/dispatch run() call, no active/
+  // checkEnabled toggle state), so it gets its own small, separate wiring
+  // rather than forcing that shared descriptor shape to accommodate a
+  // fundamentally different kind of button. Only rendered when the caller
+  // actually wants find/replace on this toolbar instance.
+  if(onFindReplace){
+    const sep=document.createElement("span");
+    sep.className="rte-toolbar-sep";sep.setAttribute("aria-hidden","true");
+    container.appendChild(sep);
+
+    const findButton=document.createElement("button");
+    findButton.type="button";
+    findButton.className="rte-btn-icon-text rte-btn-find";
+    findButton.title="Найти и заменить (Ctrl+F / Ctrl+H)";
+    findButton.setAttribute("aria-label","Найти и заменить (Ctrl+F / Ctrl+H)");
+    findButton.textContent="a→z";
+    findButton.onclick=()=>onFindReplace();
+    container.appendChild(findButton);
+  }
+
   const povSelect=document.createElement("select");
   povSelect.className="rte-pov-select";
   povSelect.dataset.cmd="pov";
@@ -89,24 +107,6 @@ export function createSceneEditorToolbar(container,{characters=[],onFindReplace}
   povSelect.innerHTML=`<option value="">Вставить POV / текст…</option>`+
     characters.map(c=>`<option value="${escapeHtml(characterDisplayName(c))}">${escapeHtml(characterDisplayName(c)||"Без имени")}</option>`).join("");
   container.appendChild(povSelect);
-
-  // Find/Replace Stage C: a toolbar entry point for users who don't use
-  // Ctrl+F/Ctrl+H. Deliberately NOT one of the command-style BUTTONS entries
-  // above -- opening a panel isn't a ProseMirror command (no state/dispatch
-  // run() call, no active/checkEnabled toggle state), so it gets its own
-  // small, separate wiring rather than forcing that shared descriptor shape
-  // to accommodate a fundamentally different kind of button. Only rendered
-  // when the caller actually wants find/replace on this toolbar instance.
-  if(onFindReplace){
-    const findButton=document.createElement("button");
-    findButton.type="button";
-    findButton.className="rte-btn-icon rte-btn-find";
-    findButton.title="Найти и заменить (Ctrl+F)";
-    findButton.setAttribute("aria-label","Найти и заменить");
-    findButton.innerHTML=findIcon();
-    findButton.onclick=()=>onFindReplace();
-    container.appendChild(findButton);
-  }
 
   function bind(view){
     entries.forEach(({run,button})=>{

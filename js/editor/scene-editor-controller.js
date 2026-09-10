@@ -22,7 +22,7 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
   const doc=loadSceneDocument(sceneDocSchema,scene);
   const findReplace=findReplaceContainer?createFindReplaceController():null;
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
-  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
+  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open():undefined});
   const editor=createSceneEditor({
     mount:editorContainer,
     schema:sceneDocSchema,
@@ -37,8 +37,8 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
     focus(){editor.focus()},
     getDocJSON(){return editor.getDocJSON()},
     serialize(){return serializeSceneDocument(editor.getDoc())},
-    openFind(){findReplace?.open("find")},
-    openReplace(){findReplace?.open("replace")},
+    openFind(){findReplace?.open()},
+    openReplace(){findReplace?.open()},
     destroy(){
       findReplace?.detachView(editor.view);
       findReplacePanel?.destroy();
@@ -81,7 +81,7 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
 export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null}){
   const findReplace=findReplaceContainer?createFindReplaceController():null;
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
-  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
+  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open():undefined});
   const instances=new Map();
   let activeId=null;
 
@@ -139,7 +139,7 @@ export function createSceneEditorGroup({toolbarContainer,characters=[],findRepla
 
   return {
     mountScene,destroyScene,destroyAll,getDocJSON,serializeScene,sceneIds,getActiveSceneId(){return activeId},
-    openFind(){findReplace?.open("find")},
-    openReplace(){findReplace?.open("replace")}
+    openFind(){findReplace?.open()},
+    openReplace(){findReplace?.open()}
   };
 }

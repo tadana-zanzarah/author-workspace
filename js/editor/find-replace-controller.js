@@ -1,6 +1,6 @@
 // Find/Replace Stage C: the reusable controller. Owns all Find/Replace
 // STATE (query, replace text, case-sensitive option, current match list,
-// active match index, open/closed mode) and every operation that touches an
+// active match index, open/closed) and every operation that touches an
 // EditorView (navigate, replace, replace all, decoration refresh). The panel
 // (find-replace-panel.js) owns DOM rendering/events only and talks to this
 // controller through the small API returned below -- never the other way
@@ -27,19 +27,59 @@ function isViewUsable(view){
   return !!view&&!view.isDestroyed;
 }
 
+// Corrective pass: ProseMirror's own tr.scrollIntoView() turned out NOT to
+// scroll anything here, and this is worth explaining precisely rather than
+// just patching around it silently. EditorView.scrollToSelection() (the
+// internal handler scrollIntoView's meta flag triggers) starts from
+// `view.domSelectionRange().focusNode` -- the REAL BROWSER DOM Selection's
+// focus node, not the ProseMirror model selection -- and does nothing at all
+// if that node isn't inside the editor's own DOM. While the Find input holds
+// keyboard focus (which it deliberately does throughout navigation -- see
+// dispatchNavigation below), the browser's actual DOM Selection is NOT
+// inside the editor, so the built-in mechanism silently no-ops every time,
+// regardless of how correctly the ProseMirror-model selection itself was
+// set. This function reimplements the "scroll the nearest scrollable
+// ancestor" behavior directly against `view.coordsAtPos()` (a public,
+// focus-independent EditorView API), walking up from the editor's own DOM
+// node (the SAME element as .rte-editor's overflow-y:auto container in all
+// three surfaces, so this covers standalone/Scene-modal/"Весь текст"
+// uniformly) and, if the target position isn't already within a scrollable
+// ancestor's visible bounds, adjusting that ancestor's scrollTop just enough
+// to reveal it. Walking upward (not stopping at the first scrollable
+// ancestor) is what lets "Весь текст" additionally scroll its own outer
+// modal list when a whole Scene block is out of view, without ever needing
+// surface-specific code.
+function revealDocPosition(view,pos){
+  if(!isViewUsable(view))return;
+  let coords;
+  try{coords=view.coordsAtPos(pos)}catch{return}
+  const margin=24;
+  let node=view.dom.parentElement;
+  while(node&&node!==document.body&&node!==document.documentElement){
+    const style=getComputedStyle(node);
+    const scrollableY=/(auto|scroll)/.test(style.overflowY)&&node.scrollHeight>node.clientHeight+1;
+    if(scrollableY){
+      const rect=node.getBoundingClientRect();
+      if(coords.top<rect.top+margin)node.scrollTop-=(rect.top+margin-coords.top);
+      else if(coords.bottom>rect.bottom-margin)node.scrollTop+=(coords.bottom-(rect.bottom-margin));
+    }
+    node=node.parentElement;
+  }
+}
+
 export function createFindReplaceController(){
   let view=null;
   let query="";
   let replaceText="";
   let caseSensitive=false;
-  let mode="closed"; // "closed" | "find" | "replace"
+  let open_=false;
   let matches=[];
   let activeIndex=-1;
   let openSequence=0; // bumped by every open() call -- see open() below for why
   const listeners=new Set();
 
   function snapshot(){
-    return {query,replaceText,caseSensitive,mode,matchCount:matches.length,activeIndex,openSequence};
+    return {query,replaceText,caseSensitive,open:open_,matchCount:matches.length,activeIndex,openSequence};
   }
   function notify(){
     const value=snapshot();
@@ -73,7 +113,7 @@ export function createFindReplaceController(){
   // edit, which the product brief explicitly says not to over-engineer.
   function recompute(){
     if(!isViewUsable(view)){matches=[];activeIndex=-1;notify();return}
-    if(mode==="closed"||!query){
+    if(!open_||!query){
       matches=[];activeIndex=-1;
       dispatchDecorations(view,buildMatchDecorations(view.state.doc,[],-1));
       notify();
@@ -103,10 +143,12 @@ export function createFindReplaceController(){
   // Navigation moves the REAL editor selection to the active match's range
   // (matching how Word/browser Find behave -- the match becomes the actual
   // selection, with the decoration on top distinguishing "active" from the
-  // other, dimmer highlighted matches) and asks ProseMirror to scroll it into
-  // view, combined with the decoration update into ONE dispatch. A pure
-  // selection change never touches `doc`, so it can never make the scene
-  // dirty and is ignored by handleTransaction's docChanged guard.
+  // other, dimmer highlighted matches), combined with the decoration update
+  // into ONE dispatch, and then explicitly reveals it (see revealDocPosition
+  // above for why the transaction's own scrollIntoView() alone is not
+  // sufficient while the Find input holds focus). A pure selection change
+  // never touches `doc`, so it can never make the scene dirty and is ignored
+  // by handleTransaction's docChanged guard.
   function dispatchNavigation(){
     if(!isViewUsable(view)||activeIndex<0||!matches[activeIndex])return;
     const match=matches[activeIndex];
@@ -115,6 +157,7 @@ export function createFindReplaceController(){
       .setMeta(findReplacePluginKey,{decorations:buildMatchDecorations(view.state.doc,matches,activeIndex)})
       .setMeta("addToHistory",false);
     view.dispatch(tr);
+    revealDocPosition(view,match.from);
   }
 
   // attachView is also how a fresh mount first hands the controller its
@@ -163,14 +206,24 @@ export function createFindReplaceController(){
 
   // open()/close() are the panel-visibility state -- decorations only ever
   // render while open, so closing always clears them immediately rather than
-  // leaving a frozen highlight set behind. openSequence bumps on EVERY open()
-  // call, not only on a closed->open transition, so the panel can tell "the
-  // user just explicitly asked for Find" apart from any other snapshot
-  // change and (re)focus the Find input accordingly -- including the case
-  // where the panel was already open and Ctrl+F/the toolbar button was
-  // pressed again, which should still refocus/reselect it.
-  function open(nextMode="find"){
-    mode=nextMode;
+  // leaving a frozen highlight set behind. Corrective pass: the panel is now
+  // one compact row with Find AND Replace controls always shown together
+  // (see find-replace-panel.js) -- there is no more separate "find" vs
+  // "replace" layout mode, so open() takes no mode argument any more.
+  // openFind()/openReplace() (the two names every call site already uses --
+  // toolbar button, Ctrl+F/Ctrl+H) both just open this one panel; keeping
+  // both names, rather than collapsing to a single open(), costs nothing and
+  // leaves room for a future, genuinely different default (e.g. focusing the
+  // Replace input) without another round of call-site changes.
+  //
+  // openSequence bumps on EVERY open() call, not only on a closed->open
+  // transition, so the panel can tell "the user just explicitly asked for
+  // Find" apart from any other snapshot change and (re)focus the Find input
+  // accordingly -- including the case where the panel was already open and
+  // Ctrl+F/the toolbar button was pressed again, which should still
+  // refocus/reselect it.
+  function open(){
+    open_=true;
     openSequence++;
     recomputeAndReveal();
   }
@@ -179,7 +232,7 @@ export function createFindReplaceController(){
   // this controller owns, so it is simplest and most reliable to do this
   // here rather than have every caller (button click, Escape) repeat it.
   function close(){
-    mode="closed";
+    open_=false;
     matches=[];activeIndex=-1;
     if(isViewUsable(view)){
       dispatchDecorations(view,buildMatchDecorations(view.state.doc,[],-1));
@@ -222,7 +275,9 @@ export function createFindReplaceController(){
   // count (see find-replace-model.js's own guarantees). Never auto-saves --
   // this is an ordinary live editor edit; the surface's existing Save button
   // and dirty-tracking pick it up exactly as they would any other typed
-  // change.
+  // change. Current-scene/current-active-scene scope only -- this operates
+  // on `view`, the one attached EditorView, never anything else; project-
+  // wide scope is explicitly Stage D's job, not this one's.
   function replaceAll(){
     if(!isViewUsable(view)||!matches.length)return {count:0};
     const count=matches.length;

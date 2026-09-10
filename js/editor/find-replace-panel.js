@@ -5,6 +5,13 @@
 // polished (see docs/find-replace-architecture.md) -- exact spacing/icons
 // are expected to change after user visual review.
 //
+// Corrective pass after the first visual review: Find and Replace controls
+// now live in ONE compact row together, always both present once the panel
+// is open -- there is no more separate expand/collapse arrow or a second
+// near-full-width row. Ctrl+F and Ctrl+H both open this same row (see
+// find-replace-controller.js's open()); the previous "find" vs "replace"
+// layout mode no longer exists.
+//
 // Marked with `data-dirty-ignore` on its own root: js/dirty-state.js's
 // serializeForm() skips any input/select/textarea under that attribute, so
 // typing a search/replace term into this panel's own plain <input>s can
@@ -23,17 +30,6 @@ export function createFindReplacePanel(container,controller){
   container.hidden=true;
   container.setAttribute("data-dirty-ignore","true");
   container.setAttribute("aria-label","Найти и заменить");
-
-  const findRow=document.createElement("div");
-  findRow.className="rte-find-row";
-
-  const toggleReplaceButton=document.createElement("button");
-  toggleReplaceButton.type="button";
-  toggleReplaceButton.className="rte-find-toggle";
-  toggleReplaceButton.title="Показать замену";
-  toggleReplaceButton.setAttribute("aria-label","Показать замену");
-  toggleReplaceButton.setAttribute("aria-expanded","false");
-  toggleReplaceButton.textContent="⌄";
 
   const findInput=document.createElement("input");
   findInput.type="text";
@@ -59,6 +55,25 @@ export function createFindReplacePanel(container,controller){
   nextButton.setAttribute("aria-label","Следующее совпадение");
   nextButton.textContent="↓";
 
+  const replaceInput=document.createElement("input");
+  replaceInput.type="text";
+  replaceInput.className="rte-replace-input";
+  replaceInput.placeholder="Заменить…";
+  replaceInput.setAttribute("aria-label","Заменить на");
+
+  const replaceOneButton=document.createElement("button");
+  replaceOneButton.type="button";
+  replaceOneButton.className="rte-replace-one";
+  replaceOneButton.title="Заменить текущее совпадение";
+  replaceOneButton.textContent="Заменить";
+
+  const replaceAllButton=document.createElement("button");
+  replaceAllButton.type="button";
+  replaceAllButton.className="rte-replace-all";
+  replaceAllButton.title="Заменить все совпадения в этой сцене";
+  replaceAllButton.setAttribute("aria-label","Заменить все совпадения");
+  replaceAllButton.textContent="Все";
+
   const caseButton=document.createElement("button");
   caseButton.type="button";
   caseButton.className="rte-find-case";
@@ -74,31 +89,7 @@ export function createFindReplacePanel(container,controller){
   closeButton.setAttribute("aria-label","Закрыть");
   closeButton.textContent="✕";
 
-  findRow.append(toggleReplaceButton,findInput,countEl,prevButton,nextButton,caseButton,closeButton);
-
-  const replaceRow=document.createElement("div");
-  replaceRow.className="rte-replace-row";
-  replaceRow.hidden=true;
-
-  const replaceInput=document.createElement("input");
-  replaceInput.type="text";
-  replaceInput.className="rte-replace-input";
-  replaceInput.placeholder="Заменить…";
-  replaceInput.setAttribute("aria-label","Заменить на");
-
-  const replaceOneButton=document.createElement("button");
-  replaceOneButton.type="button";
-  replaceOneButton.className="rte-replace-one";
-  replaceOneButton.textContent="Заменить";
-
-  const replaceAllButton=document.createElement("button");
-  replaceAllButton.type="button";
-  replaceAllButton.className="rte-replace-all";
-  replaceAllButton.textContent="Заменить все";
-
-  replaceRow.append(replaceInput,replaceOneButton,replaceAllButton);
-
-  container.append(findRow,replaceRow);
+  container.append(findInput,countEl,prevButton,nextButton,replaceInput,replaceOneButton,replaceAllButton,caseButton,closeButton);
 
   findInput.addEventListener("input",()=>controller.setQuery(findInput.value));
   findInput.addEventListener("keydown",event=>{
@@ -118,9 +109,6 @@ export function createFindReplacePanel(container,controller){
   closeButton.addEventListener("click",()=>controller.close());
   replaceOneButton.addEventListener("click",()=>controller.replaceCurrent());
   replaceAllButton.addEventListener("click",()=>controller.replaceAll());
-  toggleReplaceButton.addEventListener("click",()=>{
-    controller.open(controller.getSnapshot().mode==="replace"?"find":"replace");
-  });
 
   // Dispatched by js/modal-manager.js's Escape handler, never fired by
   // anything inside this panel itself.
@@ -128,12 +116,8 @@ export function createFindReplacePanel(container,controller){
 
   let lastOpenSequence=-1;
   const unsubscribe=controller.subscribe(snapshot=>{
-    container.hidden=snapshot.mode==="closed";
-    if(snapshot.mode==="closed")return;
-
-    const replaceMode=snapshot.mode==="replace";
-    replaceRow.hidden=!replaceMode;
-    toggleReplaceButton.setAttribute("aria-expanded",String(replaceMode));
+    container.hidden=!snapshot.open;
+    if(!snapshot.open)return;
 
     if(findInput.value!==snapshot.query)findInput.value=snapshot.query;
     if(replaceInput.value!==snapshot.replaceText)replaceInput.value=snapshot.replaceText;

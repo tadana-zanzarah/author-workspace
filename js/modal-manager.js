@@ -1,4 +1,19 @@
 const modalStack=[];
+// Find/Replace Stage C corrective pass: Ctrl+F/Ctrl+H interception moved
+// here from separate per-surface bubble-phase listeners (js/app.js,
+// js/scenes.js, js/import-export.js) after real-browser manual testing
+// found the browser's own native Find/History still won. Root cause: those
+// listeners were attached to each MODAL element in the ordinary bubble
+// phase, relying on the keydown actually bubbling all the way up from
+// whatever has focus -- correct in principle, but strictly WEAKER than the
+// mechanism this file already uses (successfully) for Escape: one
+// document-level, CAPTURE-phase listener that runs before anything else,
+// gated on getTopModal() rather than on DOM position. Centralizing into that
+// same already-proven pipeline is the fix, not a different kind of guess --
+// see handleKeydown below. This registry is just the small addition needed
+// to route it to the right modal's find-replace controller.
+const findReplaceShortcuts=new Map(); // modalId -> {openFind,openReplace}
+function registerFindReplaceShortcuts(modalId,handlers){findReplaceShortcuts.set(modalId,handlers)}
 const focusableSelector='button:not([disabled]),[href],input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 
 function isVisible(element){
@@ -142,6 +157,27 @@ function resolveConfirmAction(confirmed){
 
 function handleKeydown(event){
   const modal=getTopModal();if(!modal||event.defaultPrevented)return;
+  // Find/Replace Stage C: intercept Ctrl+F/Ctrl+H (Cmd on Mac) as early as
+  // this same document-capture-phase pipeline already reliably intercepts
+  // Escape, for whichever modal is topmost AND has registered find/replace
+  // handlers (registerFindReplaceShortcuts below) -- i.e. only while a
+  // rich-text editing surface is genuinely the active/topmost context.
+  // event.code (physical key position, "KeyF"/"KeyH") is checked instead of
+  // event.key so this still works regardless of Cyrillic/other non-Latin
+  // keyboard layouts, where event.key for the F/H position would not be "f"/
+  // "h" at all. A modal with no registered handlers (every non-rich-text
+  // modal) falls straight through untouched, and with no modal open at all
+  // getTopModal() is null and this whole branch never runs -- so the browser
+  // native Find/History/etc. are only ever pre-empted in the relevant
+  // context, never elsewhere in the app.
+  if((event.ctrlKey||event.metaKey)&&(event.code==="KeyF"||event.code==="KeyH")){
+    const handlers=findReplaceShortcuts.get(modal.id);
+    if(handlers){
+      event.preventDefault();event.stopImmediatePropagation();
+      if(event.code==="KeyF")handlers.openFind?.();else handlers.openReplace?.();
+    }
+    return;
+  }
   if(event.key==="Escape"){
     if(event.target instanceof HTMLSelectElement)return;
     const expanded=modal.querySelector('[role="combobox"][aria-expanded="true"]');
@@ -175,5 +211,5 @@ if(typeof document!=="undefined"){
   document.addEventListener("keydown",handleKeydown,true);document.addEventListener("focusin",rememberFocus,true);
 }
 
-Object.assign(globalThis,{modalStack,openModal,showModal:openModal,requestCloseModal,forceCloseModal,getTopModal,getFocusableElements,showConfirmAction,resolveConfirmAction});
-export {openModal,requestCloseModal,forceCloseModal,getTopModal,getFocusableElements,showConfirmAction,resolveConfirmAction};
+Object.assign(globalThis,{modalStack,openModal,showModal:openModal,requestCloseModal,forceCloseModal,getTopModal,getFocusableElements,showConfirmAction,resolveConfirmAction,registerFindReplaceShortcuts});
+export {openModal,requestCloseModal,forceCloseModal,getTopModal,getFocusableElements,showConfirmAction,resolveConfirmAction,registerFindReplaceShortcuts};
