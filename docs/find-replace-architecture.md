@@ -1,11 +1,48 @@
 # Find / Replace — architecture
 
-Status: **Stage A only** (atomic cloud persistence foundation) is implemented.
-No matching engine, panel, keyboard shortcuts, highlighting, mounted-scene
-registry, navigation, or any user-facing Find/Replace behavior exists yet.
-This document records the decisions those later stages must follow; it is
-deliberately not a full UI spec — unfinished UI details are not documented
-here until they're built.
+Status: **Stage A** (atomic cloud persistence foundation) and **Stage B**
+(headless matching/replacement engine) are implemented. No panel, keyboard
+shortcuts, highlighting, mounted-scene registry, navigation, project-wide
+search, or any user-facing Find/Replace behavior exists yet. This document
+records the decisions those later stages must follow; it is deliberately not
+a full UI spec — unfinished UI details are not documented here until they're
+built.
+
+## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
+
+Pure, headless, DOM/EditorState/Supabase-independent. `findMatches(doc, query,
+{caseSensitive})` returns `{from, to, text, paragraphPos}[]` against the
+structured document (paragraph-scoped: matches never cross a paragraph
+boundary, and non-text blocks like `sceneBreak` are never visited as search
+targets). `replaceOneMatch`/`replaceAllMatches` return a plain
+`prosemirror-transform` `Transform` (never an `EditorState`/`Transaction`) —
+a later live-editor controller replays its `.steps` onto `view.state.tr` in
+one `dispatch()` call (one `prosemirror-history` undo step regardless of how
+many matches were replaced); project-wide scanning/replacement preparation
+can read `.doc` directly with no `EditorState` involved at all.
+
+**Confirmed mixed-mark replacement behavior (empirically pinned, see
+`tools/find-replace-model.test.mjs`):** a replacement is built via
+`ResolvedPos.marksAcross`/`.marks()` — ProseMirror's own native primitive,
+never a hand-built heuristic. For this schema (no mark declares
+`inclusive:false`), that primitive resolves to the marks of the text run at
+the match's **start** — "leading-edge" marks, not an intersection across the
+whole matched range and not "any mark present anywhere in the match wins". A
+match entirely inside one marked run keeps that formatting; a match spanning
+a mark change takes whichever formatting the FIRST character's run has,
+regardless of what the rest of the match carries. Any later stage rendering
+a Replace preview must not claim or imply "intersection" semantics — this is
+the actual, tested behavior to describe to users if it's ever surfaced
+(e.g. in help text), and to build Stage C/E on.
+
+Unicode comparison (case-insensitive via `String.prototype.toLowerCase()`,
+never `toLocaleLowerCase()`; NFC via per-grapheme-cluster provenance mapping,
+via `Intl.Segmenter` with a deterministic fallback) is implemented exactly as
+this document already specified below, including the requirement that
+case-folding can itself change comparison length (confirmed and tested: the
+locale-independent lowercasing of İ, U+0130, produces two code units from
+one) and that this never corrupts the mapping back to real source
+positions.
 
 ## Two different operations, not one mechanism
 
