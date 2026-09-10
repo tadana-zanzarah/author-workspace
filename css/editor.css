@@ -94,15 +94,19 @@
   color:var(--muted);letter-spacing:.3em;user-select:none;
 }
 
-/* T2, PROVISIONAL pending user visual review: #sceneModal keeps its existing
+/* T2 corrective pass (user visual review): #sceneModal keeps its existing
    whole-modal-scroll layout untouched (unlike #textModal, see the flex/
-   overflow:hidden rules above) -- no second, independently-scrolling region
-   is introduced here. The editor is simply a normal block that grows with
-   its own content inside that single scroll, exactly like the old
-   <textarea id="sceneText"> did; min-height only keeps a short/empty scene
-   from looking cramped among the modal's other fields. Revisit if a very
-   long scene makes this feel unwieldy once reviewed. */
-#sceneModal .rte-editor{min-height:220px}
+   overflow:hidden rules above) and its toolbar stays a plain, non-sticky
+   flex child -- but the editor itself is a fixed-height, internally-
+   scrolling viewport, same as the old <textarea id="sceneText"> (which had
+   min-height:320px and, being a textarea, never grew taller than its own
+   box no matter how much was typed). A first cut left this as an unbounded
+   block that grew with content instead, which made a long scene's Save/
+   Close/other fields scroll arbitrarily far away -- fixed height (not
+   min-height) restores the original bounded-viewport behavior: nested
+   scrolling is intentional, the modal scroll navigates the form, this
+   scroll is specifically for long manuscript text. */
+#sceneModal .rte-editor{height:320px;overflow-y:auto}
 
 /* "Весь текст": ONE shared toolbar for every mounted Scene, kept reachable
    while scrolling through a long manuscript by sticking to the top of the

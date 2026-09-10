@@ -29,7 +29,9 @@ const project={
     {id:"scene-dangerous",title:"Опасный текст",date:"",time:"",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],
      writingStatus:"idea",sceneText:"<b>жирный</b> и <script>alert(1)</script>",included:true,status:"floating",people:{}},
     {id:"scene-rich",title:"Уже с форматированием",date:"",time:"",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],
-     writingStatus:"idea",sceneText:"Уже отформатированный текст.",sceneTextDoc:richBoldDoc,included:true,status:"floating",people:{}}
+     writingStatus:"idea",sceneText:"Уже отформатированный текст.",sceneTextDoc:richBoldDoc,included:true,status:"floating",people:{}},
+    {id:"scene-long",title:"Длинная сцена",date:"",time:"",dateReview:false,chapterId:"chapter-unassigned",locationId:"",tags:[],
+     writingStatus:"idea",sceneText:Array.from({length:60},(_,i)=>`Абзац номер ${i+1} для проверки прокрутки длинного текста сцены.`).join("\n"),included:true,status:"floating",people:{}}
   ]
 };
 
@@ -123,6 +125,41 @@ try{
   saved=await page.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
   if(JSON.stringify(saved.scenes.find(s=>s.id==="scene-rich").sceneTextDoc)!==JSON.stringify(richBoldDoc))
     throw new Error("Untouched open/close mutated the pre-existing sceneTextDoc");
+
+  // --- Corrective regression (user visual review): a long scene must scroll
+  // INSIDE the bounded #sceneTextEditor viewport, not grow the editor
+  // (and therefore the whole modal) indefinitely. Before this fix, .rte-editor
+  // had no height cap in #sceneModal and simply grew with content, pushing
+  // the toolbar/other fields/Save button arbitrarily far down the modal's own
+  // (separate, intentional) whole-modal scroll.
+  await page.evaluate(()=>editScene("scene-long"));
+  await page.waitForSelector("#sceneTextEditor .ProseMirror");
+  const editorBox=await page.locator("#sceneTextEditor").boundingBox();
+  if(editorBox.height>360)throw new Error(`Scene modal editor is not height-bounded for a long scene: ${editorBox.height}px`);
+  const overflowsInternally=await page.locator("#sceneTextEditor").evaluate(el=>el.scrollHeight>el.clientHeight+2);
+  if(!overflowsInternally)throw new Error("Test setup failed: long scene did not actually overflow the bounded editor viewport");
+  // Toolbar stays a plain, non-sticky flex child in this modal (unlike the
+  // shared "Весь текст" toolbar, which is intentionally sticky) -- unaffected
+  // by this fix, checked here to lock the requirement explicitly.
+  const toolbarPosition=await page.locator("#sceneTextToolbar").evaluate(el=>getComputedStyle(el).position);
+  if(toolbarPosition==="sticky")throw new Error("Scene modal toolbar must stay non-sticky (unlike \"Весь текст\")");
+  // Scrolling inside the editor must not move the toolbar above it or the
+  // Save/Cancel footer below it -- the outer #sceneModal .modal scroll and
+  // the inner .rte-editor scroll are two independent regions.
+  const toolbarBoxBefore=await page.locator("#sceneTextToolbar").boundingBox();
+  const actionsBoxBefore=await page.locator("#sceneModal .modal-actions").boundingBox();
+  await page.locator("#sceneTextEditor").evaluate(el=>{el.scrollTop=el.scrollHeight/2});
+  await page.waitForTimeout(60);
+  const scrolledTop=await page.locator("#sceneTextEditor").evaluate(el=>el.scrollTop);
+  if(scrolledTop<10)throw new Error("Scene modal editor did not actually scroll internally");
+  const toolbarBoxAfter=await page.locator("#sceneTextToolbar").boundingBox();
+  const actionsBoxAfter=await page.locator("#sceneModal .modal-actions").boundingBox();
+  const closeEnough=(a,b)=>Math.abs(a-b)<=1;
+  if(!closeEnough(toolbarBoxBefore.y,toolbarBoxAfter.y))throw new Error("Scene modal toolbar moved while scrolling inside the editor");
+  if(!closeEnough(actionsBoxBefore.y,actionsBoxAfter.y))throw new Error("Scene modal Save/Cancel footer moved while scrolling inside the editor");
+  await page.click("#cancelScene");
+  await page.waitForTimeout(80);
+  if(await isOpen("discardChangesModal"))throw new Error("Scrolling inside a long scene's editor alone (no edits) was treated as dirty");
 
   console.log("scene modal rich-text browser tests passed");
 }finally{await browser.close();server.kill()}
