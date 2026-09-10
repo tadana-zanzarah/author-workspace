@@ -436,7 +436,31 @@ function mountSceneModalTextEditor(scene){
     toolbarContainer:document.getElementById("sceneTextToolbar"),
     findReplaceContainer:document.getElementById("sceneTextFindReplace"),
     scene,
-    characters:data.characters
+    characters:data.characters,
+    // Find/Replace Stage D1: registers this mounted editor in the shared
+    // mounted-scene registry (see js/editor/mounted-scene-registry.js) so
+    // project-wide search/navigation can find and reveal it. Mounting always
+    // happens before showModal("sceneModal") itself in editScene/openNewScene
+    // -- revealSurface's own showModal call is what actually brings the
+    // modal to front when this registration's activate() runs later (openModal
+    // is safe to call again on an already-open modal, see modal-manager.js).
+    surfaceId:"sceneModal",
+    // openModal() unconditionally schedules its own default-initial-focus
+    // microtask on EVERY call, even when the modal is already open/topmost --
+    // harmless for a genuine open, but calling it again purely to "reveal an
+    // already-open modal" would steal focus back from the exact match this
+    // registration's activate() is about to select, one microtask later. Only
+    // call it when the modal isn't already showing.
+    revealSurface:()=>{if(document.getElementById("sceneModal").style.display!=="flex")showModal("sceneModal")},
+    // Find/Replace Stage D1: getProjectData/openSceneForEditing wire this
+    // surface's Find/Replace panel into project-wide search -- see
+    // js/editor/find-replace-project-search.js and
+    // js/editor/find-replace-navigation.js. openSceneText is the generic
+    // "open this scene for editing" fallback used when a project result
+    // points at a scene with no live mounted registration at all (product
+    // brief section 8, case B).
+    getProjectData:()=>data,
+    openSceneForEditing:sceneId=>openSceneText(sceneId)
   });
 }
 
@@ -451,7 +475,17 @@ function openSceneTextNow(sceneId){
     toolbarContainer:document.getElementById("fullSceneTextToolbar"),
     findReplaceContainer:document.getElementById("fullSceneTextFindReplace"),
     scene,
-    characters:data.characters
+    characters:data.characters,
+    // Find/Replace Stage D1: see mountSceneModalTextEditor's own comment
+    // above -- same registry registration, this surface's own modal.
+    surfaceId:"textModal",
+    // See mountSceneModalTextEditor's own comment above on why this must not
+    // call showModal unconditionally.
+    revealSurface:()=>{if(document.getElementById("textModal").style.display!=="flex")showModal("textModal",{initialFocus:sceneTextEditor?.view.dom})},
+    // Find/Replace Stage D1: see mountSceneModalTextEditor's own comment
+    // above.
+    getProjectData:()=>data,
+    openSceneForEditing:sceneIdToOpen=>openSceneText(sceneIdToOpen)
   });
   showModal("textModal",{initialFocus:sceneTextEditor.view.dom});
   trackerFor("textModal").captureInitialState();

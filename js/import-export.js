@@ -45,7 +45,20 @@ function openAllScenesNow(){
   root.innerHTML=html||'<div class="empty-work">Нет сцен, включённых в общий текст.</div>';
   destroyAllScenesEditorGroup();
   if(items.length){
-    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters});
+    // Find/Replace Stage D1: surfaceId/revealSurface register every mounted
+    // scene in the shared mounted-scene registry (js/editor/mounted-scene-
+    // registry.js) so project-wide search/navigation can find and reveal
+    // them -- see js/editor/scene-editor-controller.js's own comment on
+    // createSceneEditorGroup for what each per-scene registration's
+    // activate() actually does (retarget the shared toolbar, scroll the
+    // right block into view, focus it) versus this group-level revealSurface
+    // (just brings the whole "Весь текст" modal to front).
+    // revealSurface only calls showModal when the modal isn't already open --
+    // see js/scenes.js's mountSceneModalTextEditor for why an unconditional
+    // call would steal focus back from a just-selected project-search match
+    // (openModal() always re-schedules its own default-initial-focus
+    // microtask, even when reopening an already-open modal).
+    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:sceneId=>openSceneText(sceneId)});
     items.forEach(scene=>allScenesEditorGroup.mountScene(scene.id,{editorContainer:document.getElementById(`allSceneEditor-${scene.id}`),scene}));
   }
   showModal("allScenesModal");
