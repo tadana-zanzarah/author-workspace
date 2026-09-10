@@ -57,6 +57,19 @@ const BUTTONS=[
   {cmd:"scene-break",label:"* * *",title:"Вставить разделитель сцены",run:insertSceneBreak}
 ];
 
+// Microfix (toolbar visual pass): the ONE place every toolbar separator is
+// built, used by both the BUTTONS-driven separators below and the
+// find/replace one -- guarantees every "|" divider in this toolbar is the
+// same element with the same markup, not just the same class name repeated
+// at each call site, so they read as one consistent separator component
+// (height/thickness/color/vertical alignment/spacing all come from the
+// single shared .rte-toolbar-sep rule in css/editor.css).
+function createSeparator(){
+  const sep=document.createElement("span");
+  sep.className="rte-toolbar-sep";sep.setAttribute("aria-hidden","true");
+  return sep;
+}
+
 export function createSceneEditorToolbar(container,{characters=[],onFindReplace}={}){
   container.innerHTML="";
   container.classList.add("rte-toolbar");
@@ -65,9 +78,7 @@ export function createSceneEditorToolbar(container,{characters=[],onFindReplace}
   const entries=[];
   BUTTONS.forEach(spec=>{
     if(spec.sep){
-      const sep=document.createElement("span");
-      sep.className="rte-toolbar-sep";sep.setAttribute("aria-hidden","true");
-      container.appendChild(sep);return;
+      container.appendChild(createSeparator());return;
     }
     const button=document.createElement("button");
     button.type="button";
@@ -93,9 +104,7 @@ export function createSceneEditorToolbar(container,{characters=[],onFindReplace}
   // fundamentally different kind of button. Only rendered when the caller
   // actually wants find/replace on this toolbar instance.
   if(onFindReplace){
-    const sep=document.createElement("span");
-    sep.className="rte-toolbar-sep";sep.setAttribute("aria-hidden","true");
-    container.appendChild(sep);
+    container.appendChild(createSeparator());
 
     const findButton=document.createElement("button");
     findButton.type="button";
@@ -106,6 +115,11 @@ export function createSceneEditorToolbar(container,{characters=[],onFindReplace}
     findButton.onclick=()=>onFindReplace();
     container.appendChild(findButton);
   }
+
+  // Microfix: a separator was missing between a→z and POV -- every other
+  // control group in this toolbar is "|"-separated, POV was the one
+  // exception.
+  container.appendChild(createSeparator());
 
   const povSelect=document.createElement("select");
   povSelect.className="rte-pov-select";
