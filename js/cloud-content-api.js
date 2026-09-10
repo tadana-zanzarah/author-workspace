@@ -113,6 +113,18 @@ function createCloudContentApi(client){
     // dates/status/...) -- see supabase/migrations/20260909120000_scene_rich_text.sql
     // and the T1 persistence decision doc.
     updateSceneText:(projectId,sceneId,expectedRevision,{sceneText,metadata})=>call("update_scene_text",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision,scene_text_value:sceneText??"",scene_metadata:metadata??{}}),
+    // Find/Replace Stage A: generic atomic bulk scene-text writer -- see
+    // supabase/migrations/20260910120000_scene_text_bulk_update.sql and
+    // docs/find-replace-architecture.md. This adapter does no matching/
+    // searching itself (same separation as updateSceneText above); callers
+    // pass the already-computed final {sceneId,sceneText,metadata} for every
+    // scene that must land together, atomically, under one expected_revision.
+    // Not wired into any save flow/UI yet -- Stage A only pins the wire
+    // contract client-side.
+    bulkUpdateSceneText:(projectId,expectedRevision,replacements)=>call("bulk_update_scene_text",{
+      target_project_id:projectId,expected_revision:expectedRevision,
+      replacements:(replacements||[]).map(({sceneId,sceneText,metadata})=>({scene_id:sceneId,scene_text:sceneText??"",metadata:metadata??{}}))
+    }),
     deleteScene:(projectId,sceneId,expectedRevision)=>call("delete_scene",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision}),
     moveScene:(projectId,sceneId,expectedRevision,{chapterId=null,beforeSceneId=null})=>call("move_scene",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision,target_chapter_id:chapterId,before_scene_id:beforeSceneId}),
     setSceneTags:(projectId,sceneId,expectedRevision,tagIds)=>call("set_scene_tags",{target_project_id:projectId,target_scene_id:sceneId,expected_revision:expectedRevision,tag_ids:[...new Set(tagIds||[])]})
