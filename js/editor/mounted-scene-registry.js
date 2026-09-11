@@ -82,43 +82,69 @@ export function hasMountedScene(sceneId){
 
 // Result shapes:
 //   null                                 -- no live registration at all
-//   {status:"ok",registration}           -- exactly one usable view, or
+//   {status:"ok",registration}           -- exactly one candidate view, or
 //                                            several agreeing on the same doc,
 //                                            or several disagreeing but one is
 //                                            unambiguously the most recently
 //                                            active
-//   {status:"conflict",registrations}    -- several usable, DIVERGENT docs,
-//                                            and no recorded activation to
-//                                            break the tie deterministically
+//   {status:"conflict",registrations}    -- several candidates, DIVERGENT
+//                                            docs, and no recorded activation
+//                                            to break the tie deterministically
 //
 // Deterministic preference policy (documented here, not left to Map
 // iteration order):
 //   1. Registrations whose view is destroyed are never candidates.
-//   2. If exactly one usable registration remains, use it.
-//   3. If every usable registration's document is structurally identical
+//   2. Manual-test regression fix: a single-editor surface (the standalone
+//      "Текст сцены" modal, the regular Scene modal) only ever destroys its
+//      PREVIOUS mount defensively on its NEXT open -- closing it (button,
+//      Escape, backdrop) just hides the modal, per this app's existing,
+//      accepted "Defensive destroy-before-create" pattern (see scenes.js).
+//      That means a registration from an earlier visit to one of those
+//      surfaces can stay alive, `isViewUsable`, identical-doc, and
+//      registered for a scene LONG after the surface hiding it closed --
+//      and without this step, it could win step 3 below purely by insertion
+//      order over a registration that is genuinely on screen right now
+//      (confirmed by manual testing: navigating a project result for a
+//      scene also left open-then-closed in the Scene modal could silently
+//      reopen that stale, hidden modal instead of using the visible "Весь
+//      текст" mount). So candidates are narrowed to VISIBLE ones first
+//      (`view.dom.offsetParent!==null` -- standard, framework-agnostic
+//      "is this actually rendered, not itself or an ancestor display:none"
+//      check; a registration with no real `.dom` at all, e.g. a test
+//      double, is treated as visible since there's nothing to check) --
+//      falling back to the full usable set only if NONE of them are
+//      currently visible (better to reveal something than nothing).
+//   3. If every remaining candidate's document is structurally identical
 //      (ProseMirror Node#eq -- content equality, not reference equality),
 //      any of them is an equally valid source; the first is used.
 //   4. Otherwise the docs genuinely disagree. Break the tie by the most
 //      recently `markMountedSceneActive`-marked registration among the
-//      usable ones -- "whichever the author was just actually working in"
+//      candidates -- "whichever the author was just actually working in"
 //      is the only safe implicit choice.
-//   5. If no usable registration has ever been marked active (should not
-//      happen in practice -- registerMountedScene marks its own
-//      registration active immediately -- but defended anyway), this
-//      returns an explicit conflict rather than guessing from iteration
-//      order.
+//   5. If no candidate has ever been marked active (should not happen in
+//      practice -- registerMountedScene marks its own registration active
+//      immediately -- but defended anyway), this returns an explicit
+//      conflict rather than guessing from iteration order.
+function isViewVisible(view){
+  const dom=view?.dom;
+  if(!dom||typeof dom.offsetParent==="undefined")return true; // nothing to check (e.g. a test double) -- assume visible
+  return dom.offsetParent!==null;
+}
+
 export function getPreferredLiveSceneView(sceneId){
   const all=getMountedSceneRegistrations(sceneId);
   const usable=all.filter(registration=>isViewUsable(registration.view));
   if(!usable.length)return null;
-  if(usable.length===1)return {status:"ok",registration:usable[0]};
-  const firstDoc=usable[0].view.state.doc;
-  const allSame=usable.every(registration=>registration.view.state.doc.eq(firstDoc));
-  if(allSame)return {status:"ok",registration:usable[0]};
-  const ranked=[...usable].sort((a,b)=>(activationOrder.get(b.registrationId)??-1)-(activationOrder.get(a.registrationId)??-1));
+  const visible=usable.filter(registration=>isViewVisible(registration.view));
+  const candidates=visible.length?visible:usable;
+  if(candidates.length===1)return {status:"ok",registration:candidates[0]};
+  const firstDoc=candidates[0].view.state.doc;
+  const allSame=candidates.every(registration=>registration.view.state.doc.eq(firstDoc));
+  if(allSame)return {status:"ok",registration:candidates[0]};
+  const ranked=[...candidates].sort((a,b)=>(activationOrder.get(b.registrationId)??-1)-(activationOrder.get(a.registrationId)??-1));
   const best=ranked[0];
   if((activationOrder.get(best.registrationId)??-1)>=0)return {status:"ok",registration:best};
-  return {status:"conflict",registrations:usable};
+  return {status:"conflict",registrations:candidates};
 }
 
 // Test-only: fully resets module state between independent test cases.

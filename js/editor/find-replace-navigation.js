@@ -1,4 +1,4 @@
-// Find/Replace Stage D1: the reusable navigation adapter,
+// Find/Replace Stage D1 (corrective pass): the reusable navigation adapter,
 // navigateToSceneMatch(sceneId, matchRange, options). This is the ONLY place
 // project search results turn into "select this exact occurrence inside a
 // real editor" -- the project search layer itself
@@ -17,43 +17,33 @@
 //      select the same way.
 // This module has zero knowledge of modals/routes beyond calling that one
 // injected function -- it stays future-route-compatible by construction.
+//
+// Corrective pass (manual-test regression fix): this module used to ALSO
+// dispatch its own single-match decoration here (a second, competing
+// highlighting mechanism on top of find-replace-controller.js's own
+// all-matches-in-the-scene decoration set). That produced exactly the
+// regression manual testing found: switching to "Весь проект" cleared the
+// controller's own decorations, this module's ad hoc single-match decoration
+// only ever covered the one just-navigated-to match (never "all matches in
+// every participating mounted scene"), and having two independent decoration
+// dispatchers racing against the same view/plugin key made the outcome
+// dependent on dispatch order. Decoration is now ENTIRELY the controller's
+// job (see find-replace-controller.js's applyProjectDecorations) -- this
+// module only ever sets the real editor SELECTION (to the exact, freshly
+// re-resolved match range -- never a wider one) and reveals/scrolls it into
+// view. One highlighting system, reused/generalized from Stage C, per the
+// product brief's own instruction.
 import {TextSelection} from "prosemirror-state";
 import {getPreferredLiveSceneView} from "./mounted-scene-registry.js";
 import {reresolveMatch} from "./find-replace-project-search.js";
-import {findReplacePluginKey,buildMatchDecorations} from "./find-replace-decorations.js";
 import {isViewUsable,revealDocPosition} from "./find-replace-controller.js";
 
-// The one EditorView a project-result navigation most recently highlighted,
-// so a LATER navigation to a different scene/view always clears the earlier
-// one first -- "do not leave stale decorations attached to previously
-// targeted editors" (product brief section 13). Module-level (not per-call)
-// deliberately: navigation targets are transient UI focus, not something any
-// caller needs to thread through explicitly.
-let lastHighlightedView=null;
-
-function clearHighlight(view){
-  if(!isViewUsable(view))return;
-  view.dispatch(view.state.tr.setMeta(findReplacePluginKey,{decorations:buildMatchDecorations(view.state.doc,[],-1)}).setMeta("addToHistory",false));
-}
-
-// Exposed so leaving project scope / closing the panel can proactively clear
-// whatever project-navigation highlight is currently showing, even if the
-// user never navigates elsewhere afterward.
-export function clearProjectNavigationHighlight(){
-  clearHighlight(lastHighlightedView);
-  lastHighlightedView=null;
-}
-
 function selectAndReveal(view,match){
-  if(lastHighlightedView&&lastHighlightedView!==view)clearHighlight(lastHighlightedView);
   const selection=TextSelection.create(view.state.doc,match.from,match.to);
-  const tr=view.state.tr.setSelection(selection).scrollIntoView()
-    .setMeta(findReplacePluginKey,{decorations:buildMatchDecorations(view.state.doc,[match],0)})
-    .setMeta("addToHistory",false);
+  const tr=view.state.tr.setSelection(selection).scrollIntoView().setMeta("addToHistory",false);
   view.dispatch(tr);
   revealDocPosition(view,match.from);
   view.focus();
-  lastHighlightedView=view;
 }
 
 // matchRange: {from,to,text,occurrenceIndex} -- exactly what

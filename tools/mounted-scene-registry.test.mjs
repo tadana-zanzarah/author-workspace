@@ -109,4 +109,49 @@ _resetMountedSceneRegistryForTests();
   assert.doesNotThrow(()=>unregisterMountedScene("scene-e",id));
 }
 
+// 7. Manual-test regression fix: a HIDDEN registration (its view's own DOM
+// node not currently rendered -- e.g. a closed-but-not-destroyed single-
+// editor surface like the Scene modal, which this app only ever destroys
+// defensively on its NEXT open, never merely on close) must never be
+// preferred over a VISIBLE one for the same scene, even when it was
+// registered/activated first and both hold identical docs -- this is
+// exactly what let navigating a project result reopen a stale hidden modal
+// instead of using the live, on-screen one. `offsetParent` is the
+// lightweight, framework-agnostic way to fake "not display:none" without a
+// real browser: null means hidden, a non-null placeholder object means
+// visible.
+{
+  const docText="Тот же самый текст.";
+  const hiddenView=fakeView(plainTextToDoc(schema,docText));
+  hiddenView.dom={offsetParent:null}; // simulates a closed modal's editor
+  const visibleView=fakeView(plainTextToDoc(schema,docText));
+  visibleView.dom={offsetParent:{}}; // simulates a currently-open modal's editor
+
+  // Register the HIDDEN one first and mark it active (mirrors the real bug:
+  // it was opened, used, and closed BEFORE the visible one ever mounted).
+  const hiddenId=registerMountedScene("scene-f",{view:hiddenView,surfaceId:"sceneModal",activate(){}});
+  const visibleId=registerMountedScene("scene-f",{view:visibleView,surfaceId:"allScenesModal",activate(){}});
+  markMountedSceneActive("scene-f",hiddenId); // re-affirm the hidden one as "most recently active" too
+
+  const preferred=getPreferredLiveSceneView("scene-f");
+  assert.equal(preferred.status,"ok");
+  assert.equal(preferred.registration.registrationId,visibleId,"a visible registration must win over a hidden one regardless of insertion/activation order");
+
+  unregisterMountedScene("scene-f",hiddenId);
+  unregisterMountedScene("scene-f",visibleId);
+}
+
+// 7b. If ALL registrations for a scene are currently hidden, fall back to
+// the full usable set rather than returning nothing -- reveal SOMETHING
+// rather than silently refuse to navigate.
+{
+  const view=fakeView(plainTextToDoc(schema,"Текст."));
+  view.dom={offsetParent:null};
+  const id=registerMountedScene("scene-g",{view,surfaceId:"textModal",activate(){}});
+  const preferred=getPreferredLiveSceneView("scene-g");
+  assert.equal(preferred.status,"ok");
+  assert.equal(preferred.registration.registrationId,id,"with no visible candidates, a hidden one is still returned rather than null");
+  unregisterMountedScene("scene-g",id);
+}
+
 console.log("mounted-scene-registry.test.mjs: all assertions passed");

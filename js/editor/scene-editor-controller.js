@@ -5,19 +5,20 @@ import {createSceneEditorToolbar} from "./scene-editor-toolbar.js";
 import {createFindReplaceController} from "./find-replace-controller.js";
 import {createFindReplacePanel} from "./find-replace-panel.js";
 import {registerMountedScene,unregisterMountedScene,markMountedSceneActive} from "./mounted-scene-registry.js";
-import {navigateToSceneMatch,clearProjectNavigationHighlight} from "./find-replace-navigation.js";
+import {navigateToSceneMatch} from "./find-replace-navigation.js";
 
 // Find/Replace Stage D1: the one place a controller's optional project-scope
 // dependencies (see find-replace-controller.js's own factory doc comment)
 // get wired to their real implementations -- `openSceneForEditing` is
 // pre-bound here so find-replace-controller.js itself never needs to know
-// about it per-call.
+// about it per-call. Decoration management (all project-scope highlighting)
+// is entirely find-replace-controller.js's own job -- see its
+// applyProjectDecorations -- so navigation only needs wiring for movement.
 function projectSearchDeps({getProjectData,openSceneForEditing}){
   if(!getProjectData)return {};
   return {
     getProjectData,
-    navigateToSceneMatch:(sceneId,matchRange,options)=>navigateToSceneMatch(sceneId,matchRange,{...options,openSceneForEditing}),
-    clearProjectNavigationHighlight
+    navigateToSceneMatch:(sceneId,matchRange,options)=>navigateToSceneMatch(sceneId,matchRange,{...options,openSceneForEditing})
   };
 }
 

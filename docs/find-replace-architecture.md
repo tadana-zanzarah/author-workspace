@@ -70,6 +70,98 @@ documented here until they're built.
   completely different, simultaneously-open surface/controller instance.
   A full cross-surface refresh would need a project-wide edit event bus,
   out of scope for this stage.
+- **Follow-up UX debt (explicitly not solved, not to fold into Stage D2 by
+  accident)**: navigating a project result to a scene mounted nowhere closes
+  the originating panel/modal (see the limitation above) with no way back to
+  the project result list/history afterward. A real "return to project
+  search results after opening an unmounted scene" flow needs some kind of
+  cross-surface search-session state or routing, which is a bigger design
+  question than a fix pass should absorb silently.
+
+## Corrective pass: manual-test regressions found after Stage D1
+
+Manual testing of Stage D1 (base `dc5820d`) found several real defects, fixed
+in place (same files, no new stage number) rather than deferred to Stage D2:
+
+- **Decorations disappeared in project scope** — `setScope("project")`
+  cleared the attached view's decorations and nothing ever replaced them.
+  Root cause: project scope had no decoration story of its own at all. Fixed
+  by `find-replace-controller.js`'s `applyProjectDecorations()`, the single
+  place that now decorates EVERY mounted registration for every scene the
+  current project result includes (via `mounted-scene-registry.js`'s
+  `getMountedSceneRegistrations`), reusing the exact Stage C decoration
+  primitive (`buildMatchDecorations`) — never a second highlighting system.
+  A registration is only decorated when its own current doc still equals
+  (`Node#eq`) the doc the search actually ran against; explicitly cleared
+  when it drops out of the result set, scope changes, or the panel closes
+  (`clearAllProjectDecorations`). `find-replace-navigation.js`'s own
+  competing single-match decoration dispatch (the OTHER half of the same
+  bug — two independent decoration dispatchers racing on one plugin key) was
+  removed; navigation now only ever sets the real editor selection.
+- **A "large selection" could result from navigation** — root-caused to a
+  real, separate bug: a single-editor surface (Scene modal, standalone
+  "Текст сцены") only ever destroys its PREVIOUS mount defensively on its
+  NEXT open (existing, accepted pre-D1 pattern) — closing it just hides the
+  modal, leaving its mounted-scene-registry registration alive, identical-
+  doc, and (if it happened to be used/activated more recently) preferred
+  over a genuinely visible mount for the same scene by
+  `getPreferredLiveSceneView`'s own tie-break. Navigating a project result
+  could therefore reopen a stale, hidden modal instead of acting on the
+  visible one — which is what actually produced the reported symptom
+  (wrong/oversized-looking target). Fixed in `mounted-scene-registry.js`:
+  candidates are narrowed to VISIBLE ones (`view.dom.offsetParent!==null`)
+  before any doc-equality/activation tie-break runs, falling back to the
+  full usable set only if none are visible.
+- **Opening Find always activated match #1** — fixed via
+  `pickInitialActiveIndex`/`pickInitialProjectMatchIndex` in
+  `find-replace-controller.js`: a genuinely FRESH activation (the tracked
+  active index was `-1`, not merely reclamped after an edit) now prefers a
+  match containing the caret, else the first match at/after it, else wraps
+  to the first — for project scope, scoped to whichever scene is currently
+  open in the attached view specifically. The existing "clamp after an edit
+  shrinks the match list" policy is untouched.
+- **Result-pane sizing/resizer** — a default ~6-row height
+  (`DEFAULT_RESULTS_HEIGHT`) plus a small, local, min/max-bounded (90–420px),
+  pointer- and keyboard-operable drag handle (`.rte-project-results-resizer`)
+  between the results list and the editor.
+- **Sticky/layout regression** — the results list is now wrapped in
+  `.rte-project-results-wrapper` (`flex:none`) rather than being inserted
+  bare: the standalone "Текст сцены" modal's `.modal` is a FIXED-height flex
+  column whose only intended growing/shrinking child is `.rte-editor`
+  (`flex:1 1 auto`); the un-wrapped results list previously had no explicit
+  `flex` value and silently competed with the editor for the column's
+  remaining space under the browser's default flex-shrink behavior,
+  squeezing the manuscript's own visible area — this is what manual testing
+  reported as "sticky behavior disappeared". `flex:none` is a harmless no-op
+  for `#sceneModal`/`#allScenesModal`, which don't lay their `.modal` out as
+  a flex column at all; `#allScenesModal`'s own `.rte-sticky-controls`
+  itself was never actually broken (confirmed directly) but is now covered
+  by regression tests alongside the standalone-surface fix.
+- **Replace-lockout wording** — reworded from a promised/coming-soon-feature
+  phrasing to a plain, factual "not available in this mode"; project-wide
+  Replace stays out of scope and the controller-level guard
+  (`replaceCurrent`/`replaceAll` refuse to run in project scope even called
+  directly) is unchanged.
+
+Regression coverage: `tools/mounted-scene-registry.test.mjs` (visibility
+tie-break) and `tools/find-replace-project-search-browser.test.mjs` (all-
+scene decorations, focus-loss persistence, scope-switch decoration
+lifecycle, exact-range verification, caret-relative activation in both
+scopes, resizer drag/clamp, sticky/layout). `tools/find-replace-current-
+scene-browser.test.mjs` needed two assertions updated (not reverted) to
+explicitly home the caret before checking a specific match index, since
+"opening Find always selects match #1 regardless of caret" was itself one
+of the behaviors this pass deliberately changed — the caret-relative
+activation itself is covered by its own new assertions instead.
+
+**Pre-existing, out-of-scope finding (not part of this pass, not introduced
+by it, not introduced by Stage D1 either):** `tools/accessibility-
+browser.test.mjs` fails the same way — "Полный текст не получил initial
+focus" — at both `dc5820d` (Stage D1) and `455146f` (accepted Stage C base),
+confirmed via clean worktrees at each exact commit with no other changes
+present. Left unfixed here since it predates this entire branch and is
+neither one of the seven defects this pass targets nor part of the Stage
+C/D1/T1/T2 suites this pass was asked to re-run.
 
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 

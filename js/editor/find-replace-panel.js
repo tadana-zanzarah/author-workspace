@@ -39,6 +39,16 @@
 // Keeping it a sibling instead means `container`'s own children are still
 // exactly "the one compact control row", exactly what that check verifies,
 // with zero change to Stage C's accepted behavior/geometry.
+//
+// Manual-test regression fix (item 4): a fixed, small default height (~6
+// result rows -- necessarily approximate since rows are grouped under
+// scene/chapter headers of their own, not a uniform list) plus a min/max-
+// bounded, user-draggable resize handle (see the resizer wiring below) --
+// never the whole modal, and never so large it would visually take over.
+const DEFAULT_RESULTS_HEIGHT=210;
+const MIN_RESULTS_HEIGHT=90;
+const MAX_RESULTS_HEIGHT=420;
+
 export function createFindReplacePanel(container,controller){
   container.innerHTML="";
   container.classList.add("rte-find-replace");
@@ -137,14 +147,54 @@ export function createFindReplacePanel(container,controller){
   // comment above for why this is a SIBLING of `container`, not a child.
   // Hidden by default; shown only while open AND scope is "project" (see the
   // subscribe callback below).
+  // Corrective pass (manual-test regression fix, item 4/5): the scrollable
+  // content (resultsRoot) and its drag handle (resizer) are wrapped in one
+  // `resultsWrapper` that is what actually gets inserted into the surface --
+  // two reasons this needs its own wrapper rather than putting the resizer
+  // directly inside resultsRoot: (1) renderProjectResults() below rebuilds
+  // resultsRoot's content from scratch on every snapshot (resultsRoot.
+  // innerHTML=""), which would silently delete the resizer along with it;
+  // (2) `#textModal .modal` is a FIXED-height flex column whose only
+  // intended growing/shrinking child is `.rte-editor` (flex:1) -- Stage D1
+  // originally inserted the results list there with no explicit `flex`
+  // value, so it competed with the editor for the column's remaining space
+  // under the browser's default flex-shrink behavior, silently squeezing the
+  // manuscript's own visible area and breaking the "toolbar/search stays a
+  // small fixed strip, the editor keeps everything else via its OWN internal
+  // scroll" model the standalone surface has always relied on (this is what
+  // manual testing described as "sticky behavior disappeared"). Giving the
+  // wrapper `flex:none` (css/editor.css) fixes that -- it now takes exactly
+  // its own explicit/resized height, never more, leaving the editor free to
+  // claim the rest; the same rule is a harmless no-op for sceneModal/
+  // allScenesModal, which don't use a flex-column modal at all.
+  const resultsWrapper=document.createElement("div");
+  resultsWrapper.className="rte-project-results-wrapper";
+  resultsWrapper.hidden=true;
+
   const resultsRoot=document.createElement("div");
   resultsRoot.className="rte-project-results";
-  resultsRoot.hidden=true;
   resultsRoot.setAttribute("data-dirty-ignore","true");
   resultsRoot.setAttribute("aria-label","Результаты поиска по проекту");
+
+  // A small, local, user-draggable vertical resizer -- no layout framework,
+  // just a thin handle that adjusts resultsRoot's own explicit height on
+  // pointer drag, clamped to a sensible range. Keyboard-operable too (arrow
+  // keys nudge the height) since it's the kind of control a screen-reader
+  // user could otherwise never operate.
+  const resizer=document.createElement("div");
+  resizer.className="rte-project-results-resizer";
+  resizer.setAttribute("role","separator");
+  resizer.setAttribute("aria-orientation","horizontal");
+  resizer.setAttribute("aria-label","Изменить высоту результатов поиска");
+  resizer.setAttribute("aria-valuemin",String(MIN_RESULTS_HEIGHT));
+  resizer.setAttribute("aria-valuemax",String(MAX_RESULTS_HEIGHT));
+  resizer.tabIndex=0;
+
+  resultsWrapper.append(resultsRoot,resizer);
+
   // "Весь текст" wraps its toolbar+find/replace panel in one shared
   // .rte-sticky-controls element that stays pinned to the top of the
-  // scrolling scene list (css/editor.css) -- inserting the results list as
+  // scrolling scene list (css/editor.css) -- inserting the results wrapper as
   // container's own sibling would make IT part of that sticky-pinned area
   // too, growing it tall enough to visually cover (and intercept pointer
   // events on) the manuscript underneath. Insert after the WHOLE sticky
@@ -158,8 +208,45 @@ export function createFindReplacePanel(container,controller){
   // for the app's own real modals, which are always static HTML already in
   // the document) -- insertAdjacentElement requires a parent to insert next
   // to.
-  if(insertAfterElement.parentElement)insertAfterElement.insertAdjacentElement("afterend",resultsRoot);
-  else container.appendChild(resultsRoot);
+  if(insertAfterElement.parentElement)insertAfterElement.insertAdjacentElement("afterend",resultsWrapper);
+  else container.appendChild(resultsWrapper);
+
+  function clampResultsHeight(height){
+    return Math.min(MAX_RESULTS_HEIGHT,Math.max(MIN_RESULTS_HEIGHT,height));
+  }
+  function setResultsHeight(height){
+    const clamped=clampResultsHeight(height);
+    resultsRoot.style.height=`${clamped}px`;
+    resizer.setAttribute("aria-valuenow",String(Math.round(clamped)));
+  }
+  setResultsHeight(DEFAULT_RESULTS_HEIGHT);
+
+  let resizePointerId=null,resizeStartY=0,resizeStartHeight=0;
+  resizer.addEventListener("pointerdown",event=>{
+    resizePointerId=event.pointerId;
+    resizeStartY=event.clientY;
+    resizeStartHeight=resultsRoot.getBoundingClientRect().height;
+    resizer.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  resizer.addEventListener("pointermove",event=>{
+    if(resizePointerId!==event.pointerId)return;
+    setResultsHeight(resizeStartHeight+(event.clientY-resizeStartY));
+  });
+  function endResize(event){
+    if(resizePointerId!==event.pointerId)return;
+    resizePointerId=null;
+  }
+  resizer.addEventListener("pointerup",endResize);
+  resizer.addEventListener("pointercancel",endResize);
+  // Keyboard equivalent for the same drag gesture -- a pointer-only resizer
+  // would be unusable via keyboard/screen reader (AGENTS.md's own
+  // accessibility requirements for new controls).
+  resizer.addEventListener("keydown",event=>{
+    const step=24;
+    if(event.key==="ArrowUp"){setResultsHeight(resultsRoot.getBoundingClientRect().height-step);event.preventDefault()}
+    else if(event.key==="ArrowDown"){setResultsHeight(resultsRoot.getBoundingClientRect().height+step);event.preventDefault()}
+  });
 
   findInput.addEventListener("input",()=>controller.setQuery(findInput.value));
   findInput.addEventListener("keydown",event=>{
@@ -195,7 +282,13 @@ export function createFindReplacePanel(container,controller){
     return many;
   }
 
-  const PROJECT_SCOPE_REPLACE_TITLE="Замена по всему проекту будет доступна после подтверждения изменений";
+  // Manual-test regression fix (item 6): this used to read "Замена по всему
+  // проекту будет доступна после подтверждения изменений" -- worded like a
+  // promised, coming-soon feature announcement. Project-wide Replace is
+  // explicitly out of scope for this stage (and the one after this fix
+  // pass); a plain, factual "not available in this mode" is all a disabled
+  // button needs, with no implied roadmap commitment.
+  const PROJECT_SCOPE_REPLACE_TITLE="Недоступно в режиме «Весь проект»";
 
   // Rebuilds the project-results list from scratch on every relevant
   // snapshot -- simplest correct approach for a "practical first version"
@@ -206,8 +299,8 @@ export function createFindReplacePanel(container,controller){
   // as markup (product brief section 7).
   function renderProjectResults(snapshot){
     resultsRoot.innerHTML="";
-    if(!snapshot.open||snapshot.scope!=="project"){resultsRoot.hidden=true;return}
-    resultsRoot.hidden=false;
+    if(!snapshot.open||snapshot.scope!=="project"){resultsWrapper.hidden=true;return}
+    resultsWrapper.hidden=false;
     if(!snapshot.query){
       const hint=document.createElement("div");
       hint.className="rte-project-results-hint";
@@ -321,7 +414,7 @@ export function createFindReplacePanel(container,controller){
       unsubscribe();
       container.innerHTML="";
       container.hidden=true;
-      resultsRoot.remove();
+      resultsWrapper.remove();
     }
   };
 }

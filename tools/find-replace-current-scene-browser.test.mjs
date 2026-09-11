@@ -402,6 +402,19 @@ try{
 
   const sceneEditor=id=>page.locator(`#allSceneEditor-${id} .ProseMirror`);
   await sceneEditor("scene-all-a").click({clickCount:1});
+  // Find/Replace Stage D1 corrective pass: opening Find now activates
+  // whichever match the CARET is at/after (see find-replace-controller.js's
+  // pickInitialActiveIndex) rather than always match #1 -- a plain click on
+  // this editor's bounding box (default Playwright center-click, with the
+  // box padded well past this short scene's actual 3 lines by the shared
+  // min-height:200px rule) lands the caret wherever the browser's own
+  // nearest-position algorithm puts it, which is no longer "1 из 3" by
+  // construction. Explicitly homing the caret keeps this assertion about
+  // what it actually means to test -- "the shared panel finds Scene A's own
+  // 3 matches" -- deterministic, independent of that browser/layout detail.
+  // The caret-relative activation itself has its own dedicated coverage in
+  // tools/find-replace-project-search-browser.test.mjs.
+  await page.keyboard.press("Control+Home");
   await page.click("#allScenesToolbar .rte-btn-find");
   await page.fill("#allScenesFindReplace .rte-find-input","кот");
   if((await page.locator("#allScenesFindReplace .rte-find-count").textContent())!=="1 из 3")
@@ -476,6 +489,14 @@ try{
   // clear the sticky toolbar+panel band, not just land "inside" the outer
   // container's own bounding rect.
   await page.locator("#allSceneEditor-scene-long-all .ProseMirror").click();
+  // Find/Replace Stage D1 corrective pass: see the earlier "Control+Home"
+  // comment in Part 3 above -- this scene is 60 paragraphs tall, so a plain
+  // center-of-viewport click lands the caret wherever the browser's own
+  // nearest-position algorithm resolves it (not necessarily match #1 any
+  // more, now that initial activation is caret-relative). Homing the caret
+  // keeps this specifically about the wrap-around test below, not about
+  // exactly where a synthetic click happens to land.
+  await page.keyboard.press("Control+Home");
   await page.locator("#allScenesModal .modal").evaluate(el=>{el.scrollTop=0});
   await page.click("#allScenesToolbar .rte-btn-find");
   await page.fill("#allScenesFindReplace .rte-find-input","кота");

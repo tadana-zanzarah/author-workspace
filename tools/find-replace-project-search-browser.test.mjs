@@ -34,13 +34,19 @@ const project={
     scene("scene-all","В общем тексте","chapter-1","Кот гулял по общему тексту."),
     // included:false so this scene is never mounted anywhere -- not even in
     // "Весь текст" -- making it a genuine case-B navigation target.
-    scene("scene-unmounted","Нигде не открыта","chapter-unassigned","Кот нигде не открыт.",{included:false})
+    scene("scene-unmounted","Нигде не открыта","chapter-unassigned","Кот нигде не открыт.",{included:false}),
+    // Corrective pass (manual-test regression fix): a dedicated scene, using
+    // a word that never appears anywhere else in this fixture ("пса", never
+    // "кот"), for the caret-relative-initial-activation tests below --
+    // keeping it fully independent of every "кот"-based assertion above.
+    scene("scene-caret","Каретка","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про пса.`).join("\n"))
   ]
 };
 
 const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
 try{
   const page=await browser.newPage();
+  await page.setViewportSize({width:1200,height:800});
   await page.addInitScript(value=>{if(sessionStorage.getItem("frps-seeded"))return;sessionStorage.setItem("frps-seeded","1");localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
   for(let attempt=0;attempt<30;attempt++){try{await page.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
 
@@ -231,6 +237,238 @@ try{
       throw new Error(`Scene ${s.id} was persisted with unexpected changes from project search/navigation alone`);
   }
 
+  await page.click("#fullSceneTextFindReplace .rte-find-close");
+  await page.click("#closeText");
+
+  // ============================================================
+  // PART 8 (corrective pass, manual-test regressions): project-scope
+  // decorations must cover EVERY mounted scene the result includes -- not
+  // just the currently-attached view -- with the same accepted Stage C
+  // strong/dim treatment, surviving focus loss, and correctly reapplied
+  // across scope switches. This is the fix for the regression where
+  // switching to "Весь проект" used to simply clear decorations and never
+  // show anything in their place.
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","кот");
+  await page.waitForTimeout(80);
+
+  const mountedSceneIds=["scene-standalone","scene-modal-target","scene-all"];
+  async function decorationCounts(){
+    const out={};
+    for(const id of mountedSceneIds){
+      out[id]={
+        matches:await page.locator(`#allSceneEditor-${id} .rte-find-match`).count(),
+        active:await page.locator(`#allSceneEditor-${id} .rte-find-match-active`).count()
+      };
+    }
+    return out;
+  }
+  {
+    const counts=await decorationCounts();
+    for(const id of mountedSceneIds){
+      if(counts[id].matches<1)
+        throw new Error(`Scene ${id} has no project-scope match decorations (regression: switching to Весь проект used to clear ALL decorations and never reapply them)`);
+    }
+    const totalActive=mountedSceneIds.reduce((sum,id)=>sum+counts[id].active,0);
+    if(totalActive!==1)throw new Error(`Expected exactly ONE strong active-match decoration across every mounted scene, got ${totalActive}: ${JSON.stringify(counts)}`);
+  }
+
+  // --- Decorations must survive losing editor DOM focus (e.g. clicking back
+  // into the Find input).
+  {
+    const before=await decorationCounts();
+    await page.click("#allScenesFindReplace .rte-find-input");
+    await page.waitForTimeout(50);
+    const after=await decorationCounts();
+    if(JSON.stringify(before)!==JSON.stringify(after))
+      throw new Error(`Losing editor focus must not clear/alter project-scope decorations (before=${JSON.stringify(before)}, after=${JSON.stringify(after)})`);
+  }
+
+  // --- Clicking a result in a DIFFERENT mounted scene moves the strong
+  // "active" decoration there while every other mounted scene's own matches
+  // stay highlighted (dim) -- never disappearing -- and the real editor
+  // selection is EXACTLY the matched text, never a larger range/paragraph
+  // (the other manual-test regression this pass fixes).
+  {
+    const targetRow=page.locator("#allScenesModal .rte-project-results .rte-project-result-group",{hasText:"В модалке"}).locator(".rte-project-result-row").first();
+    await targetRow.click();
+    await page.waitForTimeout(80);
+    const counts=await decorationCounts();
+    if(counts["scene-modal-target"].active!==1)throw new Error("The active decoration did not move to the newly navigated-to scene");
+    for(const id of mountedSceneIds){
+      if(counts[id].matches<1)throw new Error(`Scene ${id} lost its decorations after navigating to a different scene's result`);
+    }
+    const totalActive=mountedSceneIds.reduce((sum,id)=>sum+counts[id].active,0);
+    if(totalActive!==1)throw new Error(`Expected exactly one active decoration after navigating, got ${totalActive}`);
+
+    // The active decoration span is built from the exact same {from,to} the
+    // real editor selection was set to (find-replace-navigation.js's
+    // selectAndReveal uses one single resolved match for both) -- checking
+    // its own rendered text is a reliable, focus-timing-independent way to
+    // confirm the target range is EXACTLY the matched text, never a larger
+    // one (a real ProseMirror `Decoration.inline(from,to,...)` renders a
+    // span containing precisely the [from,to) text, so an oversized range
+    // would show up here just as directly as in the real selection).
+    const activeDecorationText=await page.locator("#allSceneEditor-scene-modal-target .rte-find-match-active").textContent();
+    if(activeDecorationText.toLowerCase()!=="кот")
+      throw new Error(`Expected the active match range to be EXACTLY "кот", got a range of length ${activeDecorationText.length}: ${JSON.stringify(activeDecorationText)}`);
+    const focusedWithinTarget=await page.evaluate(()=>{
+      const editor=document.getElementById("allSceneEditor-scene-modal-target").querySelector(".ProseMirror");
+      return document.activeElement===editor||editor.contains(document.activeElement);
+    });
+    if(!focusedWithinTarget)throw new Error("Navigating to a project result did not focus that scene's own editor");
+  }
+
+  // --- Scope switching: leaving "Весь проект" clears every project
+  // decoration everywhere (not just the attached view) and restores
+  // ordinary current-scene highlighting for the attached scene; returning to
+  // project scope re-applies project decorations across every mounted
+  // participating scene again.
+  {
+    await page.click("#allScenesFindReplace .rte-scope-scene");
+    await page.waitForTimeout(80);
+    const counts=await decorationCounts();
+    if(counts["scene-modal-target"].matches!==1)
+      throw new Error("Leaving project scope must still show ordinary current-scene highlighting on the attached view");
+    for(const id of mountedSceneIds.filter(x=>x!=="scene-modal-target")){
+      if(counts[id].matches!==0)throw new Error(`Leaving project scope must clear decorations on scene ${id}, which is not the attached view`);
+    }
+    await page.click("#allScenesFindReplace .rte-scope-project");
+    await page.waitForTimeout(80);
+    const restored=await decorationCounts();
+    for(const id of mountedSceneIds){
+      if(restored[id].matches<1)throw new Error(`Re-entering project scope did not re-decorate scene ${id}`);
+    }
+  }
+
+  // --- Item 6: the Replace lockout must read as a plain factual "not
+  // available here", never a promised/coming-soon feature announcement.
+  {
+    const title=await page.locator("#allScenesFindReplace .rte-replace-one").getAttribute("title");
+    if(/будет доступн|после подтвержден/i.test(title))
+      throw new Error(`Replace-lockout title must not read like a promised upcoming-feature announcement, got: ${JSON.stringify(title)}`);
+  }
+
+  // ============================================================
+  // PART 9 (corrective pass): opening Find/initiating a search activates the
+  // match at/after the current caret, never blindly match #1 -- current-
+  // scene surface first.
+  // ============================================================
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
+
+  await page.evaluate(()=>openSceneText("scene-caret"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  await page.locator("#fullSceneTextEditor .scene-paragraph",{hasText:"Абзац 6"}).click();
+  await page.keyboard.press("Home"); // caret at paragraph 6's own start, immediately before its "пса"
+  await page.click("#fullSceneTextToolbar .rte-btn-find");
+  await page.fill("#fullSceneTextFindReplace .rte-find-input","пса");
+  await page.waitForTimeout(80);
+  {
+    const count=await page.locator("#fullSceneTextFindReplace .rte-find-count").textContent();
+    if(count!=="6 из 10")throw new Error(`Expected caret-relative activation to start at match 6 of 10, got: ${count}`);
+    if(await page.locator("#fullSceneTextEditor .rte-find-match").count()!==10)
+      throw new Error("Caret-relative activation must not reduce the full highlighted match set -- every match stays visible");
+  }
+  await page.click("#fullSceneTextFindReplace .rte-find-close");
+  await page.click("#closeText");
+
+  // --- Same caret-relative policy for "Весь проект": the initial active
+  // result is the caret-relative one WITHIN whatever scene is currently
+  // open, not always the first result overall.
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.locator("#allSceneEditor-scene-caret .scene-paragraph",{hasText:"Абзац 6"}).click();
+  await page.keyboard.press("Home");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","пса");
+  await page.waitForTimeout(80);
+  {
+    const count=await page.locator("#allScenesFindReplace .rte-find-count").textContent();
+    if(count!=="6 из 10")throw new Error(`Expected project-scope caret-relative activation to start at 6 из 10, got: ${count}`);
+    if(await page.locator("#allSceneEditor-scene-caret .rte-find-match-active").count()!==1)
+      throw new Error("Project-scope caret-relative activation did not mark the caret-relative match active in its own editor");
+  }
+
+  // ============================================================
+  // PART 10 (corrective pass): result-pane default sizing (~6 rows) and the
+  // user-draggable resize handle -- min/max bounded, never resizes the
+  // whole modal.
+  // ============================================================
+  await page.locator("#allScenesModal .modal").evaluate(el=>{el.scrollTop=0});
+  await page.fill("#allScenesFindReplace .rte-find-input","кот"); // a query with a populated, multi-row result list
+  await page.waitForTimeout(80);
+  const resultsBox=page.locator("#allScenesModal .rte-project-results");
+  await resultsBox.scrollIntoViewIfNeeded();
+  const defaultHeight=await resultsBox.evaluate(el=>el.getBoundingClientRect().height);
+  if(Math.abs(defaultHeight-210)>2)
+    throw new Error(`Expected the default result-pane height to be ~210px (~6 rows), got ${defaultHeight}`);
+
+  const resizer=page.locator("#allScenesModal .rte-project-results-resizer");
+  {
+    const handleBox=await resizer.boundingBox();
+    await page.mouse.move(handleBox.x+handleBox.width/2,handleBox.y+handleBox.height/2);
+    await page.mouse.down();
+    await page.mouse.move(handleBox.x+handleBox.width/2,handleBox.y+handleBox.height/2+120,{steps:5});
+    await page.mouse.up();
+    await page.waitForTimeout(50);
+  }
+  const grownHeight=await resultsBox.evaluate(el=>el.getBoundingClientRect().height);
+  if(grownHeight<defaultHeight+80)throw new Error(`Dragging the resizer down should have grown the result pane, got ${grownHeight} from a default of ${defaultHeight}`);
+
+  const modalHeightBefore=await page.locator("#allScenesModal .modal").evaluate(el=>el.getBoundingClientRect().height);
+  {
+    const handleBox=await resizer.boundingBox(); // re-fetch: the resizer itself moved down after the grow above
+    await page.mouse.move(handleBox.x+handleBox.width/2,handleBox.y+handleBox.height/2);
+    await page.mouse.down();
+    await page.mouse.move(handleBox.x+handleBox.width/2,handleBox.y+handleBox.height/2+1000,{steps:5});
+    await page.mouse.up();
+    await page.waitForTimeout(50);
+  }
+  const clampedHeight=await resultsBox.evaluate(el=>el.getBoundingClientRect().height);
+  if(clampedHeight>420+2)throw new Error(`Result-pane height must clamp to its max even when dragged far past it, got ${clampedHeight}`);
+  const modalHeightAfter=await page.locator("#allScenesModal .modal").evaluate(el=>el.getBoundingClientRect().height);
+  if(Math.abs(modalHeightAfter-modalHeightBefore)>2)
+    throw new Error(`Resizing the result pane must never resize the whole modal (before=${modalHeightBefore}, after=${modalHeightAfter})`);
+
+  // ============================================================
+  // PART 11 (corrective pass): sticky/layout regression. "Весь текст"'s
+  // shared toolbar+Find/Replace wrapper must still stick and stay pinned
+  // even with the (now resizable) result pane visible beneath it; the
+  // standalone "Текст сцены" modal's manuscript editor must keep a
+  // reasonable working height and its Save/Close actions must stay
+  // reachable -- the result pane must never squeeze that fixed-height flex
+  // column the way it did before this fix pass.
+  // ============================================================
+  {
+    const sticky=page.locator("#allScenesModal .rte-sticky-controls");
+    if((await sticky.evaluate(el=>getComputedStyle(el).position))!=="sticky")
+      throw new Error("The shared toolbar+Find/Replace wrapper must remain position:sticky in \"Весь текст\"");
+    await page.locator("#allScenesModal .modal").evaluate(el=>{el.scrollTop=500});
+    await page.waitForTimeout(50);
+    const top=await sticky.evaluate(el=>el.getBoundingClientRect().top);
+    if(top>50)throw new Error("Sticky toolbar/panel scrolled away with the manuscript instead of staying pinned");
+  }
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
+
+  await page.evaluate(()=>openSceneText("scene-caret"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  await page.click("#fullSceneTextToolbar .rte-btn-find");
+  await page.click("#fullSceneTextFindReplace .rte-scope-project");
+  await page.fill("#fullSceneTextFindReplace .rte-find-input","пса");
+  await page.waitForTimeout(80);
+  {
+    const editorHeight=await page.locator("#fullSceneTextEditor").evaluate(el=>el.getBoundingClientRect().height);
+    if(editorHeight<250)throw new Error(`The manuscript editor must keep a reasonable working height alongside the results pane, got ${editorHeight}px (this is the "sticky behavior disappeared" regression)`);
+    if(!await page.locator("#saveText").isVisible())throw new Error("Save button must stay visible/reachable with the results pane open");
+    if(!await page.locator("#closeText").isVisible())throw new Error("Close button must stay visible/reachable with the results pane open");
+  }
   await page.click("#fullSceneTextFindReplace .rte-find-close");
   await page.click("#closeText");
 
