@@ -348,6 +348,196 @@ re-run and remain green with zero changes needed to any of them.
 identity anywhere. The two remaining `Node#eq` call sites are staleness/
 agreement checks on already-`sceneId`-identified data, documented above.
 
+## Stage D1 final fix: modal lifecycle bug + arrow-navigation scope + sticky gap
+
+Manual testing on top of the final D1 hardening pass (base `e1ef4d0`) found
+one critical modal/navigation lifecycle defect and two UX/navigation issues.
+All three fixed in place, plus a dedicated investigation into whether search/
+navigation alone can dirty a clean scene (it cannot -- see below).
+
+### Critical: repeated navigation to an unmounted scene could leave two modals open at once
+
+**Root cause**: `mounted-scene-registry.js`'s `getPreferredLiveSceneView`
+narrows candidates to VISIBLE registrations first, falling back to the full
+usable set only when NONE are currently visible ("better to reveal something
+than nothing" -- needed by callers like live project search, which
+legitimately wants the best available content regardless of on-screen
+visibility). That fallback branch, however, was also being trusted by
+`find-replace-navigation.js`'s `navigateToSceneMatch` as a safe "already
+mounted, just activate it" (case A) signal. Because this app's existing,
+accepted "defensive destroy-before-create" pattern (standalone "Текст
+сцены"/Scene modal only destroy their PREVIOUS ProseMirror mount on their
+NEXT open -- closing via button/Escape/backdrop just hides the modal) leaves
+a registration alive long after the surface showing it has closed, a scene
+visited once via case B (e.g. "Нигде не открыта", opened from a project
+result) could later be the SOLE, STALE, HIDDEN registration on record. Re-
+navigating to that same scene a second time then satisfied
+`getPreferredLiveSceneView`'s "only one candidate, and nothing else to
+disagree with" check, reporting `status:"ok"` -- so `navigateToSceneMatch`
+took case A and called that stale registration's own `activate()` directly.
+`activate()` just re-shows the modal (`revealSurface()` -> `showModal()`); it
+never runs `requestEditorTransition`'s own "close whichever editing surface
+is currently open FIRST" step, because that step only exists in the case-B
+(`openSceneForEditing`) path. Net effect: the surface that was open when the
+user triggered this second navigation (e.g. "Весь текст") stayed at
+`display:flex` underneath the reopened standalone modal -- two simultaneous
+"open" modals, exactly the invisible-overlay/blocked-controls state manual
+testing reported. Confirmed via instrumented reproduction (not assumed):
+navigating to two DIFFERENT unmounted scenes never reproduced it; repeatedly
+navigating to the SAME previously-opened scene reproduced it reliably on the
+second visit, and `console.log` tracing inside `requestEditorTransition`
+confirmed the destination's own transition call never ran at all in the
+failing case (case A was taken, not case B) -- not a crash, not a z-index
+issue, not a focus/inert bug.
+
+**Fix (narrow, no modal-framework changes)**: `getPreferredLiveSceneView`
+now returns an explicit `visible` boolean alongside `status`/`registration`
+-- true only when the chosen registration came from the VISIBLE subset, not
+the "nothing was visible, fall back to the full usable set" branch.
+`navigateToSceneMatch`'s case-A gate is now `preferred.status==="ok" &&
+preferred.visible`; a stale-but-technically-usable hidden registration is
+treated the same as "not mounted at all" and goes through the real case-B
+open flow instead, which correctly destroys the stale mount and runs the
+single-surface transition (close-current-then-open-next) before showing
+anything. Every other existing caller of `getPreferredLiveSceneView`
+(project search's live-doc resolution) ignores the new field and is
+unaffected -- it never cared about on-screen visibility, only content.
+
+Regression: `tools/find-replace-project-search-browser.test.mjs` now
+navigates to the SAME unmounted scene from "Весь текст" across **two** full
+open -> close -> reopen -> re-search -> click cycles, auditing (after both
+the open and the close of each round) the FULL `window.modalStack` and every
+`.modal-backdrop`'s own inline `style.display` -- not just the one modal
+expected to be affected -- for exactly one open modal and zero orphaned
+backdrops, plus a direct check that the destination editor and its Close
+control are genuinely visible/interactive each time (the literal "controls
+unclickable"/"invisible overlay" symptom reported). Audits check the
+inline `style.display`, not `getComputedStyle`, deliberately: closing a
+modal fades it out over an intentional, pre-existing 160ms CSS transition
+(`css/modals.css`'s `allow-discrete` display transition), during which
+`getComputedStyle` still reports the old value -- checking inline style
+avoids a false positive against that unrelated, correct animation.
+
+### Can search/navigation/decorations alone dirty a clean scene?
+
+Investigated directly (opening Find, changing scope, typing a query with its
+resulting cross-scene decoration dispatches, clicking an already-mounted
+project result, clicking an unmounted one with its fallback decorations) --
+**no**. Every one of those paths only ever dispatches a selection change
+and/or a `findReplacePluginKey` decoration-only transaction (both explicitly
+tagged and never touching `doc`), so `handleTransaction`'s own
+`tr.docChanged` guard (and thus every dirty tracker's `isDirty()`, which
+diffs a normalized DOM-forms snapshot) never sees a reason to flip. Proven,
+not just asserted, by a dedicated regression in
+`find-replace-project-search-browser.test.mjs` asserting
+`trackerFor(id).isDirty()===false` after each of those operations in
+sequence, including on the DESTINATION surface after a case-B navigation.
+
+### Arrow (Next/Previous) navigation must never leave the current visible editing context
+
+**Problem**: in project scope ("Весь проект"), Next/Previous stepped through
+the ENTIRE canonical project match list (`flattenProjectMatches`), including
+matches in excluded/unmounted scenes -- so an arrow press could silently
+delegate through `openSceneForEditing` and open a scene the user wasn't even
+looking at, exactly like clicking a project-results row does. That conflates
+two UX operations that should stay separate: an explicit result-row click is
+deliberate full-project navigation (unrestricted, unchanged -- see
+`activateProjectMatch`), while Next/Previous is meant to stay within
+whatever the user is currently, visibly editing.
+
+**Fix**: `find-replace-controller.js`'s factory takes an optional
+`getNavigableSceneIds()` dependency -- the set of scene ids Next/Previous may
+land on right now. `createSceneEditorGroup` ("Весь текст") wires its own
+`sceneIds()` (exactly the scenes mounted INSIDE that one group instance,
+never scenes merely open elsewhere); `mountSceneEditor` (standalone "Текст
+сцены", Scene modal) never wires it at all, which makes the controller
+default to "just the one attached scene" -- exactly right for a single-
+editor surface, with no extra code needed at that call site.
+`next()`/`previous()`'s project-scope branch now filters the canonical flat
+match list down to this navigable domain (`navigableProjectMatches`) BEFORE
+resolving the caret-relative origin or falling back to a modular step
+(`resolveProjectDomainIndexFromCaret`/`domainIndexForMatchId`) -- so stepping
+past the attached scene's own last/first match continues into the next/
+previous scene *within the domain* (another mounted scene in "Весь текст";
+wraps back within the one open scene for standalone/Scene modal) rather than
+into the canonically-next scene in the whole project, which could be
+excluded or simply not open anywhere. Because every domain match's scene is,
+by construction, already mounted and visible,
+`triggerProjectNavigation()`'s call into `navigateToSceneMatch` always
+resolves via case A here -- it can no longer reach case B's "open a scene
+that isn't currently open" fallback from an arrow press. This is achieved
+entirely by restricting the candidate pool feeding the existing
+caret-resolution algorithm; `navigateToSceneMatch`/`activateProjectMatch`
+themselves are unchanged, and explicit result-row clicks remain fully
+unrestricted (can still open an unmounted scene, with full normal + active
+decorations, per the pre-existing accepted limitation that doing so closes
+the originating "Весь текст"/modal).
+
+Regression: two dedicated scene pairs were added to the fixture project --
+`scene-arrow-mounted-1`/`scene-arrow-mounted-2` (both mounted) plus
+`scene-arrow-unmounted` (excluded, sharing the same query) for "Весь текст";
+`scene-arrow-standalone` (three matches in one scene) plus
+`scene-arrow-standalone-excluded` (excluded, sharing the same query) for
+standalone/Scene modal. Tests confirm: in "Весь текст", Next/Previous cycles
+only between the two mounted scenes, wraps at the ends of that visible set
+(first-visible + Previous -> last-visible; last-visible + Next ->
+first-visible, the task's own worked example in both directions), and never
+opens any other modal even though the excluded scene's result row is
+genuinely present and clickable in the list; in standalone and the Scene
+modal, Next/Previous wraps entirely within the one open scene's own three
+matches and never reaches (or opens) the excluded sibling scene. Live-caret
+redefinition of the navigation origin (moving the caret/focus into a
+different MOUNTED "Весь текст" scene) is covered by the existing corrective-
+pass regression (`scene-lynx-a`/`scene-lynx-b`, both mounted) plus this
+pass's own mounted-pair test -- both continue to pass unchanged, confirming
+the domain restriction did not disturb mounted-to-mounted caret-relative
+navigation.
+
+### Sticky search region: gap between the toolbar/Find-Replace row and the results pane
+
+**Root cause**: "Весь текст"'s sticky region (`.rte-sticky-controls`)
+zeroed only `.rte-toolbar`'s own trailing `margin-bottom:10px` (so the
+toolbar and the Find/Replace row sit flush), but `.rte-find-replace` kept
+its own `margin-bottom:10px` intended for "the gap before the manuscript
+list that follows the WHOLE sticky wrapper" -- correct while
+`.rte-find-replace` was always the sticky region's last child. Once
+`.rte-project-results-wrapper` is ALSO visible inside that same sticky
+region (scope="Весь проект" with a matching query -- moved inside the sticky
+wrapper by the previous, final D1 hardening pass), it became a second
+in-flow sibling AFTER `.rte-find-replace`, inheriting that trailing margin
+as a transparent ~10px slit BETWEEN the two rows, with manuscript text
+visible sliding past through it during scroll.
+
+**Fix**: every inner row's own bottom margin is zeroed inside
+`.rte-sticky-controls` (`.rte-toolbar`, `.rte-find-replace`, now also
+`.rte-project-results-wrapper`), and the ONE intentional trailing gap moved
+to `.rte-sticky-controls` itself via `padding-bottom:10px` -- so it always
+lands after whichever row is genuinely last, regardless of which are
+currently visible, with zero internal gaps for manuscript to show through
+and no double borders (each row keeps its own single `border-bottom`
+divider). Purely a spacing/margin change; the resizer, the 4-row default,
+and the sticky-position mechanics themselves are untouched.
+
+Regression: a new check in `find-replace-project-search-browser.test.mjs`
+measures the actual layout geometry -- the Find/Replace row's bottom edge
+and the results wrapper's top edge must coincide (within 1px), and the
+sticky region's own bottom edge must sit ~10px past the results wrapper's
+bottom edge (the one relocated trailing gap, not a doubled one).
+
+### Registry/modal cleanup audit (item 7)
+
+No additional registry or modal-lifecycle changes were made beyond the
+`visible`-flag fix above. The existing "defensive destroy-before-create"
+pattern (surfaces destroy their PREVIOUS mount on their NEXT open, not on
+close) is pre-existing, accepted architecture, not something this pass
+revisits -- the `visible` flag makes `navigateToSceneMatch` correctly
+distinguish "genuinely reveal-able right now" from "on record but stale"
+without requiring any surface to proactively unregister/destroy on close, so
+multiple simultaneous, genuinely-mounted registrations of the same scene
+(e.g. open in both "Весь текст" and a standalone modal at once) remain fully
+supported and untouched. No broader modal-framework rewrite was needed or
+attempted.
+
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 
 Pure, headless, DOM/EditorState/Supabase-independent. `findMatches(doc, query,

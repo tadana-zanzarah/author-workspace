@@ -14,11 +14,22 @@ import {navigateToSceneMatch} from "./find-replace-navigation.js";
 // about it per-call. Decoration management (all project-scope highlighting)
 // is entirely find-replace-controller.js's own job -- see its
 // applyProjectDecorations -- so navigation only needs wiring for movement.
-function projectSearchDeps({getProjectData,openSceneForEditing}){
+//
+// Final D1 fix (arrow-navigation scope): `getNavigableSceneIds`, when given,
+// tells the controller which scene ids Next/Previous are allowed to land on
+// -- see find-replace-controller.js's own doc comment on why this differs
+// from a raw "is this scene mounted anywhere in the whole app" check.
+// createSceneEditorGroup below passes its own `sceneIds()` (exactly the
+// scenes mounted INSIDE THIS "Весь текст" instance); mountSceneEditor never
+// passes it at all, which makes the controller default to "just the one
+// attached scene" -- exactly standalone/Scene-modal's required behavior,
+// with no extra code needed at that call site.
+function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds}){
   if(!getProjectData)return {};
   return {
     getProjectData,
-    navigateToSceneMatch:(sceneId,matchRange,options)=>navigateToSceneMatch(sceneId,matchRange,{...options,openSceneForEditing})
+    navigateToSceneMatch:(sceneId,matchRange,options)=>navigateToSceneMatch(sceneId,matchRange,{...options,openSceneForEditing}),
+    getNavigableSceneIds
   };
 }
 
@@ -125,7 +136,7 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
 // additionally retargets the shared toolbar/find-replace controller to that
 // scene and scrolls its own block into view -- see mountScene below.
 export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null}){
-  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing})):null;
+  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds:()=>sceneIds()})):null;
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
   const instances=new Map();

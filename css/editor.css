@@ -272,15 +272,32 @@
    (css/modals.css) at the opposite edge, offsetting by the modal's own 18px
    padding so it sits flush with the true top edge once stuck instead of
    floating 18px below it. */
-#allScenesModal .rte-sticky-controls{position:sticky;top:-18px;z-index:2}
+/* Final D1 fix (product brief item 6): the sticky region's OWN trailing
+   `padding-bottom:10px` is now the single source of "the gap before the
+   manuscript list that follows the whole sticky wrapper" -- previously that
+   gap was each inner row's own `margin-bottom:10px` left un-zeroed on
+   whichever one happened to render last. That worked fine while
+   .rte-find-replace was always the last child, but the moment
+   .rte-project-results-wrapper is ALSO visible (scope="Весь проект" with a
+   query typed), it became a second in-flow sibling AFTER .rte-find-replace,
+   inheriting its own trailing margin -- exposing .rte-find-replace's
+   margin-bottom as a transparent 10px slit BETWEEN the two rows (manuscript
+   text scrolling past visibly through it) instead of after the whole block.
+   Fix: zero every inner row's own bottom margin (below) so the block is
+   flush internally with no gap for manuscript to show through, and reserve
+   the one intentional trailing gap on the wrapper itself, where it always
+   lands after whichever row is genuinely last, regardless of which are
+   currently visible. */
+#allScenesModal .rte-sticky-controls{position:sticky;top:-18px;z-index:2;padding-bottom:10px}
 /* .rte-toolbar's own margin-bottom:10px exists to space it from whatever
    comes after it -- previously the editor content directly, now the
    Find/Replace panel when the panel is open. Zeroed here specifically
    (rather than editing the shared .rte-toolbar rule, which every surface
-   uses) so the toolbar and panel sit flush together as one visual block;
-   the panel keeps its OWN margin-bottom:10px for the gap before the
-   manuscript list that follows the whole sticky wrapper. */
+   uses) so the toolbar and panel sit flush together as one visual block --
+   see this block's own comment above on where the trailing gap now lives. */
 #allScenesModal .rte-sticky-controls .rte-toolbar{margin-bottom:0}
+#allScenesModal .rte-sticky-controls .rte-find-replace{margin-bottom:0}
+#allScenesModal .rte-sticky-controls .rte-project-results-wrapper{margin-bottom:0}
 /* Each Scene keeps its own bounded, internally-scrolling box (same
    min/max-height shape the old per-scene textarea already had) so one very
    long scene can never make the rest of the manuscript impractical to

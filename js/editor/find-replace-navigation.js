@@ -107,7 +107,32 @@ function applyFallbackSceneDecorations(view,query,caseSensitive,resolvedMatch){
 export async function navigateToSceneMatch(sceneId,matchRange,{query,caseSensitive=false,openSceneForEditing}={}){
   let preferred=getPreferredLiveSceneView(sceneId);
   let mountedByFallback=false;
-  if(!preferred||preferred.status!=="ok"){
+  // Modal-lifecycle regression fix: `preferred.status==="ok"` alone is NOT
+  // enough to treat a scene as "already mounted, safe to just activate in
+  // place" (case A) -- a single-editor surface (standalone "Текст сцены",
+  // Scene modal) only ever destroys its PREVIOUS mount defensively on its
+  // NEXT open (this app's existing, accepted pattern; see scenes.js), so a
+  // registration from an earlier visit can remain `status:"ok"` (registered,
+  // not destroyed) for a LONG time after the surface showing it was closed
+  // -- `getPreferredLiveSceneView`'s own "fall back to the full usable set
+  // when nothing is currently visible" policy (needed by OTHER callers like
+  // find-replace-project-search.js, which legitimately wants the best
+  // available live content regardless of on-screen visibility) means it
+  // still reports that stale, hidden registration as "ok" when it is the
+  // ONLY one on record. Taking case A on it called that registration's own
+  // `activate()`, which just re-showed the SAME already-closed modal
+  // directly -- completely bypassing openSceneForEditing/
+  // requestEditorTransition's "close whichever surface is currently open
+  // first" step, leaving the PREVIOUSLY-open surface (e.g. "Весь текст")
+  // stuck at `display:flex` underneath the reopened one: two simultaneously
+  // "open" modals, exactly the invisible-overlay/blocked-controls state
+  // manual testing found on a REPEATED unmounted-scene navigation. The fix:
+  // require `preferred.visible` too -- a registration that is only "ok"
+  // via that no-one-was-visible fallback is NOT a valid case-A target here;
+  // treat it the same as "not mounted" and go through the real open flow
+  // (case B), which correctly destroys the stale mount and runs the single-
+  // surface transition before showing anything.
+  if(!preferred||preferred.status!=="ok"||!preferred.visible){
     if(typeof openSceneForEditing!=="function")return {ok:false,reason:"not-mounted"};
     const opened=await openSceneForEditing(sceneId);
     if(!opened)return {ok:false,reason:"open-declined"};

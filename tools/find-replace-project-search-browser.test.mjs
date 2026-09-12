@@ -62,7 +62,22 @@ const project={
     // nowhere else in this fixture, keeping this fully independent of every
     // other assertion.
     scene("scene-twin-a","Твин А","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про барсука.`).join("\n")),
-    scene("scene-twin-b","Твин Б","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про барсука.`).join("\n"))
+    scene("scene-twin-b","Твин Б","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про барсука.`).join("\n")),
+    // Final D1 fix (item 3/8C): two MOUNTED (included:true) scenes sharing a
+    // word that appears nowhere else ("выдра"), plus a third, EXCLUDED scene
+    // sharing that same word -- the exact shape needed to prove "Весь
+    // текст"'s project-scope arrows wrap only across the two MOUNTED scenes
+    // and never land on (or open) the excluded one, even though it is a
+    // genuine project result.
+    scene("scene-arrow-mounted-1","Выдра А","chapter-1","Тут была выдра."),
+    scene("scene-arrow-mounted-2","Выдра Б","chapter-1","И тут тоже выдра была."),
+    scene("scene-arrow-unmounted","Выдра нигде","chapter-unassigned","Выдра здесь не открыта.",{included:false}),
+    // Final D1 fix (item 3/8D/8E): one mounted scene with THREE occurrences
+    // of a word appearing nowhere else ("тюлен"), for proving standalone/
+    // Scene-modal project-scope arrows wrap WITHIN this one scene only, plus
+    // an excluded sibling sharing the same word that arrows must never reach.
+    scene("scene-arrow-standalone","Тюлень","chapter-1",Array.from({length:3},(_,i)=>`Абзац ${i+1} про тюленя.`).join("\n")),
+    scene("scene-arrow-standalone-excluded","Тюлень нигде","chapter-unassigned","Тюлень тоже здесь, но нигде.",{included:false})
   ]
 };
 
@@ -885,6 +900,319 @@ try{
   }
   await page.click("#allScenesFindReplace .rte-find-close");
   await page.click("#closeAllScenes");
+
+  // ============================================================
+  // PART 17 (Stage D1 final fix, item 6): the sticky search region in "Весь
+  // текст" must be ONE continuous visual block -- no gap between the
+  // toolbar/Find-Replace row and the project-results pane once the pane is
+  // actually showing (scope="Весь проект" with a matching query), where the
+  // bug (a transparent ~10px slit with manuscript text visible through it
+  // while scrolling) previously showed up. Checked directly via layout
+  // geometry, not a screenshot diff -- the exact contract asked for.
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","рысь");
+  await page.waitForTimeout(80);
+  {
+    const resultsVisible=await page.locator("#allScenesModal .rte-project-results-wrapper").isVisible();
+    if(!resultsVisible)throw new Error("Project results wrapper must be visible with a matching query -- precondition for this gap check");
+    const {findReplaceBottom,resultsWrapperTop,stickyBottom,resultsWrapperBottom}=await page.evaluate(()=>{
+      const findReplace=document.querySelector("#allScenesFindReplace.rte-find-replace")||document.getElementById("allScenesFindReplace");
+      const resultsWrapper=document.querySelector("#allScenesModal .rte-project-results-wrapper");
+      const sticky=document.querySelector("#allScenesModal .rte-sticky-controls");
+      return {
+        findReplaceBottom:findReplace.getBoundingClientRect().bottom,
+        resultsWrapperTop:resultsWrapper.getBoundingClientRect().top,
+        resultsWrapperBottom:resultsWrapper.getBoundingClientRect().bottom,
+        stickyBottom:sticky.getBoundingClientRect().bottom
+      };
+    });
+    const gap=resultsWrapperTop-findReplaceBottom;
+    if(Math.abs(gap)>1)
+      throw new Error(`Expected the Find/Replace row and the project-results pane to sit flush together (no manuscript-visible gap between them), got a ${gap}px gap`);
+    // The sticky wrapper's own bottom edge must end exactly where its last
+    // visible child (the results pane) ends -- proves the trailing spacing
+    // moved to the wrapper itself rather than leaving a second, separate gap
+    // stacked on top of this one (the "no big blank strip" requirement).
+    const trailing=stickyBottom-resultsWrapperBottom;
+    if(trailing<8||trailing>14)
+      throw new Error(`Expected exactly one ~10px trailing gap after the sticky region (from .rte-sticky-controls' own padding-bottom), got ${trailing}px`);
+  }
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
+
+  // ============================================================
+  // PART 18 (Stage D1 final fix, item 2/8G): pure search/navigation/
+  // decoration activity must never mark a clean scene/modal dirty -- opening
+  // Find, switching scope, typing a query (which dispatches decorations
+  // across every mounted matching scene), clicking an already-mounted
+  // project result (case A: activate + select + reveal), and clicking an
+  // UNMOUNTED one (case B: opens a brand-new standalone editor with fallback
+  // decorations) must all leave every dirty tracker involved reporting
+  // isDirty()===false throughout, since none of them ever change `doc`.
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  {
+    const dirtyAfterOpen=await page.evaluate(()=>trackerFor("allScenesModal").isDirty());
+    if(dirtyAfterOpen)throw new Error("Merely opening \"Весь текст\" must not mark it dirty");
+  }
+  await page.click("#allScenesToolbar .rte-btn-find");
+  {
+    const dirtyAfterFindOpen=await page.evaluate(()=>trackerFor("allScenesModal").isDirty());
+    if(dirtyAfterFindOpen)throw new Error("Opening the Find panel must not mark the modal dirty");
+  }
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","кот");
+  await page.waitForTimeout(100);
+  {
+    const dirtyAfterSearch=await page.evaluate(()=>trackerFor("allScenesModal").isDirty());
+    if(dirtyAfterSearch)throw new Error("Switching scope and typing a project-scope query (and its resulting cross-scene decorations) must not mark the modal dirty");
+  }
+  // Case A: click an already-mounted result (В общем тексте / scene-all).
+  await page.locator("#allScenesModal .rte-project-results .rte-project-result-group",{hasText:"В общем тексте"}).locator(".rte-project-result-row").first().click();
+  await page.waitForTimeout(60);
+  {
+    const dirtyAfterMountedClick=await page.evaluate(()=>trackerFor("allScenesModal").isDirty());
+    if(dirtyAfterMountedClick)throw new Error("Navigating to an already-mounted project result (selection + reveal + decorations only) must not mark the modal dirty");
+  }
+  // Case B: click the unmounted result (Нигде не открыта / scene-unmounted)
+  // -- opens the standalone modal via openSceneForEditing; the DESTINATION's
+  // own tracker must also read clean (only a selection + fallback
+  // decorations were dispatched there, never a doc edit).
+  await page.locator("#allScenesModal .rte-project-results .rte-project-result-group",{hasText:"Нигде не открыта"}).locator(".rte-project-result-row").first().click();
+  await page.waitForTimeout(100);
+  if(await isOpen("discardChangesModal"))await page.click("#discardChanges");
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  {
+    const dirtyAfterUnmountedNav=await page.evaluate(()=>trackerFor("textModal").isDirty());
+    if(dirtyAfterUnmountedNav)throw new Error("Opening an unmounted scene via a project result click (selection + fallback decorations only) must not mark the destination dirty");
+  }
+  await page.click("#closeText");
+
+  // ============================================================
+  // PART 19 (Stage D1 final fix, item 1/7A/7B, CRITICAL): repeated
+  // navigation to the SAME unmounted scene, across at least two full open/
+  // close/reopen cycles, must never leave an orphaned backdrop or a second,
+  // invisibly-stuck-open modal underneath the one the user can see. This is
+  // the exact manual-test repro: "Весь текст" -> click an unmounted project
+  // result -> standalone opens -> close it -> reopen "Весь текст" -> search
+  // again -> click the SAME unmounted result again. Root cause (see
+  // find-replace-navigation.js/mounted-scene-registry.js): a stale, hidden
+  // registration surviving this app's existing "destroy-before-create"
+  // pattern used to be reported as a safe case-A target, so re-navigating to
+  // it called `activate()` directly (re-showing the same already-closed
+  // modal) instead of going through the real open flow that closes whatever
+  // is currently open FIRST -- leaving both backdrops at display:flex at
+  // once. Audits the FULL modal stack + every modal element's own computed
+  // display after each open AND each close, not just the one modal expected
+  // to be affected, so an orphan anywhere would be caught regardless of id.
+  // ============================================================
+  // Audits the actual inline `style.display` (the application's own real,
+  // immediate open/closed state) rather than getComputedStyle -- closing a
+  // modal deliberately fades it out over 160ms (css/modals.css's
+  // `.modal-backdrop{transition:display 160ms allow-discrete}`, an accepted,
+  // pre-existing UX feature, not something this pass touches), during which
+  // getComputedStyle still reports "flex" for the closing modal even though
+  // its inline style (and modalStack/dirty-tracker bookkeeping) already
+  // correctly say "none"/closed -- checking the inline style is what avoids
+  // a false positive against that intentional fade.
+  async function modalAudit(){
+    return page.evaluate(()=>({
+      stackIds:window.modalStack.map(entry=>entry.modal.id),
+      visibleBackdrops:[...document.querySelectorAll(".modal-backdrop")].filter(el=>el.style.display==="flex").map(el=>el.id)
+    }));
+  }
+  for(let round=1;round<=2;round++){
+    await page.evaluate(()=>openAllScenes());
+    await page.waitForSelector("#allScenesList .ProseMirror");
+    await page.click("#allScenesToolbar .rte-btn-find");
+    await page.click("#allScenesFindReplace .rte-scope-project");
+    await page.fill("#allScenesFindReplace .rte-find-input","кот");
+    await page.waitForTimeout(80);
+    await page.locator("#allScenesModal .rte-project-results .rte-project-result-group",{hasText:"Нигде не открыта"}).locator(".rte-project-result-row").first().click();
+    await page.waitForTimeout(100);
+    if(await isOpen("discardChangesModal"))await page.click("#discardChanges");
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    {
+      const audit=await modalAudit();
+      if(audit.stackIds.length!==1||audit.stackIds[0]!=="textModal")
+        throw new Error(`Round ${round}: expected exactly one modal ("textModal") on the stack after navigating to the unmounted scene, got ${JSON.stringify(audit.stackIds)}`);
+      if(audit.visibleBackdrops.length!==1||audit.visibleBackdrops[0]!=="textModal")
+        throw new Error(`Round ${round}: expected exactly one visible backdrop ("textModal"), got ${JSON.stringify(audit.visibleBackdrops)} -- an orphaned backdrop means the previously-open modal was never actually closed`);
+      // The destination must be genuinely usable, not just present in the
+      // DOM -- exactly the "controls unclickable"/"invisible overlay"
+      // symptom manual testing reported.
+      const editorInteractive=await page.evaluate(()=>{
+        const editor=document.getElementById("fullSceneTextEditor").querySelector(".ProseMirror");
+        const rect=editor.getBoundingClientRect();
+        return editor.offsetParent!==null&&rect.width>0&&rect.height>0&&getComputedStyle(document.getElementById("textModal")).pointerEvents!=="none";
+      });
+      if(!editorInteractive)throw new Error(`Round ${round}: destination editor is not visible/interactive`);
+      if(!await page.locator("#closeText").isVisible())throw new Error(`Round ${round}: destination modal's own Close control is not clickable`);
+    }
+    await page.click("#closeText");
+    await page.waitForTimeout(60);
+    {
+      const audit=await modalAudit();
+      if(audit.stackIds.length!==0)throw new Error(`Round ${round}: expected an empty modal stack after closing, got ${JSON.stringify(audit.stackIds)}`);
+      if(audit.visibleBackdrops.length!==0)throw new Error(`Round ${round}: expected no visible backdrop after closing, got ${JSON.stringify(audit.visibleBackdrops)}`);
+    }
+  }
+
+  // ============================================================
+  // PART 20 (Stage D1 final fix, item 3/4/8C, 8F): "Весь текст" project-scope
+  // Next/Previous must wrap ONLY across scenes currently MOUNTED in this
+  // modal (scene-arrow-mounted-1/2), and must never land on -- or open -- an
+  // excluded/unmounted scene sharing the same query (scene-arrow-unmounted),
+  // even though that scene legitimately appears in the results list itself.
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","выдра");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
+    if(!/3\s*совпадени/.test(summary))throw new Error(`Expected 3 "выдра" matches total (2 mounted + 1 excluded), got: ${summary}`);
+    if(await page.locator("#allScenesModal .rte-project-results .rte-project-result-group",{hasText:"Выдра нигде"}).count()!==1)
+      throw new Error("The excluded scene must still appear as its own group in the project results list");
+  }
+  const activeSceneAmong=async ids=>{
+    for(const id of ids){
+      if(await page.locator(`#allSceneEditor-${id} .rte-find-match-active`).count()>0)return id;
+    }
+    return null;
+  };
+  // Item 4/8F: moving the caret into scene-arrow-mounted-1 (a currently
+  // MOUNTED, visible scene) redefines the arrow-navigation origin to it.
+  await page.locator("#allSceneEditor-scene-arrow-mounted-1 .scene-paragraph").click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const active=await activeSceneAmong(["scene-arrow-mounted-1","scene-arrow-mounted-2"]);
+    if(active!=="scene-arrow-mounted-1")throw new Error(`Expected Next from the start of scene-arrow-mounted-1's own paragraph to land on its own match, active scene was: ${active}`);
+    if(!await isOpen("allScenesModal")||await isOpen("textModal"))
+      throw new Error("Arrow navigation must never open a different modal, even when a scene not in the visible domain shares the query");
+  }
+  // A further Next must move to the OTHER mounted scene, never to the
+  // excluded one, and must never open any other surface to get there.
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const active=await activeSceneAmong(["scene-arrow-mounted-1","scene-arrow-mounted-2"]);
+    if(active!=="scene-arrow-mounted-2")throw new Error(`Expected the next Next to move to scene-arrow-mounted-2, active scene was: ${active}`);
+    if(!await isOpen("allScenesModal")||await isOpen("textModal"))
+      throw new Error("Next must not have opened the excluded scene's standalone modal");
+  }
+  // Item 3's own worked example: from the LAST visible match, Next must wrap
+  // to the FIRST visible match (never spill into the excluded scene, which
+  // is exactly what raw canonical-order stepping over the whole project
+  // would have hit next).
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const active=await activeSceneAmong(["scene-arrow-mounted-1","scene-arrow-mounted-2"]);
+    if(active!=="scene-arrow-mounted-1")throw new Error(`Expected Next to wrap back to scene-arrow-mounted-1 (never into the excluded scene), active scene was: ${active}`);
+  }
+  // And Previous from the FIRST visible match must wrap to the LAST visible
+  // match (scene-arrow-mounted-2) -- the task's own explicit example,
+  // exercised in the Previous direction too.
+  await page.click("#allScenesFindReplace .rte-find-prev");
+  await page.waitForTimeout(30);
+  {
+    const active=await activeSceneAmong(["scene-arrow-mounted-1","scene-arrow-mounted-2"]);
+    if(active!=="scene-arrow-mounted-2")throw new Error(`Expected Previous from the first visible match to wrap to the LAST visible match (scene-arrow-mounted-2), active scene was: ${active}`);
+    if(!await isOpen("allScenesModal")||await isOpen("textModal"))
+      throw new Error("Previous must not have opened any other modal either");
+  }
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
+
+  // ============================================================
+  // PART 21 (Stage D1 final fix, item 3/8D): standalone "Текст сцены"
+  // project-scope Next/Previous must wrap WITHIN the one currently open
+  // scene only, and must never reach (or open) a different scene sharing the
+  // same query -- including the excluded sibling that legitimately appears
+  // in the results list.
+  // ============================================================
+  await page.evaluate(()=>openSceneText("scene-arrow-standalone"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  await page.click("#fullSceneTextToolbar .rte-btn-find");
+  await page.click("#fullSceneTextFindReplace .rte-scope-project");
+  await page.fill("#fullSceneTextFindReplace .rte-find-input","тюлен");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#textModal .rte-project-results .rte-project-results-summary").textContent();
+    if(!/4\s*совпадени/.test(summary))throw new Error(`Expected 4 "тюлен" matches total (3 in this scene + 1 excluded), got: ${summary}`);
+  }
+  await page.locator("#fullSceneTextEditor .scene-paragraph",{hasText:"Абзац 1 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  // Three Nexts from paragraph 1's own match walk 1->2->3; a FOURTH must wrap
+  // back to paragraph 1 -- never spill into the excluded sibling scene.
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const activeText=await page.locator("#fullSceneTextEditor .rte-find-match-active").locator("xpath=..").textContent();
+    if(!/Абзац 1\b/.test(activeText))throw new Error(`Expected the 4th Next to wrap back to paragraph 1 (within-scene wrap only), got paragraph text: ${JSON.stringify(activeText)}`);
+    if(!await isOpen("textModal")||await isOpen("allScenesModal")||await isOpen("sceneModal"))
+      throw new Error("Standalone project-scope Next must never open a different surface/scene");
+  }
+  // Previous from paragraph 1 must wrap to paragraph 3 (the scene's own LAST
+  // match), not to the excluded scene.
+  await page.click("#fullSceneTextFindReplace .rte-find-prev");
+  await page.waitForTimeout(30);
+  {
+    const activeText=await page.locator("#fullSceneTextEditor .rte-find-match-active").locator("xpath=..").textContent();
+    if(!/Абзац 3\b/.test(activeText))throw new Error(`Expected Previous from paragraph 1 to wrap to paragraph 3 (this scene's own last match), got: ${JSON.stringify(activeText)}`);
+  }
+  await page.click("#fullSceneTextFindReplace .rte-find-close");
+  await page.click("#closeText");
+
+  // ============================================================
+  // PART 22 (Stage D1 final fix, item 3/8E): the Scene modal must behave
+  // exactly like standalone above -- same scene, same query, same wrap-
+  // within-scene-only contract, on the OTHER single-editor surface.
+  // ============================================================
+  await page.evaluate(()=>editScene("scene-arrow-standalone"));
+  await page.waitForSelector("#sceneTextEditor .ProseMirror");
+  await page.click("#sceneTextToolbar .rte-btn-find");
+  await page.click("#sceneTextFindReplace .rte-scope-project");
+  await page.fill("#sceneTextFindReplace .rte-find-input","тюлен");
+  await page.waitForTimeout(80);
+  await page.locator("#sceneTextEditor .scene-paragraph",{hasText:"Абзац 3 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#sceneTextFindReplace .rte-find-prev");
+  await page.waitForTimeout(30);
+  {
+    const activeText=await page.locator("#sceneTextEditor .rte-find-match-active").locator("xpath=..").textContent();
+    if(!/Абзац 2\b/.test(activeText))throw new Error(`Scene modal: expected Previous from paragraph 3 to land on paragraph 2, got: ${JSON.stringify(activeText)}`);
+  }
+  // Two more Previous presses wrap 2->1->3 (this scene's own last match) --
+  // never into the excluded sibling scene.
+  await page.click("#sceneTextFindReplace .rte-find-prev");
+  await page.click("#sceneTextFindReplace .rte-find-prev");
+  await page.waitForTimeout(30);
+  {
+    const activeText=await page.locator("#sceneTextEditor .rte-find-match-active").locator("xpath=..").textContent();
+    if(!/Абзац 3\b/.test(activeText))throw new Error(`Scene modal: expected wrapping Previous to land back on paragraph 3 (within-scene wrap only), got: ${JSON.stringify(activeText)}`);
+    if(!await isOpen("sceneModal")||await isOpen("textModal")||await isOpen("allScenesModal"))
+      throw new Error("Scene modal project-scope Previous must never open a different surface/scene");
+  }
+  await page.click("#sceneTextFindReplace .rte-find-close");
+  await page.click("#cancelScene");
 
   console.log("find-replace-project-search-browser.test.mjs: all assertions passed");
 }finally{

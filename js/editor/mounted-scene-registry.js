@@ -82,11 +82,26 @@ export function hasMountedScene(sceneId){
 
 // Result shapes:
 //   null                                 -- no live registration at all
-//   {status:"ok",registration}           -- exactly one candidate view, or
+//   {status:"ok",registration,visible}   -- exactly one candidate view, or
 //                                            several agreeing on the same doc,
 //                                            or several disagreeing but one is
 //                                            unambiguously the most recently
-//                                            active
+//                                            active. `visible` is true iff
+//                                            `registration` was drawn from
+//                                            the VISIBLE subset (step 2 below)
+//                                            rather than the "none were
+//                                            visible, fall back to the full
+//                                            usable set" branch -- see
+//                                            find-replace-navigation.js's own
+//                                            use of this field for exactly
+//                                            why a caller deciding "is this
+//                                            genuinely reveal-able right now
+//                                            without going through a full
+//                                            reopen" needs to tell the two
+//                                            apart (search/live-doc-
+//                                            resolution callers that just
+//                                            want the best available content
+//                                            can safely ignore it).
 //   {status:"conflict",registrations}    -- several candidates, DIVERGENT
 //                                            docs, and no recorded activation
 //                                            to break the tie deterministically
@@ -135,15 +150,16 @@ export function getPreferredLiveSceneView(sceneId){
   const all=getMountedSceneRegistrations(sceneId);
   const usable=all.filter(registration=>isViewUsable(registration.view));
   if(!usable.length)return null;
-  const visible=usable.filter(registration=>isViewVisible(registration.view));
-  const candidates=visible.length?visible:usable;
-  if(candidates.length===1)return {status:"ok",registration:candidates[0]};
+  const visibleOnes=usable.filter(registration=>isViewVisible(registration.view));
+  const candidates=visibleOnes.length?visibleOnes:usable;
+  const visible=visibleOnes.length>0; // true iff `candidates` came from the VISIBLE subset, not the "none visible" fallback
+  if(candidates.length===1)return {status:"ok",registration:candidates[0],visible};
   const firstDoc=candidates[0].view.state.doc;
   const allSame=candidates.every(registration=>registration.view.state.doc.eq(firstDoc));
-  if(allSame)return {status:"ok",registration:candidates[0]};
+  if(allSame)return {status:"ok",registration:candidates[0],visible};
   const ranked=[...candidates].sort((a,b)=>(activationOrder.get(b.registrationId)??-1)-(activationOrder.get(a.registrationId)??-1));
   const best=ranked[0];
-  if((activationOrder.get(best.registrationId)??-1)>=0)return {status:"ok",registration:best};
+  if((activationOrder.get(best.registrationId)??-1)>=0)return {status:"ok",registration:best,visible};
   return {status:"conflict",registrations:candidates};
 }
 

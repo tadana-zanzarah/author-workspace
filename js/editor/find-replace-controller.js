@@ -133,14 +133,30 @@ function revealDocPosition(view,pos){
 //     its own openSceneForEditing fallback. This file is the ONLY thing that
 //     manages Find/Replace decorations (see applyProjectDecorations below);
 //     the navigation adapter only ever moves the real editor selection.
-export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null}={}){
+//   - getNavigableSceneIds(): () => array of scene ids that project-scope
+//     Next/Previous (see next()/previous() below) are allowed to land on --
+//     NOT every scene in the current project search result. Modal-lifecycle-
+//     adjacent fix (manual-test regressions, product brief item 3): arrow
+//     navigation must stay within "the current visible editing context",
+//     never silently open (or jump into) a scene the user isn't looking at
+//     -- that is exactly what clicking a project-results row is for, and
+//     that path (activateProjectMatch below) is deliberately left
+//     unrestricted. "Весь текст" passes its OWN group's sceneIds() here
+//     (createSceneEditorGroup in scene-editor-controller.js) -- exactly the
+//     scenes mounted inside THAT "Весь текст" instance, never scenes merely
+//     open elsewhere (a second standalone modal on the same scene, say).
+//     Standalone "Текст сцены" and the Scene modal never pass this at all --
+//     see currentNavigableSceneIds() below for why omitting it makes the
+//     domain default to "just the one attached scene", which is exactly
+//     their required behavior with zero extra wiring at either call site.
+export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null,getNavigableSceneIds=null}={}){
   let view=null;
   // Final D1 hardening pass: the sceneId the ATTACHED view is currently
   // showing, threaded in by attachView's caller (which always already knows
   // it -- see scene-editor-controller.js's own two attachView call sites).
   // This is the ONLY thing project-scope "which scene is currently attached"
   // logic below is allowed to compare against now (pickInitialProjectMatchIndex/
-  // resolveProjectIndexFromCaret) -- never ProseMirror Node#eq/doc-content
+  // resolveProjectDomainIndexFromCaret) -- never ProseMirror Node#eq/doc-content
   // comparison, which cannot tell apart two different scenes that happen to
   // contain byte-for-byte identical prose. (applyProjectDecorations still
   // uses Node#eq for a DIFFERENT, legitimate purpose -- see its own comment
@@ -324,57 +340,87 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     return inCurrentScene[0].index;
   }
 
-  // Second corrective pass (manual-test regression fix, items 1/2): the
-  // project-scope counterpart of resolveSceneIndexFromCaret above -- Find
-  // Next/Previous must follow the caret in WHATEVER scene the user is
-  // CURRENTLY looking at (the attached `view`, which "Весь текст"'s own
-  // focus handling already retargets to whichever mounted scene the user
-  // just clicked into -- see scene-editor-controller.js's activate()), not
-  // the scene the stored activeProjectMatchIndex happens to still point at.
-  // `flat` is already in canonical project order (chapters -> scenes ->
-  // matches-in-scene, see find-replace-project-search.js), and one scene's
-  // own matches are always CONTIGUOUS within it (flattenProjectMatches
-  // builds it scene-by-scene) -- so "does entry j come before/after the
-  // current scene's own block" is just a flat-index comparison against that
-  // block's own first/last index.
+  // Final D1 fix (arrow-navigation scope, product brief item 3): the set of
+  // scene ids project-scope Next/Previous may land on right now. Defaults to
+  // "just the currently attached scene" when the caller never supplied
+  // getNavigableSceneIds (standalone "Текст сцены", Scene modal) -- those
+  // single-editor surfaces only ever have ONE scene open at all, so that is
+  // already the whole of "the current visible editing context" for them.
+  // "Весь текст" supplies its own group's mounted-scene-id list instead, so
+  // the domain there is every scene actually mounted in THAT modal, not the
+  // one merely under keyboard focus.
+  function currentNavigableSceneIds(){
+    if(typeof getNavigableSceneIds==="function"){
+      const ids=getNavigableSceneIds();
+      return new Set(Array.isArray(ids)?ids:[]);
+    }
+    return attachedSceneId?new Set([attachedSceneId]):new Set();
+  }
+
+  // `flat` is already in canonical project order; filtering it down to the
+  // navigable domain preserves that order (and each remaining scene's own
+  // matches stay contiguous, since filtering only ever removes OTHER
+  // scenes' entries) -- so every position/wrap computation below can treat
+  // `domainMatches` exactly like a smaller, self-contained `flat`, with no
+  // separate "is this index's scene actually reachable" check needed
+  // anywhere else.
+  function navigableProjectMatches(flat){
+    const ids=currentNavigableSceneIds();
+    return flat.filter(entry=>ids.has(entry.sceneId));
+  }
+
+  function domainIndexForMatchId(domainMatches,matchId){
+    if(matchId==null)return -1;
+    return domainMatches.findIndex(entry=>entry.matchId===matchId);
+  }
+
+  // Second corrective pass (manual-test regression fix, items 1/2), narrowed
+  // by the final D1 fix above: Find Next/Previous must follow the caret in
+  // WHATEVER scene the user is CURRENTLY looking at (the attached `view`,
+  // which "Весь текст"'s own focus handling already retargets to whichever
+  // mounted scene the user just clicked into -- see scene-editor-
+  // controller.js's activate()), not the scene the stored
+  // activeProjectMatchIndex happens to still point at -- but ONLY within
+  // `domainMatches` (see navigableProjectMatches above), never the full
+  // project result. This is what makes stepping past the attached scene's
+  // own last/first match continue into the NEXT/PREVIOUS scene *in the
+  // navigable domain* (Весь текст: another currently-mounted scene; single-
+  // editor surfaces: nothing else is ever in the domain, so this always
+  // wraps back within the one open scene instead) rather than into the
+  // canonically-next scene in the whole project, which could be excluded or
+  // simply not open anywhere -- exactly the "arrows must never auto-open an
+  // unmounted scene" requirement, satisfied here by construction rather than
+  // by special-casing the navigation call itself.
   //
-  // Final D1 hardening pass: identifies "which flat entries belong to the
-  // attached scene" via `attachedSceneId` (set by attachView's caller) --
-  // NEVER via ProseMirror Node#eq/doc-content comparison, which cannot tell
-  // apart two different scenes sharing byte-for-byte identical prose (see
-  // pickInitialProjectMatchIndex's own comment on why this matters before
-  // Stage D2).
-  //
-  // Returns null when the attached view's scene has no matches of its own
-  // in the current results (nothing live to compare the caret against) --
-  // callers fall back to the previous plain modular-step behavior in that
-  // case, exactly like pickInitialProjectMatchIndex's own fallback.
-  function resolveProjectIndexFromCaret(flat,direction){
-    if(!flat.length||!attachedSceneId||!isViewUsable(view))return null;
+  // Returns null when the attached scene has no matches of its own in the
+  // current results (nothing live to compare the caret against) -- callers
+  // fall back to a plain modular step within `domainMatches` in that case.
+  function resolveProjectDomainIndexFromCaret(domainMatches,direction){
+    if(!domainMatches.length||!attachedSceneId||!isViewUsable(view))return null;
     const sceneIndices=[];
-    flat.forEach((entry,index)=>{if(entry.sceneId===attachedSceneId)sceneIndices.push(index)});
+    domainMatches.forEach((entry,index)=>{if(entry.sceneId===attachedSceneId)sceneIndices.push(index)});
     if(!sceneIndices.length)return null;
     const firstInScene=sceneIndices[0],lastInScene=sceneIndices[sceneIndices.length-1];
     const caret=view.state.selection.from;
-    const containingLocal=sceneIndices.find(index=>caret>=flat[index].from&&caret<flat[index].to);
+    const containingLocal=sceneIndices.find(index=>caret>=domainMatches[index].from&&caret<domainMatches[index].to);
     if(direction>0){
-      if(containingLocal!==undefined)return (containingLocal+1)%flat.length;
-      const afterInScene=sceneIndices.find(index=>flat[index].from>=caret);
+      if(containingLocal!==undefined)return (containingLocal+1)%domainMatches.length;
+      const afterInScene=sceneIndices.find(index=>domainMatches[index].from>=caret);
       if(afterInScene!==undefined)return afterInScene;
       // Caret is after every match in this scene -- continue into whatever
-      // comes next in canonical order (naturally the next scene's own first
-      // match, since scenes are contiguous blocks in `flat`), wrapping to
-      // the very first project result if this scene's matches are the last.
-      return lastInScene+1<flat.length?lastInScene+1:0;
+      // comes next in canonical order AMONG NAVIGABLE SCENES ONLY, wrapping
+      // to the very first navigable result if this scene's matches are last.
+      return lastInScene+1<domainMatches.length?lastInScene+1:0;
     }
-    if(containingLocal!==undefined)return (containingLocal-1+flat.length)%flat.length;
+    if(containingLocal!==undefined)return (containingLocal-1+domainMatches.length)%domainMatches.length;
     for(let index=sceneIndices.length-1;index>=0;index--){
-      if(flat[sceneIndices[index]].to<=caret)return sceneIndices[index];
+      if(domainMatches[sceneIndices[index]].to<=caret)return sceneIndices[index];
     }
     // Caret is before every match in this scene -- continue backward into
-    // whatever comes before in canonical order, wrapping to the very last
-    // project result if this scene's matches are the first.
-    return firstInScene>0?firstInScene-1:flat.length-1;
+    // whatever comes before in canonical order AMONG NAVIGABLE SCENES ONLY,
+    // wrapping to the very last navigable result if this scene's matches are
+    // first.
+    return firstInScene>0?firstInScene-1:domainMatches.length-1;
   }
 
   // The project-scope counterpart of recompute() above -- searches the WHOLE
@@ -521,7 +567,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // find-replace-navigation.js adapter tags its own selectAndReveal
   // transaction the same way (same plugin key, same field). Nothing in this
   // file currently NEEDS to read it back (resolveSceneIndexFromCaret/
-  // resolveProjectIndexFromCaret above deliberately read the LIVE selection
+  // resolveProjectDomainIndexFromCaret above deliberately read the LIVE selection
   // fresh on every Next/Previous call instead of reactively tracking it --
   // after our own navigation the live selection already sits exactly on the
   // match we just set, so re-deriving "current" from it reproduces the same
@@ -682,19 +728,46 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   }
 
   // Second corrective pass (manual-test regression fix, items 1/2): both
-  // branches below now resolve the navigation ORIGIN from the live caret
-  // (resolveSceneIndexFromCaret/resolveProjectIndexFromCaret) rather than
-  // blindly stepping the stored index -- a plain `%length` step is used only
-  // as the fallback for a scene the resolver can't say anything about (no
-  // usable view, or -- project scope -- the attached scene has no matches of
-  // its own in the current results), preserving the previous behavior for
-  // that narrow case.
+  // branches below resolve the navigation ORIGIN from the live caret
+  // (resolveSceneIndexFromCaret/resolveProjectDomainIndexFromCaret) rather
+  // than blindly stepping the stored index -- a plain `%length` step is used
+  // only as the fallback for a scene the resolver can't say anything about
+  // (no usable view, or -- project scope -- the attached scene has no
+  // matches of its own in the current results).
+  //
+  // Final D1 fix (product brief item 3): the project-scope branch below
+  // steps through `domainMatches` (navigableProjectMatches(flat)), never the
+  // raw `flat` array -- so both the caret-relative resolution AND its plain-
+  // modular-step fallback can only ever land on a match belonging to a scene
+  // in the current navigable domain (see currentNavigableSceneIds' own
+  // comment: every mounted scene in "Весь текст", or just the one open scene
+  // in standalone/Scene modal). `activeProjectMatchIndex` itself keeps
+  // indexing into `flat` (every other reader -- snapshot(), applyProject-
+  // Decorations, activateProjectMatch -- already assumes that), so the
+  // resolved domain match is translated back to its own flat index by
+  // matchId (stable, never a raw position) before being stored. Because
+  // every domain match's scene is -- by construction -- already mounted and
+  // currently visible, triggerProjectNavigation()'s call into
+  // navigateToSceneMatch always resolves via case A (activate the existing,
+  // on-screen registration) here; it can no longer reach case B's "open a
+  // scene that isn't currently open" fallback from an arrow press, which is
+  // exactly the required "arrows must never auto-open an unmounted scene"
+  // behavior -- achieved by restricting the candidate pool, not by changing
+  // the navigation call itself. Explicit result-row clicks
+  // (activateProjectMatch below) are untouched and stay fully unrestricted.
   function next(){
     if(scope==="project"){
       const flat=projectResult?flattenProjectMatches(projectResult):[];
       if(!flat.length)return;
-      const resolved=resolveProjectIndexFromCaret(flat,1);
-      activeProjectMatchIndex=resolved!==null?resolved:(activeProjectMatchIndex+1)%flat.length;
+      const domainMatches=navigableProjectMatches(flat);
+      if(!domainMatches.length)return; // nothing in the current visible editing context to move to
+      const resolved=resolveProjectDomainIndexFromCaret(domainMatches,1);
+      let domainIndex=resolved;
+      if(domainIndex===null){
+        const currentDomainIndex=domainIndexForMatchId(domainMatches,activeProjectMatchIdValue());
+        domainIndex=currentDomainIndex>=0?(currentDomainIndex+1)%domainMatches.length:0;
+      }
+      activeProjectMatchIndex=flat.findIndex(entry=>entry.matchId===domainMatches[domainIndex].matchId);
       applyProjectDecorations();
       triggerProjectNavigation();
       notify();
@@ -710,8 +783,15 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     if(scope==="project"){
       const flat=projectResult?flattenProjectMatches(projectResult):[];
       if(!flat.length)return;
-      const resolved=resolveProjectIndexFromCaret(flat,-1);
-      activeProjectMatchIndex=resolved!==null?resolved:(activeProjectMatchIndex-1+flat.length)%flat.length;
+      const domainMatches=navigableProjectMatches(flat);
+      if(!domainMatches.length)return;
+      const resolved=resolveProjectDomainIndexFromCaret(domainMatches,-1);
+      let domainIndex=resolved;
+      if(domainIndex===null){
+        const currentDomainIndex=domainIndexForMatchId(domainMatches,activeProjectMatchIdValue());
+        domainIndex=currentDomainIndex>=0?(currentDomainIndex-1+domainMatches.length)%domainMatches.length:0;
+      }
+      activeProjectMatchIndex=flat.findIndex(entry=>entry.matchId===domainMatches[domainIndex].matchId);
       applyProjectDecorations();
       triggerProjectNavigation();
       notify();
