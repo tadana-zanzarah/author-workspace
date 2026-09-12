@@ -92,7 +92,14 @@ const project={
     // mounted in "Весь текст", and never in the dedicated standalone scene
     // used below -- so the navigation domain is empty on both surfaces while
     // the project result set is not.
-    scene("scene-counter-off-only","Морж нигде","chapter-unassigned","Морж лежал на льду.",{included:false})
+    scene("scene-counter-off-only","Морж нигде","chapter-unassigned","Морж лежал на льду.",{included:false}),
+    // D1.1 wording follow-up: one mounted scene plus TWO excluded scenes
+    // sharing a word appearing nowhere else ("нерпа") -- exercises the
+    // plural "N сцены не включены в общий текст" form (2 is "few", not
+    // "one"), distinct from every "1 сцена не включена" case above.
+    scene("scene-plural-two-mounted","Нерпа","chapter-1","Нерпа плыла."),
+    scene("scene-plural-two-excluded-a","Нерпа нигде А","chapter-unassigned","Тут тоже нерпа.",{included:false}),
+    scene("scene-plural-two-excluded-b","Нерпа нигде Б","chapter-unassigned","И здесь нерпа была.",{included:false})
   ]
 };
 
@@ -1245,9 +1252,9 @@ try{
   {
     const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
     if(!/53\s*совпадени/.test(summary))throw new Error(`Expected 53 "гепард" matches total (1 + 2 mounted, 50 excluded), got: ${summary}`);
-    if(!/3\s*сцен/.test(summary))throw new Error(`Expected 3 affected scenes, got: ${summary}`);
-    if(!summary.includes("ещё 50 вне «Весь текст»"))
-      throw new Error(`Expected the summary to report the 50 off-surface matches by name, got: ${summary}`);
+    if(!/3\s*сцен/.test(summary))throw new Error(`Expected 3 affected scenes TOTAL, not 3+1=4, got: ${summary}`);
+    if(!summary.includes("1 сцена не включена в общий текст"))
+      throw new Error(`Expected the summary to report 1 of those 3 scenes as not included in the general text, got: ${summary}`);
   }
   await page.locator("#allSceneEditor-scene-counter-mounted-1 .scene-paragraph").click();
   await page.keyboard.press("Home");
@@ -1285,10 +1292,13 @@ try{
   await page.click("#closeAllScenes");
 
   // ============================================================
-  // PART 24 (D1.1 fix): standalone "Текст сцены" -- same contract, but the
-  // domain is "just this one scene" (3 matches) while the project-wide total
-  // is 4 (1 more in an excluded sibling scene). The off-surface suffix must
-  // NOT appear here at all -- this surface is not "Весь текст".
+  // PART 24 (D1.1 fix): standalone "Текст сцены" -- same navigation-domain
+  // contract for the arrow counter (this scene's own 3 matches, not the
+  // project-wide 4), but the project-results SUMMARY is the GLOBAL result --
+  // identical in shape to "Весь текст"'s own, including the "N сцен не
+  // включены в общий текст" clause for the excluded sibling scene, since
+  // that fact is surface-independent (D1.1 follow-up: this summary is no
+  // longer gated to "Весь текст" only).
   // ============================================================
   await page.evaluate(()=>openSceneText("scene-arrow-standalone"));
   await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
@@ -1299,8 +1309,9 @@ try{
   {
     const summary=await page.locator("#textModal .rte-project-results .rte-project-results-summary").textContent();
     if(!/4\s*совпадени/.test(summary))throw new Error(`Expected 4 "тюлен" matches total, got: ${summary}`);
-    if(summary.includes("вне «Весь текст»"))
-      throw new Error(`Standalone "Текст сцены" is not "Весь текст" -- the off-surface suffix must never appear there, got: ${summary}`);
+    if(!/2\s*сцен/.test(summary))throw new Error(`Expected 2 affected scenes TOTAL, not 2+1=3, got: ${summary}`);
+    if(!summary.includes("1 сцена не включена в общий текст"))
+      throw new Error(`Standalone "Текст сцены" must show the SAME global summary as "Весь текст", including the excluded-scene clause, got: ${summary}`);
   }
   await page.locator("#fullSceneTextEditor .scene-paragraph",{hasText:"Абзац 1 "}).click();
   await page.keyboard.press("Home");
@@ -1325,7 +1336,7 @@ try{
 
   // ============================================================
   // PART 25 (D1.1 fix): the Scene modal must behave exactly like standalone
-  // above for the counter too.
+  // above -- both the counter contract and the identical global summary.
   // ============================================================
   await page.evaluate(()=>editScene("scene-arrow-standalone"));
   await page.waitForSelector("#sceneTextEditor .ProseMirror");
@@ -1335,8 +1346,10 @@ try{
   await page.waitForTimeout(80);
   {
     const summary=await page.locator("#sceneModal .rte-project-results .rte-project-results-summary").textContent();
-    if(summary.includes("вне «Весь текст»"))
-      throw new Error(`Scene modal is not "Весь текст" -- the off-surface suffix must never appear there, got: ${summary}`);
+    if(!/4\s*совпадени/.test(summary)||!/2\s*сцен/.test(summary))
+      throw new Error(`Scene modal must show the same global summary shape (4 matches, 2 scenes), got: ${summary}`);
+    if(!summary.includes("1 сцена не включена в общий текст"))
+      throw new Error(`Scene modal must show the SAME global summary as "Весь текст"/standalone, including the excluded-scene clause, got: ${summary}`);
   }
   await page.locator("#sceneTextEditor .scene-paragraph",{hasText:"Абзац 1 "}).click();
   await page.keyboard.press("Home");
@@ -1371,8 +1384,8 @@ try{
       throw new Error("Previous must be disabled when the navigation domain has zero matches");
     const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
     if(!/1\s*совпадени/.test(summary))throw new Error(`Expected the global project result to still report the 1 "морж" match, got: ${summary}`);
-    if(!summary.includes("ещё 1 вне «Весь текст»"))
-      throw new Error(`Expected the summary to report that single match as off-surface, got: ${summary}`);
+    if(!summary.includes("1 сцена не включена в общий текст"))
+      throw new Error(`Expected the summary to report that one affected scene is not included in the general text, got: ${summary}`);
     if(await page.locator("#allScenesModal .rte-project-results .rte-project-result-group",{hasText:"Морж нигде"}).count()!==1)
       throw new Error("The off-surface project result row must remain present and usable even though the arrows cannot reach it");
   }
@@ -1402,8 +1415,9 @@ try{
   // (no regression of the repeated-unmounted-scene modal fix from 35f1c60),
   // and the DESTINATION surface's own arrow counter must reflect ITS OWN
   // navigation domain (this scene's 3 "кот" matches), never the project-wide
-  // total, and never the off-surface suffix (this destination isn't "Весь
-  // текст" either).
+  // total -- while the project-results SUMMARY there stays the same GLOBAL
+  // result (this destination scene itself is excluded from the general
+  // text, so the summary must say so).
   // ============================================================
   await page.evaluate(()=>openAllScenes());
   await page.waitForSelector("#allScenesList .ProseMirror");
@@ -1425,11 +1439,100 @@ try{
     const count=await readCount("#fullSceneTextFindReplace .rte-find-count");
     if(count!=="1 из 3")throw new Error(`Destination surface: expected its own counter to read "1 из 3" (its own domain), got: ${count}`);
     const summary=await page.locator("#textModal .rte-project-results .rte-project-results-summary").textContent();
-    if(summary.includes("вне «Весь текст»"))
-      throw new Error(`Destination surface is standalone, not "Весь текст" -- must never show the off-surface suffix, got: ${summary}`);
+    if(!/не включен[аы] в общий текст/.test(summary))
+      throw new Error(`Destination surface's summary must be the global result and correctly report this excluded scene, got: ${summary}`);
   }
   await page.click("#fullSceneTextFindReplace .rte-find-close");
   await page.click("#closeText");
+
+  // ============================================================
+  // PART 28 (D1.1 wording follow-up): the project-results SUMMARY is the
+  // SAME global result on all three surfaces -- exact text equality, not
+  // just a substring check -- while the arrow counter next to it stays
+  // deliberately surface-relative and DIFFERENT (3 in "Весь текст", 1 in
+  // either single-editor surface, since scene-counter-mounted-1 alone has
+  // only one "гепард" match of its own).
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","гепард");
+  await page.waitForTimeout(80);
+  const allScenesSummary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
+  if(allScenesSummary!=="53 совпадения · 3 сцены · 1 сцена не включена в общий текст")
+    throw new Error(`Unexpected "Весь текст" summary text: ${JSON.stringify(allScenesSummary)}`);
+  await page.locator("#allSceneEditor-scene-counter-mounted-1 .scene-paragraph").click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  const allScenesCountAfterFocus=await readCount("#allScenesFindReplace .rte-find-count");
+  if(!/из 3$/.test(allScenesCountAfterFocus))throw new Error(`Expected "Весь текст" counter denominator to stay 3, got: ${allScenesCountAfterFocus}`);
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
+
+  await page.evaluate(()=>openSceneText("scene-counter-mounted-1"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  await page.click("#fullSceneTextToolbar .rte-btn-find");
+  await page.click("#fullSceneTextFindReplace .rte-scope-project");
+  await page.fill("#fullSceneTextFindReplace .rte-find-input","гепард");
+  await page.waitForTimeout(80);
+  const standaloneSummary=await page.locator("#textModal .rte-project-results .rte-project-results-summary").textContent();
+  if(standaloneSummary!==allScenesSummary)
+    throw new Error(`Standalone "Текст сцены" summary must be IDENTICAL to "Весь текст"'s, got: ${JSON.stringify(standaloneSummary)} vs ${JSON.stringify(allScenesSummary)}`);
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  if((await readCount("#fullSceneTextFindReplace .rte-find-count"))!=="1 из 1")
+    throw new Error(`Standalone: expected its own domain to be just this scene's single "гепард" match (1 из 1), distinct from "Весь текст"'s "N из 3"`);
+  await page.click("#fullSceneTextFindReplace .rte-find-close");
+  await page.click("#closeText");
+
+  await page.evaluate(()=>editScene("scene-counter-mounted-1"));
+  await page.waitForSelector("#sceneTextEditor .ProseMirror");
+  await page.click("#sceneTextToolbar .rte-btn-find");
+  await page.click("#sceneTextFindReplace .rte-scope-project");
+  await page.fill("#sceneTextFindReplace .rte-find-input","гепард");
+  await page.waitForTimeout(80);
+  const sceneModalSummary=await page.locator("#sceneModal .rte-project-results .rte-project-results-summary").textContent();
+  if(sceneModalSummary!==allScenesSummary)
+    throw new Error(`Scene modal summary must be IDENTICAL to "Весь текст"'s, got: ${JSON.stringify(sceneModalSummary)}`);
+  await page.click("#sceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  if((await readCount("#sceneTextFindReplace .rte-find-count"))!=="1 из 1")
+    throw new Error(`Scene modal: expected its own domain to be just this scene's single "гепард" match (1 из 1)`);
+  await page.click("#sceneTextFindReplace .rte-find-close");
+  await page.click("#cancelScene");
+
+  // ============================================================
+  // PART 29 (D1.1 wording follow-up): plural forms -- "2 сцены не включены"
+  // (few, not one) -- and the zero-excluded case, which must show NO
+  // exclusion clause at all (reusing scene-lynx-a/scene-lynx-b, both
+  // included, from the second corrective pass's own fixture).
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","нерпа");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
+    if(!summary.includes("2 сцены не включены в общий текст"))
+      throw new Error(`Expected the plural "2 сцены не включены в общий текст" form for 2 excluded scenes, got: ${summary}`);
+    if(!/3\s*сцен/.test(summary))throw new Error(`Expected 3 affected scenes TOTAL (1 mounted + 2 excluded), not 3+2=5, got: ${summary}`);
+  }
+  await page.fill("#allScenesFindReplace .rte-find-input","рысь");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
+    if(summary.includes("не включен"))
+      throw new Error(`Expected NO exclusion clause when every affected scene is included in the general text, got: ${summary}`);
+    if(!/20\s*совпадени/.test(summary)||!/2\s*сцен/.test(summary))
+      throw new Error(`Expected the plain "20 совпадений · 2 сцены" summary with no suffix, got: ${summary}`);
+  }
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
 
   console.log("find-replace-project-search-browser.test.mjs: all assertions passed");
 }finally{

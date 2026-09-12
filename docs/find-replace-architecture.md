@@ -559,25 +559,24 @@ one actually applies:
 
 **Fix**: `find-replace-controller.js`'s `snapshot()` now also computes
 `domainMatches=navigableProjectMatches(flat)` (scope `"project"` only) and
-exposes `navigableMatchCount` (its length), `activeNavigableMatchIndex` (the
-active match's position within it, by `matchId`, or `-1` if the active match
-isn't in the domain), `offSurfaceMatchCount`
-(`totalMatches - navigableMatchCount`), and `isGroupSurface`
-(`typeof getNavigableSceneIds==="function"` -- true only for "Весь текст",
-the one surface with a real multi-scene domain; standalone/Scene modal never
-pass that dependency at all). No second "is this navigable" definition was
-written anywhere -- the panel only ever reads these four snapshot fields.
-`find-replace-panel.js`:
-- the arrow counter now renders `activeNavigableMatchIndex+1` of
-  `navigableMatchCount` (falling back to the existing "0 из 0" convention,
-  and disabling ↑/↓, whenever `navigableMatchCount` is 0 -- e.g. the current
-  scene/domain has no matches even though the project does elsewhere);
-- the project-results summary stays entirely global (total matches, affected
-  scenes, every row), and appends `· ещё N вне «Весь текст»` (N =
-  `offSurfaceMatchCount`) only when `isGroupSurface` is true AND N>0 -- never
-  on standalone/Scene modal, where "вне «Весь текст»" would be a category
-  error (that surface isn't "Весь текст"), and never when every project
-  match already lives inside the current domain.
+exposes `navigableMatchCount` (its length) and `activeNavigableMatchIndex`
+(the active match's position within it, by `matchId`, or `-1` if the active
+match isn't in the domain). No second "is this navigable" definition was
+written anywhere -- the panel only ever reads these two snapshot fields, and
+the arrow counter renders `activeNavigableMatchIndex+1` of
+`navigableMatchCount` (falling back to the existing "0 из 0" convention, and
+disabling ↑/↓, whenever `navigableMatchCount` is 0 -- e.g. the current
+scene/domain has no matches even though the project does elsewhere).
+
+**Superseded by the D1.1 wording follow-up below**: this pass ALSO added an
+`offSurfaceMatchCount`/`isGroupSurface`-driven `· ещё N вне «Весь текст»`
+suffix to the project-results summary. Manual review found that wording
+miscounted (it measured off-domain MATCHES, not excluded SCENES, and could
+read as reporting an ADDITIONAL scene on top of the affected-scene count
+rather than a subset of it) and, being gated to "Весь текст" only, left
+standalone/Scene modal without any equivalent summary at all. Replaced
+entirely -- see the follow-up section immediately below for the current,
+correct mechanism; `offSurfaceMatchCount`/`isGroupSurface` no longer exist.
 
 Explicit result-row clicks (`activateProjectMatch`) are unchanged and remain
 fully unrestricted, including into off-domain/excluded scenes; after such a
@@ -586,20 +585,86 @@ instance computes its own domain/counter from scratch -- the destination
 counter naturally reflects wherever the user actually landed, never the
 originating surface's numbers.
 
-Regression coverage added to `tools/find-replace-project-search-browser.test.mjs`:
-a "гепард" fixture (2 mounted scenes, 3 matches total, plus 50 more in one
-excluded scene) proving the "Весь текст" counter denominator is 3 (not 53),
-that the summary reports "ещё 50 вне «Весь текст»", and that a full 4-press
-Next cycle wraps back to its own starting numerator without ever opening the
-excluded scene; the existing "тюлен" standalone/Scene-modal fixture (3
-matches in one scene + 1 in an excluded sibling) proving the counter there
-reads against 3 (not 4) and the off-surface suffix never appears; a "морж"
+Regression coverage added to `tools/find-replace-project-search-browser.test.mjs`
+(counter-denominator assertions still stand as originally written; the
+summary-text assertions were updated in the D1.1 wording follow-up below to
+match the corrected wording): a "гепард" fixture (2 mounted scenes, 3 matches
+total, plus 50 more in one excluded scene) proving the "Весь текст" counter
+denominator is 3 (not 53) and that a full 4-press Next cycle wraps back to
+its own starting numerator without ever opening the excluded scene; the
+"тюлен" standalone/Scene-modal fixture (3 matches in one scene + 1 in an
+excluded sibling) proving the counter there reads against 3 (not 4); a "морж"
 fixture matching only an excluded scene, proving both surfaces show "0 из 0"
 with ↑/↓ disabled while the project result row stays present and clickable;
-and a case-B click on an off-surface result (`scene-unmounted`, already used
+and a case-B click on an off-domain result (`scene-unmounted`, already used
 by the D1 final fix's own modal-lifecycle regression) confirming the
-destination's own counter reflects its own 3-match domain with no off-surface
-suffix.
+destination's own counter reflects its own 3-match domain.
+
+## D1.1 wording follow-up: project-results summary is global on all three surfaces, "excluded" means the existing scene setting
+
+Manual review of the D1.1 counter fix (base `746b9ad`) found the project-
+results summary's wording semantically misleading, and missing entirely on
+two of the three surfaces:
+
+- **Wording**: `· ещё N вне «Весь текст»` read as "N matches ADDITIONAL to
+  the N scenes already reported" -- easy to misread as `affectedSceneCount +
+  N`, when N was actually a MATCH count (off-domain matches), not a SCENE
+  count, and had no subset relationship to `affectedSceneCount` at all.
+- **Missing on standalone/Scene modal**: the suffix was gated to
+  `isGroupSurface` (true only for "Весь текст"), so those two surfaces never
+  showed any equivalent summary, even though the underlying fact (some
+  affected scenes aren't included in the general text) is just as true and
+  just as relevant there.
+
+**Fix**: the project-results summary is now defined as a single, surface-
+INDEPENDENT concept -- `<totalMatches> совпадений · <affectedSceneCount>
+сцены[ · <excludedSceneCount> сцен не включены в общий текст]` -- shown
+identically on "Весь текст", standalone "Текст сцены", and the Scene modal.
+`excludedSceneCount` is a SUBSET of `affectedSceneCount`, never added to it,
+and is computed once, canonically, in `find-replace-project-search.js`'s
+`searchProject()`: each `sceneResult` now also carries `included:
+scene.included!==false` (the exact same "Включить сцену в общий текст и
+выгрузку" flag `js/scenes.js`/`js/import-export.js`'s `includedScenes()`
+already read -- no second interpretation of it), and
+`excludedSceneCount=scenes.filter(s=>!s.included).length` is returned
+alongside `affectedSceneCount`. The controller no longer computes anything
+for this at all (the previous pass's `offSurfaceMatchCount`/`isGroupSurface`
+snapshot fields were removed) -- `find-replace-panel.js` reads
+`projectResult.affectedSceneCount`/`excludedSceneCount` directly, so this
+is the same number on every surface by construction, never re-derived per
+surface.
+
+Terminology: `«не включена/не включены в общий текст»`, aligned with the
+existing scene-settings checkbox's own wording, never "скрытая
+сцена"/"hidden scene"/"вне «Весь текст»"/"off-surface" in user-facing text.
+Grammar (noun `сцена/сцены/сцен` AND verb `не включена/не включены`,
+including the classic mod-10/mod-100 "11-14 are always the 'many' form"
+exception) is produced by two small, exported, pure helpers in
+`find-replace-panel.js` (`ruPluralForm`, `pluralRu`, `excludedScenesClause`)
+-- one Russian-plural-bucket implementation shared by the noun and the verb,
+never two that could drift apart. This does not touch or duplicate any
+existing i18n infrastructure; the app has none, and this task doesn't add
+any beyond these three small functions.
+
+The arrow counter (previous section) is UNCHANGED by this pass -- it stays
+deliberately surface-relative (`navigableMatchCount`/
+`activeNavigableMatchIndex`) and can legitimately differ from the now-global
+summary shown right below it (e.g. "Весь текст" showing "4 из 28" next to a
+"29 совпадений · 3 сцены · 1 сцена не включена в общий текст" summary that
+also appears, verbatim, in a standalone modal showing "1 из 12" for that
+scene's own domain).
+
+Regression coverage: `tools/find-replace-panel-wording.test.mjs` (new, pure
+unit test, no browser) exhaustively covers `ruPluralForm`/`pluralRu`/
+`excludedScenesClause` for 0/1/2/5/11/21/22/25/100. Browser coverage in
+`tools/find-replace-project-search-browser.test.mjs` was updated to assert
+the new wording (replacing every prior "вне «Весь текст»" check) and extended
+with: exact-string-equality proof that "Весь текст", standalone, and the
+Scene modal render the IDENTICAL summary while their own arrow counters
+differ (3 vs 1 vs 1, reflecting each surface's own domain); a 2-excluded-
+scene fixture for the plural "не включены" form; and a zero-excluded-scenes
+case (`scene-lynx-a`/`scene-lynx-b`, both included) proving no clause is
+appended at all when nothing is excluded.
 
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 

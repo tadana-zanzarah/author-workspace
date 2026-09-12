@@ -196,14 +196,18 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // never land on). `domainMatches` here is the SAME `navigableProjectMatches
   // (flat)` call `next()`/`previous()` use -- one definition of "navigable",
   // never a second one reimplemented in the panel -- so `navigableMatchCount`/
-  // `activeNavigableMatchIndex` are exactly what the arrow counter needs, and
-  // `offSurfaceMatchCount` (global total minus that domain count) is exactly
-  // what the project-results summary's own "ещё N вне «Весь текст»" suffix
-  // needs. `isGroupSurface` (true only when a real `getNavigableSceneIds` was
-  // wired in -- currently only "Весь текст"'s `createSceneEditorGroup`) is
-  // how the panel knows whether that suffix is even contextually meaningful
-  // at all, without hardcoding "Весь текст" naming into this generic,
-  // reusable controller -- see currentNavigableSceneIds' own comment.
+  // `activeNavigableMatchIndex` are exactly what the arrow counter needs.
+  //
+  // D1.1 follow-up: the project-results SUMMARY (as opposed to the arrow
+  // counter) is a different, surface-INDEPENDENT concept -- how many of the
+  // project's affected scenes are configured as not included in the general
+  // text (the existing "Включить сцену в общий текст и выгрузку" setting) --
+  // and must read identically on all three surfaces. That count already
+  // lives on `projectResult.excludedSceneCount` (find-replace-project-
+  // search.js, derived from the canonical `scene.included` flag, a SUBSET of
+  // `affectedSceneCount`, never a match count and never navigation-domain-
+  // relative), so the panel reads it straight off `snapshot.projectResult`
+  // with no separate field needed here.
   function snapshot(){
     const flatProjectMatches=projectResult?flattenProjectMatches(projectResult):[];
     const activeProjectMatch=activeProjectMatchIndex>=0?flatProjectMatches[activeProjectMatchIndex]:null;
@@ -213,9 +217,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
       query,replaceText,caseSensitive,open:open_,matchCount:matches.length,activeIndex,openSequence,focusTarget,
       scope,projectResult,activeProjectMatchIndex,activeProjectMatchId:activeProjectMatch?.matchId??null,
       navigableMatchCount:domainMatches.length,
-      activeNavigableMatchIndex,
-      offSurfaceMatchCount:projectResult?Math.max(0,projectResult.totalMatches-domainMatches.length):0,
-      isGroupSurface:typeof getNavigableSceneIds==="function"
+      activeNavigableMatchIndex
     };
   }
   function notify(){

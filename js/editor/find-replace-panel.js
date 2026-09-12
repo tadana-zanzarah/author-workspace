@@ -54,6 +54,43 @@ const DEFAULT_RESULTS_HEIGHT=140;
 const MIN_RESULTS_HEIGHT=90;
 const MAX_RESULTS_HEIGHT=420;
 
+// Russian plural-form bucket -- standard mod-10/mod-100 rule, no library
+// needed. Module-level (not just an inline closure) and exported so
+// tools/find-replace-panel-wording.test.mjs can exercise every mod-10/
+// mod-100 edge case (1/2/5/21/22/25...) directly, headlessly, without
+// spinning up a browser for what is pure string formatting. Exposed as its
+// own small helper (not just buried inside pluralRu below) because
+// excludedScenesClause needs the SAME one-vs-not-one decision for VERB
+// agreement ("не включена" vs "не включены") that pluralRu already computes
+// for the NOUN -- reusing this one bucket function keeps both agreeing by
+// construction, never two independent mod-10/mod-100 implementations that
+// could drift apart.
+export function ruPluralForm(n){
+  const mod10=n%10,mod100=n%100;
+  if(mod10===1&&mod100!==11)return "one";
+  if(mod10>=2&&mod10<=4&&(mod100<12||mod100>14))return "few";
+  return "many";
+}
+export function pluralRu(n,one,few,many){
+  const form=ruPluralForm(n);
+  return form==="one"?one:form==="few"?few:many;
+}
+
+// D1.1 follow-up (manual-review wording fix): "N сцен(а/ы) не включена/
+// включены в общий текст" -- the existing user-facing terminology for
+// js/scenes.js's own "Включить сцену в общий текст и выгрузку" checkbox,
+// phrased as a SUBSET clause of the scene count already reported just
+// before it ("29 совпадений · 3 сцены · 1 сцена не включена в общий
+// текст" reads as "of those 3 scenes, 1 isn't included" -- never "3 scenes
+// plus one more"). Returns "" for zero excluded scenes so the caller can
+// simply concatenate with no extra punctuation to strip.
+export function excludedScenesClause(excludedSceneCount){
+  if(!excludedSceneCount)return "";
+  const noun=pluralRu(excludedSceneCount,"сцена","сцены","сцен");
+  const verb=ruPluralForm(excludedSceneCount)==="one"?"не включена":"не включены";
+  return ` · ${excludedSceneCount} ${noun} ${verb} в общий текст`;
+}
+
 export function createFindReplacePanel(container,controller){
   container.innerHTML="";
   container.classList.add("rte-find-replace");
@@ -296,15 +333,6 @@ export function createFindReplacePanel(container,controller){
   // anything inside this panel itself.
   container.addEventListener("find-replace-escape",()=>controller.close());
 
-  // Russian plural forms (совпадение/совпадения/совпадений,
-  // сцена/сцены/сцен) -- standard mod-10/mod-100 rule, no library needed.
-  function pluralRu(n,one,few,many){
-    const mod10=n%10,mod100=n%100;
-    if(mod10===1&&mod100!==11)return one;
-    if(mod10>=2&&mod10<=4&&(mod100<12||mod100>14))return few;
-    return many;
-  }
-
   // Manual-test regression fix (item 6): this used to read "Замена по всему
   // проекту будет доступна после подтверждения изменений" -- worded like a
   // promised, coming-soon feature announcement. Project-wide Replace is
@@ -341,23 +369,17 @@ export function createFindReplacePanel(container,controller){
     }
     const summary=document.createElement("div");
     summary.className="rte-project-results-summary";
-    let summaryText=`${result.totalMatches} ${pluralRu(result.totalMatches,"совпадение","совпадения","совпадений")} · `+
-      `${result.affectedSceneCount} ${pluralRu(result.affectedSceneCount,"сцена","сцены","сцен")}`;
-    // D1.1 fix: the results list/summary stay GLOBAL (project-wide) on every
-    // surface -- this suffix only ANNOTATES that global count with how many
-    // of those matches live outside the current "Весь текст" surface's own
-    // navigation domain (snapshot.offSurfaceMatchCount, the same domain
-    // Next/Previous and the arrow counter above use); it never removes or
-    // re-filters the result rows themselves. Contextual to "Весь текст"
-    // specifically (snapshot.isGroupSurface -- true only when a real
-    // getNavigableSceneIds was wired in, currently only that surface): a
-    // standalone/Scene-modal surface's own domain is always "just the one
-    // open scene", so an equivalent count there would be large and
-    // meaningless ("вне «Весь текст»" would be a lie -- that surface ISN'T
-    // "Весь текст" at all), so it never renders there.
-    if(snapshot.isGroupSurface&&snapshot.offSurfaceMatchCount>0)
-      summaryText+=` · ещё ${snapshot.offSurfaceMatchCount} вне «Весь текст»`;
-    summary.textContent=summaryText;
+    // D1.1 follow-up: this summary is the GLOBAL project-search result --
+    // total matches, TOTAL affected scenes, and (as a SUBSET clause of that
+    // same affected-scene count, never an additive one) how many of them are
+    // configured as not included in the general text. Identical on all three
+    // surfaces (result.excludedSceneCount is surface-independent -- see
+    // find-replace-project-search.js), unlike the arrow counter above, which
+    // stays deliberately surface-relative.
+    summary.textContent=
+      `${result.totalMatches} ${pluralRu(result.totalMatches,"совпадение","совпадения","совпадений")} · `+
+      `${result.affectedSceneCount} ${pluralRu(result.affectedSceneCount,"сцена","сцены","сцен")}`+
+      excludedScenesClause(result.excludedSceneCount);
     resultsRoot.appendChild(summary);
 
     result.scenes.forEach(sceneResult=>{

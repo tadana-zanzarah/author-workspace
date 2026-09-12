@@ -137,11 +137,28 @@ export function searchProject(projectData,query,{caseSensitive=false}={}){
       scenes.push({
         sceneId:scene.id,sceneTitle:scene.title||"Без названия",
         chapterId:chapter.id,chapterTitle:chapter.title||"",
+        // D1.1 fix: the canonical "Включить сцену в общий текст и выгрузку"
+        // flag (js/scenes.js's own `s.included!==false` check, same
+        // convention `includedScenes()` in js/import-export.js uses to
+        // decide which scenes "Весь текст" mounts) -- carried through here so
+        // the summary's "N сцен не включены в общий текст" count (see
+        // excludedSceneCount below) is read from this ONE canonical property,
+        // never a second, independently-derived interpretation of it.
+        included:scene.included!==false,
         sceneOrder,source,doc,matches
       });
     }
   }
-  return {query,caseSensitive,totalMatches,affectedSceneCount:scenes.length,scenes,conflictedSceneIds};
+  // D1.1 fix: a SUBSET of affectedSceneCount (scenes.length), never a
+  // separate/additive count -- "how many of the scenes already counted in
+  // affectedSceneCount are configured as not included in the combined/
+  // general text". Computed once here, from the canonical `included` flag
+  // just carried through above, so every consumer (the controller's
+  // snapshot, the panel's summary) reads the exact same number rather than
+  // re-deriving it (e.g. from a navigation-domain count, which measures a
+  // different thing entirely -- reachable MATCHES, not excluded SCENES).
+  const excludedSceneCount=scenes.filter(sceneResult=>!sceneResult.included).length;
+  return {query,caseSensitive,totalMatches,affectedSceneCount:scenes.length,excludedSceneCount,scenes,conflictedSceneIds};
 }
 
 // Flat, navigation-order list of every {sceneId,sceneTitle,chapterTitle,
