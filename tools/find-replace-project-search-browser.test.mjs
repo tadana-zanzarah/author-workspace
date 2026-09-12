@@ -77,7 +77,22 @@ const project={
     // Scene-modal project-scope arrows wrap WITHIN this one scene only, plus
     // an excluded sibling sharing the same word that arrows must never reach.
     scene("scene-arrow-standalone","Тюлень","chapter-1",Array.from({length:3},(_,i)=>`Абзац ${i+1} про тюленя.`).join("\n")),
-    scene("scene-arrow-standalone-excluded","Тюлень нигде","chapter-unassigned","Тюлень тоже здесь, но нигде.",{included:false})
+    scene("scene-arrow-standalone-excluded","Тюлень нигде","chapter-unassigned","Тюлень тоже здесь, но нигде.",{included:false}),
+    // D1.1 fix (arrow-counter denominator): two MOUNTED scenes with a word
+    // appearing nowhere else ("гепард") -- 1 match + 2 matches -- plus one
+    // EXCLUDED scene with FIFTY occurrences of the same word, never mounted
+    // anywhere. Mirrors the task's own "53 global, 3 navigable" example
+    // exactly: "Весь текст"'s own navigation domain is these two mounted
+    // scenes only (3 matches total), while the project-wide total is 53.
+    scene("scene-counter-mounted-1","Гепард А","chapter-1","Гепард пробежал мимо."),
+    scene("scene-counter-mounted-2","Гепард Б","chapter-1","И снова гепард появился здесь. Гепард не унимался."),
+    scene("scene-counter-many-off","Гепард нигде","chapter-unassigned",Array.from({length:50},(_,i)=>`Гепард номер ${i+1}.`).join("\n"),{included:false}),
+    // D1.1 fix (edge case F -- zero navigable, nonzero global): a word
+    // ("морж") that appears ONLY in an excluded scene -- never in any scene
+    // mounted in "Весь текст", and never in the dedicated standalone scene
+    // used below -- so the navigation domain is empty on both surfaces while
+    // the project result set is not.
+    scene("scene-counter-off-only","Морж нигде","chapter-unassigned","Морж лежал на льду.",{included:false})
   ]
 };
 
@@ -1213,6 +1228,208 @@ try{
   }
   await page.click("#sceneTextFindReplace .rte-find-close");
   await page.click("#cancelScene");
+
+  // ============================================================
+  // PART 23 (D1.1 fix): the arrow counter next to ↑/↓ in "Весь текст" must
+  // show the CURRENT SURFACE's own navigation domain as its denominator
+  // (2 mounted scenes, 3 matches total: 1 + 2), never the project-wide total
+  // (53, with 50 more in an excluded scene) -- and wrapping must happen at
+  // that same domain size, never spilling past it toward the raw total.
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","гепард");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
+    if(!/53\s*совпадени/.test(summary))throw new Error(`Expected 53 "гепард" matches total (1 + 2 mounted, 50 excluded), got: ${summary}`);
+    if(!/3\s*сцен/.test(summary))throw new Error(`Expected 3 affected scenes, got: ${summary}`);
+    if(!summary.includes("ещё 50 вне «Весь текст»"))
+      throw new Error(`Expected the summary to report the 50 off-surface matches by name, got: ${summary}`);
+  }
+  await page.locator("#allSceneEditor-scene-counter-mounted-1 .scene-paragraph").click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  const readCount=async selector=>page.locator(selector).textContent();
+  // The exact STARTING numerator depends on canonical order/caret resolution
+  // (not what this part is testing) -- what matters is the denominator is
+  // always 3 (never 53), and that three more presses form exactly one full
+  // wrap cycle back to the numerator the arrows started this test on.
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  const firstCount=await readCount("#allScenesFindReplace .rte-find-count");
+  if(!/из 3$/.test(firstCount))throw new Error(`Expected the arrow counter's denominator to be 3 (domain-relative, not the project-wide 53), got: ${firstCount}`);
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  const secondCount=await readCount("#allScenesFindReplace .rte-find-count");
+  if(secondCount===firstCount||!/из 3$/.test(secondCount))
+    throw new Error(`Expected a different numerator (still "N из 3") after a second Next, got ${firstCount} -> ${secondCount}`);
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  const thirdCount=await readCount("#allScenesFindReplace .rte-find-count");
+  if(!/из 3$/.test(thirdCount))throw new Error(`Expected "N из 3" after a third Next, got: ${thirdCount}`);
+  // A fourth Next must complete exactly one full cycle of the 3-match domain
+  // and land back on the SAME numerator the first Next showed -- never
+  // "4 из 3", never spilling into the excluded scene's 50 matches, and never
+  // opening any other modal.
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await readCount("#allScenesFindReplace .rte-find-count");
+    if(count!==firstCount)throw new Error(`Expected a 4th Next to wrap back to the same "${firstCount}" the arrows started on (a full 3-match cycle), got: ${count}`);
+    if(await isOpen("textModal"))throw new Error("Arrow navigation must never have opened the excluded scene's standalone modal");
+  }
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
+
+  // ============================================================
+  // PART 24 (D1.1 fix): standalone "Текст сцены" -- same contract, but the
+  // domain is "just this one scene" (3 matches) while the project-wide total
+  // is 4 (1 more in an excluded sibling scene). The off-surface suffix must
+  // NOT appear here at all -- this surface is not "Весь текст".
+  // ============================================================
+  await page.evaluate(()=>openSceneText("scene-arrow-standalone"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  await page.click("#fullSceneTextToolbar .rte-btn-find");
+  await page.click("#fullSceneTextFindReplace .rte-scope-project");
+  await page.fill("#fullSceneTextFindReplace .rte-find-input","тюлен");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#textModal .rte-project-results .rte-project-results-summary").textContent();
+    if(!/4\s*совпадени/.test(summary))throw new Error(`Expected 4 "тюлен" matches total, got: ${summary}`);
+    if(summary.includes("вне «Весь текст»"))
+      throw new Error(`Standalone "Текст сцены" is not "Весь текст" -- the off-surface suffix must never appear there, got: ${summary}`);
+  }
+  await page.locator("#fullSceneTextEditor .scene-paragraph",{hasText:"Абзац 1 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await readCount("#fullSceneTextFindReplace .rte-find-count");
+    if(count!=="1 из 3")throw new Error(`Expected "1 из 3" (this scene's own domain, not the project-wide 4), got: ${count}`);
+  }
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  if((await readCount("#fullSceneTextFindReplace .rte-find-count"))!=="3 из 3")
+    throw new Error(`Expected "3 из 3" after two more Nexts`);
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  if((await readCount("#fullSceneTextFindReplace .rte-find-count"))!=="1 из 3")
+    throw new Error(`Expected the counter to wrap back to "1 из 3"`);
+  await page.click("#fullSceneTextFindReplace .rte-find-close");
+  await page.click("#closeText");
+
+  // ============================================================
+  // PART 25 (D1.1 fix): the Scene modal must behave exactly like standalone
+  // above for the counter too.
+  // ============================================================
+  await page.evaluate(()=>editScene("scene-arrow-standalone"));
+  await page.waitForSelector("#sceneTextEditor .ProseMirror");
+  await page.click("#sceneTextToolbar .rte-btn-find");
+  await page.click("#sceneTextFindReplace .rte-scope-project");
+  await page.fill("#sceneTextFindReplace .rte-find-input","тюлен");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#sceneModal .rte-project-results .rte-project-results-summary").textContent();
+    if(summary.includes("вне «Весь текст»"))
+      throw new Error(`Scene modal is not "Весь текст" -- the off-surface suffix must never appear there, got: ${summary}`);
+  }
+  await page.locator("#sceneTextEditor .scene-paragraph",{hasText:"Абзац 1 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#sceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await readCount("#sceneTextFindReplace .rte-find-count");
+    if(count!=="1 из 3")throw new Error(`Scene modal: expected "1 из 3" (domain-relative), got: ${count}`);
+  }
+  await page.click("#sceneTextFindReplace .rte-find-close");
+  await page.click("#cancelScene");
+
+  // ============================================================
+  // PART 26 (D1.1 fix, edge case F): zero matches in the current navigation
+  // domain while the project has matches elsewhere -- the arrow controls
+  // must not pretend there is a navigable result (counter reads "0 из 0",
+  // arrows disabled), and the global project result row must remain usable.
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","морж");
+  await page.waitForTimeout(80);
+  {
+    const count=await readCount("#allScenesFindReplace .rte-find-count");
+    if(count!=="0 из 0")throw new Error(`"Весь текст": expected "0 из 0" when nothing in the current domain matches, got: ${count}`);
+    if(!await page.locator("#allScenesFindReplace .rte-find-next").isDisabled())
+      throw new Error("Next must be disabled when the navigation domain has zero matches");
+    if(!await page.locator("#allScenesFindReplace .rte-find-prev").isDisabled())
+      throw new Error("Previous must be disabled when the navigation domain has zero matches");
+    const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
+    if(!/1\s*совпадени/.test(summary))throw new Error(`Expected the global project result to still report the 1 "морж" match, got: ${summary}`);
+    if(!summary.includes("ещё 1 вне «Весь текст»"))
+      throw new Error(`Expected the summary to report that single match as off-surface, got: ${summary}`);
+    if(await page.locator("#allScenesModal .rte-project-results .rte-project-result-group",{hasText:"Морж нигде"}).count()!==1)
+      throw new Error("The off-surface project result row must remain present and usable even though the arrows cannot reach it");
+  }
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
+
+  await page.evaluate(()=>openSceneText("scene-counter-mounted-1"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  await page.click("#fullSceneTextToolbar .rte-btn-find");
+  await page.click("#fullSceneTextFindReplace .rte-scope-project");
+  await page.fill("#fullSceneTextFindReplace .rte-find-input","морж");
+  await page.waitForTimeout(80);
+  {
+    const count=await readCount("#fullSceneTextFindReplace .rte-find-count");
+    if(count!=="0 из 0")throw new Error(`Standalone: expected "0 из 0" when this scene has no matches of its own, got: ${count}`);
+    if(!await page.locator("#fullSceneTextFindReplace .rte-find-next").isDisabled())
+      throw new Error("Standalone: Next must be disabled when the navigation domain has zero matches");
+    if(await page.locator("#textModal .rte-project-results .rte-project-result-group",{hasText:"Морж нигде"}).count()!==1)
+      throw new Error("Standalone: the off-surface project result row must remain present and usable");
+  }
+  await page.click("#fullSceneTextFindReplace .rte-find-close");
+  await page.click("#closeText");
+
+  // ============================================================
+  // PART 27 (D1.1 fix, edge case E): an explicit click on an off-surface
+  // project result from "Весь текст" must still open/navigate correctly
+  // (no regression of the repeated-unmounted-scene modal fix from 35f1c60),
+  // and the DESTINATION surface's own arrow counter must reflect ITS OWN
+  // navigation domain (this scene's 3 "кот" matches), never the project-wide
+  // total, and never the off-surface suffix (this destination isn't "Весь
+  // текст" either).
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","кот");
+  await page.waitForTimeout(80);
+  await page.locator("#allScenesModal .rte-project-results .rte-project-result-group",{hasText:"Нигде не открыта"}).locator(".rte-project-result-row").first().click();
+  await page.waitForTimeout(100);
+  if(await isOpen("discardChangesModal"))await page.click("#discardChanges");
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  if(!await isOpen("textModal")||await isOpen("allScenesModal"))
+    throw new Error("Explicit off-surface click must still open the standalone modal and close the originating one (existing accepted behavior)");
+  await page.click("#fullSceneTextToolbar .rte-btn-find");
+  await page.click("#fullSceneTextFindReplace .rte-scope-project");
+  await page.fill("#fullSceneTextFindReplace .rte-find-input","кот");
+  await page.waitForTimeout(80);
+  {
+    const count=await readCount("#fullSceneTextFindReplace .rte-find-count");
+    if(count!=="1 из 3")throw new Error(`Destination surface: expected its own counter to read "1 из 3" (its own domain), got: ${count}`);
+    const summary=await page.locator("#textModal .rte-project-results .rte-project-results-summary").textContent();
+    if(summary.includes("вне «Весь текст»"))
+      throw new Error(`Destination surface is standalone, not "Весь текст" -- must never show the off-surface suffix, got: ${summary}`);
+  }
+  await page.click("#fullSceneTextFindReplace .rte-find-close");
+  await page.click("#closeText");
 
   console.log("find-replace-project-search-browser.test.mjs: all assertions passed");
 }finally{

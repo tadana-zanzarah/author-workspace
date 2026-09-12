@@ -186,12 +186,36 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   let projectDecoratedViews=new Set();
   const listeners=new Set();
 
+  // D1.1 fix: the panel used to render the arrow counter's denominator
+  // straight off `projectResult.totalMatches` -- the GLOBAL project match
+  // count, including scenes outside the current surface's own navigation
+  // domain (see `navigableProjectMatches`/`currentNavigableSceneIds` below,
+  // the exact same domain `next()`/`previous()` already restrict themselves
+  // to). That made the counter claim reachability the arrows didn't actually
+  // have ("1 из 29" while the 29th match lived in a scene Next/Previous can
+  // never land on). `domainMatches` here is the SAME `navigableProjectMatches
+  // (flat)` call `next()`/`previous()` use -- one definition of "navigable",
+  // never a second one reimplemented in the panel -- so `navigableMatchCount`/
+  // `activeNavigableMatchIndex` are exactly what the arrow counter needs, and
+  // `offSurfaceMatchCount` (global total minus that domain count) is exactly
+  // what the project-results summary's own "ещё N вне «Весь текст»" suffix
+  // needs. `isGroupSurface` (true only when a real `getNavigableSceneIds` was
+  // wired in -- currently only "Весь текст"'s `createSceneEditorGroup`) is
+  // how the panel knows whether that suffix is even contextually meaningful
+  // at all, without hardcoding "Весь текст" naming into this generic,
+  // reusable controller -- see currentNavigableSceneIds' own comment.
   function snapshot(){
     const flatProjectMatches=projectResult?flattenProjectMatches(projectResult):[];
     const activeProjectMatch=activeProjectMatchIndex>=0?flatProjectMatches[activeProjectMatchIndex]:null;
+    const domainMatches=scope==="project"&&projectResult?navigableProjectMatches(flatProjectMatches):[];
+    const activeNavigableMatchIndex=activeProjectMatch?domainIndexForMatchId(domainMatches,activeProjectMatch.matchId):-1;
     return {
       query,replaceText,caseSensitive,open:open_,matchCount:matches.length,activeIndex,openSequence,focusTarget,
-      scope,projectResult,activeProjectMatchIndex,activeProjectMatchId:activeProjectMatch?.matchId??null
+      scope,projectResult,activeProjectMatchIndex,activeProjectMatchId:activeProjectMatch?.matchId??null,
+      navigableMatchCount:domainMatches.length,
+      activeNavigableMatchIndex,
+      offSurfaceMatchCount:projectResult?Math.max(0,projectResult.totalMatches-domainMatches.length):0,
+      isGroupSurface:typeof getNavigableSceneIds==="function"
     };
   }
   function notify(){

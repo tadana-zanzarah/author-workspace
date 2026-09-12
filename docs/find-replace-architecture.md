@@ -538,6 +538,69 @@ multiple simultaneous, genuinely-mounted registrations of the same scene
 supported and untouched. No broader modal-framework rewrite was needed or
 attempted.
 
+## D1.1: arrow counter is navigation-domain-relative, not project-wide
+
+Manual testing on top of the D1 final fix (base `35f1c60`) found the arrow
+counter ("N из M" next to ↑/↓) misrepresenting what the arrows could actually
+reach: it read `projectResult.totalMatches` (every match in every scene the
+project search found, including scenes outside the current surface's own
+navigation domain) as its denominator, while Next/Previous had already been
+restricted to that domain by the D1 final fix. Two conceptually distinct
+things must stay distinct, and the UI must derive its numbers from whichever
+one actually applies:
+
+- **Global project result set** -- `projectResult`/`flattenProjectMatches`,
+  unchanged: total match count, affected scene count, every result row
+  (including off-domain/excluded scenes), and what an explicit row click can
+  reach. Still project-wide on every surface.
+- **Current navigation domain** -- exactly `navigableProjectMatches(flat)`
+  (`find-replace-controller.js`), the SAME function `next()`/`previous()`
+  already call. Used for the arrow counter and nothing else.
+
+**Fix**: `find-replace-controller.js`'s `snapshot()` now also computes
+`domainMatches=navigableProjectMatches(flat)` (scope `"project"` only) and
+exposes `navigableMatchCount` (its length), `activeNavigableMatchIndex` (the
+active match's position within it, by `matchId`, or `-1` if the active match
+isn't in the domain), `offSurfaceMatchCount`
+(`totalMatches - navigableMatchCount`), and `isGroupSurface`
+(`typeof getNavigableSceneIds==="function"` -- true only for "Весь текст",
+the one surface with a real multi-scene domain; standalone/Scene modal never
+pass that dependency at all). No second "is this navigable" definition was
+written anywhere -- the panel only ever reads these four snapshot fields.
+`find-replace-panel.js`:
+- the arrow counter now renders `activeNavigableMatchIndex+1` of
+  `navigableMatchCount` (falling back to the existing "0 из 0" convention,
+  and disabling ↑/↓, whenever `navigableMatchCount` is 0 -- e.g. the current
+  scene/domain has no matches even though the project does elsewhere);
+- the project-results summary stays entirely global (total matches, affected
+  scenes, every row), and appends `· ещё N вне «Весь текст»` (N =
+  `offSurfaceMatchCount`) only when `isGroupSurface` is true AND N>0 -- never
+  on standalone/Scene modal, where "вне «Весь текст»" would be a category
+  error (that surface isn't "Весь текст"), and never when every project
+  match already lives inside the current domain.
+
+Explicit result-row clicks (`activateProjectMatch`) are unchanged and remain
+fully unrestricted, including into off-domain/excluded scenes; after such a
+click opens a new destination surface, that surface's OWN (fresh) controller
+instance computes its own domain/counter from scratch -- the destination
+counter naturally reflects wherever the user actually landed, never the
+originating surface's numbers.
+
+Regression coverage added to `tools/find-replace-project-search-browser.test.mjs`:
+a "гепард" fixture (2 mounted scenes, 3 matches total, plus 50 more in one
+excluded scene) proving the "Весь текст" counter denominator is 3 (not 53),
+that the summary reports "ещё 50 вне «Весь текст»", and that a full 4-press
+Next cycle wraps back to its own starting numerator without ever opening the
+excluded scene; the existing "тюлен" standalone/Scene-modal fixture (3
+matches in one scene + 1 in an excluded sibling) proving the counter there
+reads against 3 (not 4) and the off-surface suffix never appears; a "морж"
+fixture matching only an excluded scene, proving both surfaces show "0 из 0"
+with ↑/↓ disabled while the project result row stays present and clickable;
+and a case-B click on an off-surface result (`scene-unmounted`, already used
+by the D1 final fix's own modal-lifecycle regression) confirming the
+destination's own counter reflects its own 3-match domain with no off-surface
+suffix.
+
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 
 Pure, headless, DOM/EditorState/Supabase-independent. `findMatches(doc, query,

@@ -341,8 +341,23 @@ export function createFindReplacePanel(container,controller){
     }
     const summary=document.createElement("div");
     summary.className="rte-project-results-summary";
-    summary.textContent=`${result.totalMatches} ${pluralRu(result.totalMatches,"совпадение","совпадения","совпадений")} · `+
+    let summaryText=`${result.totalMatches} ${pluralRu(result.totalMatches,"совпадение","совпадения","совпадений")} · `+
       `${result.affectedSceneCount} ${pluralRu(result.affectedSceneCount,"сцена","сцены","сцен")}`;
+    // D1.1 fix: the results list/summary stay GLOBAL (project-wide) on every
+    // surface -- this suffix only ANNOTATES that global count with how many
+    // of those matches live outside the current "Весь текст" surface's own
+    // navigation domain (snapshot.offSurfaceMatchCount, the same domain
+    // Next/Previous and the arrow counter above use); it never removes or
+    // re-filters the result rows themselves. Contextual to "Весь текст"
+    // specifically (snapshot.isGroupSurface -- true only when a real
+    // getNavigableSceneIds was wired in, currently only that surface): a
+    // standalone/Scene-modal surface's own domain is always "just the one
+    // open scene", so an equivalent count there would be large and
+    // meaningless ("вне «Весь текст»" would be a lie -- that surface ISN'T
+    // "Весь текст" at all), so it never renders there.
+    if(snapshot.isGroupSurface&&snapshot.offSurfaceMatchCount>0)
+      summaryText+=` · ещё ${snapshot.offSurfaceMatchCount} вне «Весь текст»`;
+    summary.textContent=summaryText;
     resultsRoot.appendChild(summary);
 
     result.scenes.forEach(sceneResult=>{
@@ -392,9 +407,16 @@ export function createFindReplacePanel(container,controller){
     projectScopeButton.classList.toggle("active",isProjectScope);
 
     if(isProjectScope){
-      const total=snapshot.projectResult?.totalMatches||0;
-      countEl.textContent=total?`${snapshot.activeProjectMatchIndex+1} из ${total}`:"0 из 0";
-      const hasMatches=total>0;
+      // D1.1 fix: the arrow counter's denominator is the CURRENT SURFACE's
+      // own navigation domain (snapshot.navigableMatchCount -- exactly the
+      // same domain Next/Previous already restrict themselves to, see
+      // find-replace-controller.js's own snapshot()/navigableProjectMatches),
+      // never the raw project-wide total -- the arrows were already scoped
+      // to this domain (final D1 fix); this just makes the counter stop
+      // claiming a reachability it never actually had.
+      const domainTotal=snapshot.navigableMatchCount;
+      countEl.textContent=domainTotal?`${snapshot.activeNavigableMatchIndex+1} из ${domainTotal}`:"0 из 0";
+      const hasMatches=domainTotal>0;
       prevButton.disabled=!hasMatches;
       nextButton.disabled=!hasMatches;
       // Product brief section 1/14: project-scope replacement is not part of
