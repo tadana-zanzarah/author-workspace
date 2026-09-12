@@ -163,6 +163,94 @@ present. Left unfixed here since it predates this entire branch and is
 neither one of the seven defects this pass targets nor part of the Stage
 C/D1/T1/T2 suites this pass was asked to re-run.
 
+## Second corrective pass: live caret/selection semantics + highlight stability
+
+Manual retest of the first corrective pass (base `a014053`) confirmed the
+resizer, result pane, sticky/layout, and general cross-scene search all
+worked, but found the ACTIVE-MATCH/navigation-origin state was stale and the
+active-match visual treatment was unstable. Fixed in place:
+
+- **Stale navigation origin (root cause)**: `next()`/`previous()` always
+  stepped the STORED `activeIndex`/`activeProjectMatchIndex`
+  (`(activeIndex+1)%matches.length`) — nothing ever re-read the live
+  caret/selection once the panel was already open, so manually clicking
+  elsewhere in the editor (same scene or, in "Весь проект", a genuinely
+  different mounted scene) had no effect on where Next/Previous continued
+  from. Fixed by `resolveSceneIndexFromCaret`/`resolveProjectIndexFromCaret`
+  in `find-replace-controller.js`: both are called FRESH on every Next/
+  Previous, reading `view.state.selection` at that exact moment (never
+  cached/reactively tracked) — after the controller's OWN navigation, the
+  live selection already sits exactly on the match it just set, so
+  re-deriving "current" from it reproduces the identical index with no
+  drift; when the user has moved the caret (or, in project scope, focused a
+  different mounted scene — "Весь текст"'s own focus handling already
+  retargets the attached `view` on every scene focus change), this picks
+  that position up instead. The project-scope resolver walks the existing
+  canonical-order `flat` array (contiguous per-scene blocks, from
+  `find-replace-project-search.js`) so crossing a scene boundary in either
+  direction is exact, not a guess. An explicit `navigation:true` marker on
+  the shared `findReplacePluginKey` meta (set by both
+  `dispatchNavigation()` and `find-replace-navigation.js`'s
+  `selectAndReveal()`) makes "this selection change is the controller's own"
+  an inspectable fact rather than a timing assumption, per the product
+  brief's own explicit request — even though today's resolvers don't need to
+  read it back to be correct (see the code comments for why).
+- **Active-match highlight instability (root cause)**: the browser's own
+  NATIVE text-selection rendering (a distinct visual layer with its own
+  focused/vivid vs. unfocused/pale coloring, painted independently of an
+  element's `background-color`) was competing with the `.rte-find-match{-active}`
+  decoration classes wherever the real editor Selection happened to overlap
+  a match — which it always does right after navigation, since
+  `dispatchNavigation`/`selectAndReveal` deliberately move the real
+  selection onto the active match (the accepted Stage C "the match becomes
+  the actual selection" behavior, kept as-is). Fixed with scoped
+  `::selection` CSS rules (`css/editor.css`) that make the native selection
+  paint with the SAME colors the decoration already uses, so the visual
+  result is stable regardless of focus or of whether the caret/selection
+  happens to be inside the match — no decoration-side JS changes needed, no
+  new highlighting system.
+- **Highlight disappearing under a user selection (root cause)**: the same
+  native-selection layer, this time simply obscuring a decoration's
+  background wherever an ARBITRARY (non-search) user selection happened to
+  overlap it — the underlying `DecorationSet` was never actually cleared by
+  any code path (a pure selection-only transaction was always a no-op for
+  the decorations plugin), only the browser's own default selection color
+  visually painted over it. The same scoped `::selection` rules fix this
+  too: text inside a decorated match keeps that match's own color even
+  under an arbitrary selection, while text outside stays exactly the normal
+  default color — never disabling `::selection`/user selection.
+- **Result-pane default height** lowered from ~6 rows to ~4
+  (`DEFAULT_RESULTS_HEIGHT` 210px → 140px in `find-replace-panel.js`); drag/
+  keyboard resize and existing min/max bounds (90–420px) unchanged.
+
+Regression coverage (all in `tools/find-replace-project-search-browser.test.mjs`,
+continuing this file's own established corrective-pass sections): current-
+scene manual caret reposition on all three surfaces (including a follow-up
+plain Next proving the controller's own navigation selection is read back
+correctly, not reinterpreted); project scope same-scene reposition; project
+scope cross-scene reposition in both directions, confirming canonical order
+is respected and there is no jump back to the old scene; active-match
+decoration-class stability across focus loss and caret movement; an
+arbitrary user selection spanning a match leaving every decoration in place,
+both during and after the selection; and the scoped `::selection` rules
+actually being registered. Full unit suite, `find-replace-current-
+scene-browser` (Stage C), and the T1/T2 rich-text/dirty/scroll suites were
+re-run and remain green with zero changes needed to any of them.
+
+**Known limitation (pre-existing, inherited from Stage D1's own design, not
+introduced by this pass)**: the project-scope "which scene is the attached
+view currently showing" check (`pickInitialProjectMatchIndex`,
+`resolveProjectIndexFromCaret`, `applyProjectDecorations`) identifies a
+scene by comparing ProseMirror `Node#eq` (structural/content equality)
+against each search result's own stored doc — not by scene id. Two
+DIFFERENT scenes with byte-for-byte identical prose would be
+indistinguishable to this check. This is an existing characteristic of how
+Stage D1 wired live-view resolution throughout (see `find-replace-project-
+search.js`'s `resolveSceneDoc`, unchanged here), not a new bug from this
+pass; a robust fix would mean threading the scene id itself through
+`attachView`, which is exactly the kind of broader editor-lifecycle change
+this pass was explicitly told not to undertake.
+
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 
 Pure, headless, DOM/EditorState/Supabase-independent. `findMatches(doc, query,

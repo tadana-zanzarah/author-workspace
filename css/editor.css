@@ -235,6 +235,32 @@
    good). */
 .rte-editor .rte-find-match{background:#e9c56d}
 .rte-editor .rte-find-match-active{background:var(--warning);color:#fff;border-radius:2px}
+/* Second corrective pass (manual-test regression fix, item 3/4): root cause
+   of "the active match sometimes shows a pale/legacy look, and moving the
+   caret away suddenly reveals the intended strong color" and "selecting a
+   range that contains a match makes the highlight disappear" was the SAME
+   thing in both directions -- the browser's own NATIVE text-selection
+   rendering (a distinct visual layer the browser paints on top of/instead of
+   an element's own background-color, using its own "active" (focused, vivid)
+   vs "inactive" (unfocused, pale grey) coloring) was competing with these
+   decoration classes' `background` wherever the real editor Selection
+   happened to overlap a match -- which it always does right after
+   navigation, since dispatchNavigation/selectAndReveal deliberately move the
+   real selection onto the active match (the accepted Stage C "the match
+   becomes the actual selection" behavior, kept as-is here). Scoping
+   `::selection` to these exact classes makes the native selection paint
+   with the SAME color the decoration already uses, whether or not the
+   editor has focus and regardless of the browser's own focused/unfocused
+   selection palette -- so the active/dim treatment is visually stable and
+   never depends on focus or on whether the caret/selection happens to be
+   inside a match. This is scoped to decorated match text only: an ordinary
+   arbitrary user selection elsewhere in the manuscript still renders with
+   the browser's normal (default) selection color, and a user selection that
+   happens to SPAN a decorated match keeps showing that match's own color for
+   just the overlapping portion instead of erasing it -- never disabling
+   `::selection`/user selection outright. */
+.rte-editor .rte-find-match::selection{background:#e9c56d;color:inherit}
+.rte-editor .rte-find-match-active::selection{background:var(--warning);color:#fff}
 
 /* "Весь текст": the shared toolbar + Find/Replace panel stick TOGETHER as
    one control area while manuscript scenes scroll underneath -- a single

@@ -213,6 +213,44 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     return 0;
   }
 
+  // Second corrective pass (manual-test regression fix, item 1): Find Next/
+  // Previous must follow wherever the user's caret/selection ACTUALLY is
+  // right now, not blindly step the stored activeIndex -- otherwise manually
+  // clicking elsewhere in the editor and pressing Next silently ignores that
+  // move and continues from the old position. Read fresh from
+  // `view.state.selection` on every call (never cached/reactively tracked --
+  // see this function's own module-level doc comment on why no "was this a
+  // user selection" flag is needed for correctness): after OUR OWN
+  // navigation dispatch, the real selection is already sitting exactly on
+  // `matches[activeIndex]`, so re-deriving "current" from it here reproduces
+  // the identical index and this never oscillates or skips; if the user has
+  // since moved the caret/selection themselves, this naturally picks THAT
+  // position up instead, with no separate bookkeeping required.
+  //
+  // direction: +1 for Next, -1 for Previous.
+  //   - caret inside a match -> that match IS "current"; Next targets the
+  //     one strictly after it, Previous the one strictly before (wrapping at
+  //     either end of the list).
+  //   - caret not inside any match -> Next targets the first match at/after
+  //     the caret; Previous targets the last match strictly before it;
+  //     wrapping to the first/last match respectively only when the caret is
+  //     positioned after/before every match.
+  function resolveSceneIndexFromCaret(currentMatches,targetView,direction){
+    if(!currentMatches.length||!isViewUsable(targetView))return null;
+    const caret=targetView.state.selection.from;
+    const containing=currentMatches.findIndex(m=>caret>=m.from&&caret<m.to);
+    if(direction>0){
+      if(containing>=0)return (containing+1)%currentMatches.length;
+      const atOrAfter=currentMatches.findIndex(m=>m.from>=caret);
+      return atOrAfter>=0?atOrAfter:0;
+    }
+    if(containing>=0)return (containing-1+currentMatches.length)%currentMatches.length;
+    for(let index=currentMatches.length-1;index>=0;index--){
+      if(currentMatches[index].to<=caret)return index;
+    }
+    return currentMatches.length-1;
+  }
+
   // The one place matches are (re)computed, from the CURRENT view.state.doc
   // -- never from a stale snapshot. Called after every relevant document
   // change, option change, or query edit, so a from/to pair is never held
@@ -269,6 +307,54 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     const atOrAfter=inCurrentScene.find(({match})=>match.from>=caret);
     if(atOrAfter)return atOrAfter.index;
     return inCurrentScene[0].index;
+  }
+
+  // Second corrective pass (manual-test regression fix, items 1/2): the
+  // project-scope counterpart of resolveSceneIndexFromCaret above -- Find
+  // Next/Previous must follow the caret in WHATEVER scene the user is
+  // CURRENTLY looking at (the attached `view`, which "Весь текст"'s own
+  // focus handling already retargets to whichever mounted scene the user
+  // just clicked into -- see scene-editor-controller.js's activate()), not
+  // the scene the stored activeProjectMatchIndex happens to still point at.
+  // `flat` is already in canonical project order (chapters -> scenes ->
+  // matches-in-scene, see find-replace-project-search.js), and one scene's
+  // own matches are always CONTIGUOUS within it (flattenProjectMatches
+  // builds it scene-by-scene) -- so "does entry j come before/after the
+  // current scene's own block" is just a flat-index comparison against that
+  // block's own first/last index, no per-entry doc lookups needed beyond
+  // grouping the current scene's own entries once up front.
+  //
+  // Returns null when the attached view's scene has no matches of its own
+  // in the current results (nothing live to compare the caret against) --
+  // callers fall back to the previous plain modular-step behavior in that
+  // case, exactly like pickInitialProjectMatchIndex's own fallback.
+  function resolveProjectIndexFromCaret(flat,direction){
+    if(!flat.length||!isViewUsable(view))return null;
+    const currentDoc=view.state.doc;
+    const sceneIndices=[];
+    flat.forEach((entry,index)=>{if(entry.doc&&entry.doc.eq(currentDoc))sceneIndices.push(index)});
+    if(!sceneIndices.length)return null;
+    const firstInScene=sceneIndices[0],lastInScene=sceneIndices[sceneIndices.length-1];
+    const caret=view.state.selection.from;
+    const containingLocal=sceneIndices.find(index=>caret>=flat[index].from&&caret<flat[index].to);
+    if(direction>0){
+      if(containingLocal!==undefined)return (containingLocal+1)%flat.length;
+      const afterInScene=sceneIndices.find(index=>flat[index].from>=caret);
+      if(afterInScene!==undefined)return afterInScene;
+      // Caret is after every match in this scene -- continue into whatever
+      // comes next in canonical order (naturally the next scene's own first
+      // match, since scenes are contiguous blocks in `flat`), wrapping to
+      // the very first project result if this scene's matches are the last.
+      return lastInScene+1<flat.length?lastInScene+1:0;
+    }
+    if(containingLocal!==undefined)return (containingLocal-1+flat.length)%flat.length;
+    for(let index=sceneIndices.length-1;index>=0;index--){
+      if(flat[sceneIndices[index]].to<=caret)return sceneIndices[index];
+    }
+    // Caret is before every match in this scene -- continue backward into
+    // whatever comes before in canonical order, wrapping to the very last
+    // project result if this scene's matches are the first.
+    return firstInScene>0?firstInScene-1:flat.length-1;
   }
 
   // The project-scope counterpart of recompute() above -- searches the WHOLE
@@ -403,12 +489,30 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // sufficient while the Find input holds focus). A pure selection change
   // never touches `doc`, so it can never make the scene dirty and is ignored
   // by handleTransaction's docChanged guard.
+  //
+  // Second corrective pass (manual-test regression fix, item 5): `navigation:
+  // true` on this same meta object is the explicit, non-timing-based marker
+  // that THIS PARTICULAR selection change is the controller's own
+  // programmatic navigation, not a user-driven caret/selection move -- the
+  // find-replace-navigation.js adapter tags its own selectAndReveal
+  // transaction the same way (same plugin key, same field). Nothing in this
+  // file currently NEEDS to read it back (resolveSceneIndexFromCaret/
+  // resolveProjectIndexFromCaret above deliberately read the LIVE selection
+  // fresh on every Next/Previous call instead of reactively tracking it --
+  // after our own navigation the live selection already sits exactly on the
+  // match we just set, so re-deriving "current" from it reproduces the same
+  // index with no drift, whether the caret got there via this dispatch or a
+  // genuine user click), but the flag is set explicitly and unconditionally
+  // regardless, so any future consumer (or handleTransaction, whose existing
+  // `tr.getMeta(findReplacePluginKey)` early-return already relies on this
+  // exact meta object's presence) has one unambiguous, inspectable signal to
+  // check instead of a `setTimeout`/timing heuristic.
   function dispatchNavigation(){
     if(!isViewUsable(view)||activeIndex<0||!matches[activeIndex])return;
     const match=matches[activeIndex];
     const selection=TextSelection.create(view.state.doc,match.from,match.to);
     const tr=view.state.tr.setSelection(selection).scrollIntoView()
-      .setMeta(findReplacePluginKey,{decorations:buildMatchDecorations(view.state.doc,matches,activeIndex)})
+      .setMeta(findReplacePluginKey,{decorations:buildMatchDecorations(view.state.doc,matches,activeIndex),navigation:true})
       .setMeta("addToHistory",false);
     view.dispatch(tr);
     revealDocPosition(view,match.from);
@@ -542,18 +646,28 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     recomputeProject();
   }
 
+  // Second corrective pass (manual-test regression fix, items 1/2): both
+  // branches below now resolve the navigation ORIGIN from the live caret
+  // (resolveSceneIndexFromCaret/resolveProjectIndexFromCaret) rather than
+  // blindly stepping the stored index -- a plain `%length` step is used only
+  // as the fallback for a scene the resolver can't say anything about (no
+  // usable view, or -- project scope -- the attached scene has no matches of
+  // its own in the current results), preserving the previous behavior for
+  // that narrow case.
   function next(){
     if(scope==="project"){
       const flat=projectResult?flattenProjectMatches(projectResult):[];
       if(!flat.length)return;
-      activeProjectMatchIndex=(activeProjectMatchIndex+1)%flat.length;
+      const resolved=resolveProjectIndexFromCaret(flat,1);
+      activeProjectMatchIndex=resolved!==null?resolved:(activeProjectMatchIndex+1)%flat.length;
       applyProjectDecorations();
       triggerProjectNavigation();
       notify();
       return;
     }
     if(!matches.length)return;
-    activeIndex=(activeIndex+1)%matches.length;
+    const resolved=resolveSceneIndexFromCaret(matches,view,1);
+    activeIndex=resolved!==null?resolved:(activeIndex+1)%matches.length;
     dispatchNavigation();
     notify();
   }
@@ -561,14 +675,16 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     if(scope==="project"){
       const flat=projectResult?flattenProjectMatches(projectResult):[];
       if(!flat.length)return;
-      activeProjectMatchIndex=(activeProjectMatchIndex-1+flat.length)%flat.length;
+      const resolved=resolveProjectIndexFromCaret(flat,-1);
+      activeProjectMatchIndex=resolved!==null?resolved:(activeProjectMatchIndex-1+flat.length)%flat.length;
       applyProjectDecorations();
       triggerProjectNavigation();
       notify();
       return;
     }
     if(!matches.length)return;
-    activeIndex=(activeIndex-1+matches.length)%matches.length;
+    const resolved=resolveSceneIndexFromCaret(matches,view,-1);
+    activeIndex=resolved!==null?resolved:(activeIndex-1+matches.length)%matches.length;
     dispatchNavigation();
     notify();
   }

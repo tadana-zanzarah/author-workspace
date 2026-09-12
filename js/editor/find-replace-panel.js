@@ -45,7 +45,12 @@
 // scene/chapter headers of their own, not a uniform list) plus a min/max-
 // bounded, user-draggable resize handle (see the resizer wiring below) --
 // never the whole modal, and never so large it would visually take over.
-const DEFAULT_RESULTS_HEIGHT=210;
+//
+// Second corrective pass (manual-test regression fix, item 6): default
+// lowered from ~6 rows to ~4 (210px -> 140px, the same proportional row
+// estimate as before) -- drag/keyboard resize and the existing min/max
+// bounds are unchanged, the pane just starts smaller.
+const DEFAULT_RESULTS_HEIGHT=140;
 const MIN_RESULTS_HEIGHT=90;
 const MAX_RESULTS_HEIGHT=420;
 

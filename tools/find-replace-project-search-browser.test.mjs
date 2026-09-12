@@ -39,7 +39,18 @@ const project={
     // a word that never appears anywhere else in this fixture ("пса", never
     // "кот"), for the caret-relative-initial-activation tests below --
     // keeping it fully independent of every "кот"-based assertion above.
-    scene("scene-caret","Каретка","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про пса.`).join("\n"))
+    scene("scene-caret","Каретка","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про пса.`).join("\n")),
+    // Second corrective pass: two dedicated scenes sharing a word that
+    // appears nowhere else in this fixture ("рысь"), for the cross-scene
+    // navigation-origin tests below -- kept fully independent of every
+    // "кот"/"пса"-based assertion above/below. Deliberately DIFFERENT
+    // surrounding templates: ProseMirror's Node#eq (used throughout this
+    // file's own resolveProjectIndexFromCaret/pickInitialProjectMatchIndex
+    // to identify "which scene is the attached view currently showing") is a
+    // structural/content equality check, not object identity, so two scenes
+    // with byte-for-byte identical prose would be indistinguishable to it.
+    scene("scene-lynx-a","Рысь А","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про рысь.`).join("\n")),
+    scene("scene-lynx-b","Рысь Б","chapter-1",Array.from({length:10},(_,i)=>`Запись ${i+1}: снова рысь видна.`).join("\n"))
   ]
 };
 
@@ -406,8 +417,8 @@ try{
   const resultsBox=page.locator("#allScenesModal .rte-project-results");
   await resultsBox.scrollIntoViewIfNeeded();
   const defaultHeight=await resultsBox.evaluate(el=>el.getBoundingClientRect().height);
-  if(Math.abs(defaultHeight-210)>2)
-    throw new Error(`Expected the default result-pane height to be ~210px (~6 rows), got ${defaultHeight}`);
+  if(Math.abs(defaultHeight-140)>2)
+    throw new Error(`Expected the default result-pane height to be ~140px (~4 rows), got ${defaultHeight}`);
 
   const resizer=page.locator("#allScenesModal .rte-project-results-resizer");
   {
@@ -471,6 +482,223 @@ try{
   }
   await page.click("#fullSceneTextFindReplace .rte-find-close");
   await page.click("#closeText");
+
+  // ============================================================
+  // PART 12 (second corrective pass, item 1/7A/7F): Find Next/Previous must
+  // follow the LIVE caret, not the stored active index -- across all three
+  // surfaces. Pattern for each: open Find, advance a couple of times (so the
+  // stored index is somewhere that would give a WRONG answer if blindly
+  // incremented), manually move the caret to a specific different
+  // paragraph, then confirm Next lands on THAT paragraph's own match, not
+  // "old index + 1".
+  // ============================================================
+  await page.evaluate(()=>openSceneText("scene-lynx-a"));
+  await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+  await page.click("#fullSceneTextToolbar .rte-btn-find");
+  await page.fill("#fullSceneTextFindReplace .rte-find-input","рысь");
+  await page.waitForTimeout(80);
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.locator("#fullSceneTextEditor .scene-paragraph",{hasText:"Абзац 7 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#fullSceneTextFindReplace .rte-find-count").textContent();
+    if(count!=="7 из 10")throw new Error(`Standalone "Текст сцены": expected Next after a manual caret move to paragraph 7 to land on match 7 (not old-index+1), got ${count}`);
+  }
+  // Same-position Next again (no further caret move) must simply advance by
+  // one -- proves the controller's OWN navigation-caused selection is
+  // correctly read back as "current" next time, not reinterpreted as a new
+  // arbitrary user position (item 5).
+  await page.click("#fullSceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#fullSceneTextFindReplace .rte-find-count").textContent();
+    if(count!=="8 из 10")throw new Error(`Standalone "Текст сцены": a second, plain Next (no manual caret move) must advance by exactly one, got ${count}`);
+  }
+  await page.click("#fullSceneTextFindReplace .rte-find-close");
+  await page.click("#closeText");
+
+  await page.evaluate(()=>editScene("scene-lynx-a"));
+  await page.waitForSelector("#sceneTextEditor .ProseMirror");
+  await page.click("#sceneTextToolbar .rte-btn-find");
+  await page.fill("#sceneTextFindReplace .rte-find-input","рысь");
+  await page.waitForTimeout(80);
+  await page.click("#sceneTextFindReplace .rte-find-next");
+  await page.click("#sceneTextFindReplace .rte-find-next");
+  await page.locator("#sceneTextEditor .scene-paragraph",{hasText:"Абзац 7 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#sceneTextFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#sceneTextFindReplace .rte-find-count").textContent();
+    if(count!=="7 из 10")throw new Error(`Scene modal: expected Next after a manual caret move to paragraph 7 to land on match 7, got ${count}`);
+  }
+  await page.click("#sceneTextFindReplace .rte-find-close");
+  await page.click("#cancelScene");
+  await page.waitForTimeout(80);
+
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.locator("#allSceneEditor-scene-lynx-a .ProseMirror").click();
+  await page.click("#allScenesToolbar .rte-btn-find"); // scope defaults to "Эта сцена"
+  await page.fill("#allScenesFindReplace .rte-find-input","рысь");
+  await page.waitForTimeout(80);
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.locator("#allSceneEditor-scene-lynx-a .scene-paragraph",{hasText:"Абзац 7 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#allScenesFindReplace .rte-find-count").textContent();
+    if(count!=="7 из 10")throw new Error(`"Весь текст" (current-scene scope): expected Next after a manual caret move to paragraph 7 to land on match 7, got ${count}`);
+  }
+
+  // ============================================================
+  // PART 13 (second corrective pass, item 2/7B/7C/7F): project scope
+  // navigation origin follows the caret -- same scene first, then a
+  // genuinely different mounted scene, confirmed against canonical project
+  // order (scene-lynx-a before scene-lynx-b, both chapter-1, array order).
+  // ============================================================
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","рысь");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
+    if(!/20\s*совпадени/.test(summary))throw new Error(`Expected 20 "рысь" matches (10 in each of scene-lynx-a/b), got: ${summary}`);
+  }
+  // 7B: same scene (scene-lynx-a), caret earlier than the current active match.
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.click("#allScenesFindReplace .rte-find-next"); // advance a few times within scene-lynx-a
+  await page.locator("#allSceneEditor-scene-lynx-a .scene-paragraph",{hasText:"Абзац 2 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#allScenesFindReplace .rte-find-count").textContent();
+    if(count!=="2 из 20")throw new Error(`Project scope, same scene: expected Next after moving the caret earlier (paragraph 2) to land on scene-lynx-a's own match 2 (2 из 20), got ${count}`);
+    if(await page.locator("#allSceneEditor-scene-lynx-a .rte-find-match-active").count()!==1)
+      throw new Error("Project scope, same scene: the active decoration must be on scene-lynx-a");
+    if(await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match-active").count()!==0)
+      throw new Error("Project scope, same scene: scene-lynx-b must not show an active decoration");
+  }
+  // 7C: cross-scene -- move the caret into scene-lynx-b entirely; Next/
+  // Previous must continue from THERE in canonical order, never jumping
+  // back to scene-lynx-a merely because the stored index still points there.
+  await page.locator("#allSceneEditor-scene-lynx-b .scene-paragraph",{hasText:"Запись 2:"}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#allScenesFindReplace .rte-find-count").textContent();
+    if(count!=="12 из 20")throw new Error(`Project scope, cross-scene: expected Next after moving the caret into scene-lynx-b (paragraph 2) to land on its own match 2 (12 из 20, i.e. flat position 10+2), got ${count}`);
+    if(await page.locator("#allSceneEditor-scene-lynx-a .rte-find-match-active").count()!==0)
+      throw new Error("Project scope, cross-scene: must NOT jump back to scene-lynx-a merely because the stored index used to point there");
+    if(await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match-active").count()!==1)
+      throw new Error("Project scope, cross-scene: the active decoration must be on scene-lynx-b");
+  }
+  await page.click("#allScenesFindReplace .rte-find-prev");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#allScenesFindReplace .rte-find-count").textContent();
+    if(count!=="11 из 20")throw new Error(`Project scope, cross-scene Previous: expected to move back to scene-lynx-b's own match 1 (11 из 20), got ${count}`);
+  }
+  // A further Previous must cross the canonical-order boundary BACK into
+  // scene-lynx-a's own LAST match (10 из 20) -- proves ordering is respected
+  // in both directions, not just "stay in whichever scene is focused".
+  await page.click("#allScenesFindReplace .rte-find-prev");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#allScenesFindReplace .rte-find-count").textContent();
+    if(count!=="10 из 20")throw new Error(`Project scope, cross-scene Previous: expected to cross back into scene-lynx-a's own last match (10 из 20), got ${count}`);
+  }
+
+  // ============================================================
+  // PART 14 (second corrective pass, item 3/4/7D): highlight stability --
+  // the active match's strong decoration must not depend on focus or on
+  // whether the caret is inside it, and an arbitrary user selection spanning
+  // a match must never remove the underlying decoration.
+  // ============================================================
+  await page.click("#allScenesFindReplace .rte-find-next"); // back to scene-lynx-b's own match 1 (11 из 20)
+  await page.waitForTimeout(30);
+  const classesBefore=await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match-active").getAttribute("class");
+  // Move focus away from the editor entirely (into the Find input) --
+  // active-match styling must be identical, not a paler/different class.
+  await page.click("#allScenesFindReplace .rte-find-input");
+  await page.waitForTimeout(60);
+  const classesAfterFocusLoss=await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match-active").getAttribute("class");
+  if(classesBefore!==classesAfterFocusLoss)
+    throw new Error(`Active-match decoration class must not change when focus moves away from the editor (before=${classesBefore}, after=${classesAfterFocusLoss})`);
+  if(await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match").count()<1)
+    throw new Error("Losing editor focus must not remove ordinary match decorations either");
+
+  // Moving the caret away from the active match (without navigating) must
+  // not change which match carries the active class.
+  await page.locator("#allSceneEditor-scene-lynx-b .scene-paragraph",{hasText:"Запись 5:"}).click();
+  await page.waitForTimeout(60);
+  const activeCountAfterCaretMove=await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match-active").count();
+  if(activeCountAfterCaretMove!==1)
+    throw new Error(`Moving the caret away (without pressing Next/Previous) must not add/remove the active-match decoration, got ${activeCountAfterCaretMove} active decorations`);
+  const classesAfterCaretMove=await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match-active").getAttribute("class");
+  if(classesAfterCaretMove!==classesBefore)
+    throw new Error("Moving the caret away from the active match must not change its decoration class");
+
+  // An arbitrary user text SELECTION spanning a match must not clear the
+  // decoration underneath it -- select the whole "Запись 5" paragraph
+  // (which contains its own match) via a real double-click + Home/Shift+End
+  // keyboard selection, then confirm every decoration is still present.
+  const matchCountBeforeSelection=await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match").count();
+  await page.locator("#allSceneEditor-scene-lynx-b .scene-paragraph",{hasText:"Запись 5:"}).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("End");
+  await page.keyboard.up("Shift");
+  await page.waitForTimeout(60);
+  const selectedText=await page.evaluate(()=>window.getSelection().toString());
+  if(!selectedText.includes("рысь"))throw new Error(`Test setup problem: the made selection did not actually span the match text, got ${JSON.stringify(selectedText)}`);
+  const matchCountDuringSelection=await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match").count();
+  if(matchCountDuringSelection!==matchCountBeforeSelection)
+    throw new Error(`An arbitrary user selection spanning a match must not remove any match decoration (before=${matchCountBeforeSelection}, during=${matchCountDuringSelection})`);
+  // Collapse the selection (click elsewhere) -- decorations must still be
+  // intact afterward too, with no recomputation/focus-change required.
+  await page.locator("#allScenesFindReplace .rte-find-input").click();
+  await page.waitForTimeout(60);
+  const matchCountAfterCollapsing=await page.locator("#allSceneEditor-scene-lynx-b .rte-find-match").count();
+  if(matchCountAfterCollapsing!==matchCountBeforeSelection)
+    throw new Error(`Match decorations must remain intact after collapsing/moving away a user selection (before=${matchCountBeforeSelection}, after=${matchCountAfterCollapsing})`);
+
+  // The visual mechanism behind the above: a scoped ::selection override so
+  // the browser's own native selection color never competes with/hides the
+  // decoration's background -- confirmed registered in the stylesheets
+  // (pixel-level rendering isn't practically assertable here, but the rule
+  // actually being present is the concrete, checkable half of "removed the
+  // native-selection coupling instead of stacking more CSS on top").
+  const hasScopedSelectionRules=await page.evaluate(()=>{
+    let matchRule=false,activeRule=false;
+    for(const sheet of document.styleSheets){
+      let rules;
+      try{rules=sheet.cssRules}catch{continue}
+      for(const rule of rules){
+        if(!rule.selectorText)continue;
+        if(rule.selectorText.includes(".rte-find-match::selection"))matchRule=true;
+        if(rule.selectorText.includes(".rte-find-match-active::selection"))activeRule=true;
+      }
+    }
+    return {matchRule,activeRule};
+  });
+  if(!hasScopedSelectionRules.matchRule||!hasScopedSelectionRules.activeRule)
+    throw new Error(`Expected scoped ::selection rules for .rte-find-match/.rte-find-match-active, got: ${JSON.stringify(hasScopedSelectionRules)}`);
+
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
 
   console.log("find-replace-project-search-browser.test.mjs: all assertions passed");
 }finally{

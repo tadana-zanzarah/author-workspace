@@ -36,11 +36,24 @@
 import {TextSelection} from "prosemirror-state";
 import {getPreferredLiveSceneView} from "./mounted-scene-registry.js";
 import {reresolveMatch} from "./find-replace-project-search.js";
+import {findReplacePluginKey} from "./find-replace-decorations.js";
 import {isViewUsable,revealDocPosition} from "./find-replace-controller.js";
 
+// Second corrective pass (manual-test regression fix, item 5): tags this
+// selection change with the same explicit `navigation:true` meta
+// find-replace-controller.js's own dispatchNavigation() uses -- see that
+// function's own doc comment for the full reasoning (an explicit,
+// inspectable marker rather than a timing heuristic for "this selection
+// change is the controller's own programmatic navigation, not a user-driven
+// one"). No `decorations` field here: decoration is entirely
+// find-replace-controller.js's job (applyProjectDecorations), called by the
+// controller separately: before this function runs (see next()/previous()/
+// activateProjectMatch()).
 function selectAndReveal(view,match){
   const selection=TextSelection.create(view.state.doc,match.from,match.to);
-  const tr=view.state.tr.setSelection(selection).scrollIntoView().setMeta("addToHistory",false);
+  const tr=view.state.tr.setSelection(selection).scrollIntoView()
+    .setMeta(findReplacePluginKey,{navigation:true})
+    .setMeta("addToHistory",false);
   view.dispatch(tr);
   revealDocPosition(view,match.from);
   view.focus();
