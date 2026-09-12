@@ -197,24 +197,42 @@ export function createFindReplacePanel(container,controller){
 
   resultsWrapper.append(resultsRoot,resizer);
 
-  // "Весь текст" wraps its toolbar+find/replace panel in one shared
-  // .rte-sticky-controls element that stays pinned to the top of the
-  // scrolling scene list (css/editor.css) -- inserting the results wrapper as
-  // container's own sibling would make IT part of that sticky-pinned area
-  // too, growing it tall enough to visually cover (and intercept pointer
-  // events on) the manuscript underneath. Insert after the WHOLE sticky
-  // wrapper instead, when one exists, so the results list sits in normal
-  // (non-sticky) document flow right below the pinned controls. textModal/
-  // sceneModal have no such wrapper, so this falls back to container's own
-  // sibling position exactly as before for them.
+  // Final D1 hardening pass (item 1): "Весь текст" wraps its toolbar+find/
+  // replace panel in one shared .rte-sticky-controls element that stays
+  // pinned to the top of the scrolling scene list (css/editor.css) -- manual
+  // testing found the results pane scrolling away separately from that
+  // sticky region felt broken ("the complete search UI should behave as one
+  // sticky search region"). The FIRST corrective pass deliberately kept the
+  // results wrapper OUTSIDE .rte-sticky-controls specifically because, at
+  // the time, the results list had no bounded height at all (an unbounded
+  // max-height:260px overflow risk) -- putting that inside the sticky region
+  // could have grown it tall enough to cover the manuscript. That concern no
+  // longer applies: the results pane now always has an explicit, JS-managed,
+  // hard-capped height (DEFAULT/MIN/MAX_RESULTS_HEIGHT above), so it is safe
+  // to make it part of the SAME sticky region as the toolbar/find-replace
+  // row -- appending it as `.rte-sticky-controls`'s own last child means the
+  // whole block (toolbar + controls + results + resizer) sticks and scrolls
+  // as one unit, entirely through ordinary CSS layout (no extra JS): the
+  // sticky element's own rendered height already includes this new child,
+  // so find-replace-controller.js's existing stickyTopObstruction() (which
+  // measures whatever height a `position:sticky` child currently has)
+  // automatically accounts for it with no changes needed there, and
+  // resizing the pane just changes that same height the same way.
+  // textModal/sceneModal have no .rte-sticky-controls wrapper at all, so
+  // they keep the EXISTING sibling-insertion behavior unchanged -- this is a
+  // "Весь текст"-only layout change, never a general modal redesign.
   const stickyWrapper=container.closest(".rte-sticky-controls");
-  const insertAfterElement=stickyWrapper||container;
-  // Defensive fallback for a container not yet attached anywhere (never true
-  // for the app's own real modals, which are always static HTML already in
-  // the document) -- insertAdjacentElement requires a parent to insert next
-  // to.
-  if(insertAfterElement.parentElement)insertAfterElement.insertAdjacentElement("afterend",resultsWrapper);
-  else container.appendChild(resultsWrapper);
+  if(stickyWrapper){
+    stickyWrapper.appendChild(resultsWrapper);
+  } else if(container.parentElement){
+    // Defensive fallback for a container not yet attached anywhere (never
+    // true for the app's own real modals, which are always static HTML
+    // already in the document) -- insertAdjacentElement requires a parent to
+    // insert next to.
+    container.insertAdjacentElement("afterend",resultsWrapper);
+  } else {
+    container.appendChild(resultsWrapper);
+  }
 
   function clampResultsHeight(height){
     return Math.min(MAX_RESULTS_HEIGHT,Math.max(MIN_RESULTS_HEIGHT,height));

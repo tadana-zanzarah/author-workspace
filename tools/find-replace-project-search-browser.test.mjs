@@ -33,8 +33,11 @@ const project={
     scene("scene-modal-target","В модалке","chapter-1","Кот заглянул в модалку."),
     scene("scene-all","В общем тексте","chapter-1","Кот гулял по общему тексту."),
     // included:false so this scene is never mounted anywhere -- not even in
-    // "Весь текст" -- making it a genuine case-B navigation target.
-    scene("scene-unmounted","Нигде не открыта","chapter-unassigned","Кот нигде не открыт.",{included:false}),
+    // "Весь текст" -- making it a genuine case-B navigation target. THREE
+    // "кот" occurrences (final D1 hardening pass, item 5) so the destination-
+    // decoration regression below can actually distinguish "every match got
+    // the normal treatment" from "only the active one did".
+    scene("scene-unmounted","Нигде не открыта","chapter-unassigned","Кот нигде не открыт. Но кот здесь был. И еще один кот заходил.",{included:false}),
     // Corrective pass (manual-test regression fix): a dedicated scene, using
     // a word that never appears anywhere else in this fixture ("пса", never
     // "кот"), for the caret-relative-initial-activation tests below --
@@ -43,14 +46,23 @@ const project={
     // Second corrective pass: two dedicated scenes sharing a word that
     // appears nowhere else in this fixture ("рысь"), for the cross-scene
     // navigation-origin tests below -- kept fully independent of every
-    // "кот"/"пса"-based assertion above/below. Deliberately DIFFERENT
-    // surrounding templates: ProseMirror's Node#eq (used throughout this
-    // file's own resolveProjectIndexFromCaret/pickInitialProjectMatchIndex
-    // to identify "which scene is the attached view currently showing") is a
-    // structural/content equality check, not object identity, so two scenes
-    // with byte-for-byte identical prose would be indistinguishable to it.
+    // "кот"/"пса"-based assertion above/below. Different surrounding
+    // templates here purely for readability in test output -- NOT (any
+    // longer) a workaround for anything: the final D1 hardening pass removed
+    // ProseMirror Node#eq/doc-content comparison as a scene-identity
+    // mechanism entirely (see find-replace-controller.js's `attachedSceneId`),
+    // so two scenes could now share byte-for-byte identical prose here too
+    // and remain fully distinguishable -- that exact scenario has its own
+    // dedicated coverage below (scene-twin-a/b).
     scene("scene-lynx-a","Рысь А","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про рысь.`).join("\n")),
-    scene("scene-lynx-b","Рысь Б","chapter-1",Array.from({length:10},(_,i)=>`Запись ${i+1}: снова рысь видна.`).join("\n"))
+    scene("scene-lynx-b","Рысь Б","chapter-1",Array.from({length:10},(_,i)=>`Запись ${i+1}: снова рысь видна.`).join("\n")),
+    // Final D1 hardening pass (item 4): two DIFFERENT scenes with a
+    // deliberately BYTE-FOR-BYTE IDENTICAL rich-text document -- exactly the
+    // case ProseMirror Node#eq could never distinguish. "барсук" appears
+    // nowhere else in this fixture, keeping this fully independent of every
+    // other assertion.
+    scene("scene-twin-a","Твин А","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про барсука.`).join("\n")),
+    scene("scene-twin-b","Твин Б","chapter-1",Array.from({length:10},(_,i)=>`Абзац ${i+1} про барсука.`).join("\n"))
   ]
 };
 
@@ -102,8 +114,10 @@ try{
   await page.waitForTimeout(50);
 
   const summaryText=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
-  if(!/5\s*совпадени/.test(summaryText)||!/5\s*сцен/.test(summaryText))
-    throw new Error(`Expected 5 matches across 5 scenes, got summary: ${summaryText}`);
+  // 7 = scene-standalone(1) + scene-excluded(1) + scene-modal-target(1) +
+  // scene-all(1) + scene-unmounted(3, see its own fixture comment above).
+  if(!/7\s*совпадени/.test(summaryText)||!/5\s*сцен/.test(summaryText))
+    throw new Error(`Expected 7 matches across 5 scenes, got summary: ${summaryText}`);
 
   const groupHeaders=await page.locator("#allScenesModal .rte-project-results .rte-project-result-scene-header").allTextContents();
   if(!groupHeaders.some(h=>h.includes("После бала")))
@@ -175,7 +189,7 @@ try{
     await page.waitForTimeout(80);
     const afterSummary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
     if(afterSummary===beforeSummary)throw new Error("Editing the active scene's own text while project scope is open did not refresh the result count");
-    if(!/6\s*совпадени/.test(afterSummary))throw new Error(`Expected the total to grow to 6 after adding one more "кот", got: ${afterSummary}`);
+    if(!/8\s*совпадени/.test(afterSummary))throw new Error(`Expected the total to grow to 8 after adding one more "кот", got: ${afterSummary}`);
   }
 
   // ============================================================
@@ -214,6 +228,68 @@ try{
       return doc.textBetween(selection.from,selection.to);
     });
     if(selectedText.toLowerCase()!=="кот")throw new Error(`Expected the opened scene's selection to land on the match, got ${JSON.stringify(selectedText)}`);
+
+    // Final D1 hardening pass (item 2/5): the destination editor (a BRAND
+    // NEW mountSceneEditor() call, with its own independent, closed
+    // find-replace-controller instance -- completely unconnected to the
+    // ORIGINATING "Весь текст" controller that drove this navigation) must
+    // still receive the exact same Stage C/D1 decoration treatment as an
+    // already-mounted scene: every one of this scene's own 3 "кот" matches
+    // decorated normally, and the one just navigated to (the first
+    // occurrence, since ".first()" was clicked above) carrying the strong
+    // active-match class -- reusing find-replace-decorations.js's own
+    // buildMatchDecorations, never a second highlighting system.
+    {
+      const decorationCounts=await page.evaluate(()=>{
+        const editor=document.getElementById("fullSceneTextEditor");
+        return {
+          all:editor.querySelectorAll(".rte-find-match").length,
+          active:editor.querySelectorAll(".rte-find-match-active").length
+        };
+      });
+      if(decorationCounts.all!==3)
+        throw new Error(`Expected all 3 "кот" matches in the destination scene decorated, got ${decorationCounts.all}`);
+      if(decorationCounts.active!==1)
+        throw new Error(`Expected exactly one active-match decoration in the destination scene, got ${decorationCounts.active}`);
+      const activeText=await page.locator("#fullSceneTextEditor .rte-find-match-active").textContent();
+      if(activeText.toLowerCase()!=="кот")
+        throw new Error(`Expected the active decoration's own text to be exactly "кот", got ${JSON.stringify(activeText)}`);
+    }
+
+    // Focus independence: moving focus away from the destination editor
+    // (into its own Find input) must not alter the decoration state at all.
+    await page.click("#fullSceneTextFindReplace .rte-find-input").catch(()=>{});
+    await page.waitForTimeout(60);
+    {
+      const afterBlur=await page.evaluate(()=>{
+        const editor=document.getElementById("fullSceneTextEditor");
+        return {
+          all:editor.querySelectorAll(".rte-find-match").length,
+          active:editor.querySelectorAll(".rte-find-match-active").length
+        };
+      });
+      if(afterBlur.all!==3||afterBlur.active!==1)
+        throw new Error(`Losing focus must not change the destination scene's decoration state, got ${JSON.stringify(afterBlur)}`);
+    }
+
+    // An arbitrary user selection spanning a match must coexist with the
+    // decoration state exactly like it already does for already-mounted
+    // scenes (second corrective pass) -- never clearing it.
+    await page.locator("#fullSceneTextEditor .scene-paragraph").first().click();
+    await page.keyboard.press("Home");
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("End");
+    await page.keyboard.up("Shift");
+    await page.waitForTimeout(60);
+    {
+      const duringSelection=await page.evaluate(()=>{
+        const editor=document.getElementById("fullSceneTextEditor");
+        return editor.querySelectorAll(".rte-find-match").length;
+      });
+      if(duringSelection!==3)
+        throw new Error(`An arbitrary user selection must not remove the destination scene's match decorations, got ${duringSelection}`);
+    }
+
     await page.click("#closeText");
     if(await isOpen("textModal"))throw new Error("Standalone modal did not close");
   }
@@ -697,6 +773,116 @@ try{
   if(!hasScopedSelectionRules.matchRule||!hasScopedSelectionRules.activeRule)
     throw new Error(`Expected scoped ::selection rules for .rte-find-match/.rte-find-match-active, got: ${JSON.stringify(hasScopedSelectionRules)}`);
 
+  await page.click("#allScenesFindReplace .rte-find-close");
+  await page.click("#closeAllScenes");
+
+  // ============================================================
+  // PART 15 (final D1 hardening pass, item 3/4): scene identity must come
+  // from sceneId, never from ProseMirror document content -- two DIFFERENT
+  // scenes (scene-twin-a/b) sharing a BYTE-FOR-BYTE IDENTICAL document must
+  // remain fully distinguishable for caret-origin resolution, project Next/
+  // Previous, and decoration targeting.
+  // ============================================================
+  await page.evaluate(()=>openAllScenes());
+  await page.waitForSelector("#allScenesList .ProseMirror");
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","барсука");
+  await page.waitForTimeout(80);
+  {
+    const summary=await page.locator("#allScenesModal .rte-project-results .rte-project-results-summary").textContent();
+    if(!/20\s*совпадени/.test(summary))throw new Error(`Expected 20 "барсука" matches (10 in each of scene-twin-a/b, identical docs), got: ${summary}`);
+  }
+  // Caret movement in scene-twin-b (NOT scene-twin-a, despite identical
+  // content) must be recognized as scene-twin-b.
+  await page.locator("#allSceneEditor-scene-twin-b .scene-paragraph",{hasText:"Абзац 3 "}).click();
+  await page.keyboard.press("Home");
+  await page.waitForTimeout(60);
+  if(await page.evaluate(()=>allScenesEditorGroup.getActiveSceneId())!=="scene-twin-b")
+    throw new Error("Focusing scene-twin-b's own editor must retarget the active scene to scene-twin-b, not its identical twin");
+  await page.click("#allScenesFindReplace .rte-find-next");
+  await page.waitForTimeout(30);
+  {
+    const count=await page.locator("#allScenesFindReplace .rte-find-count").textContent();
+    // scene-twin-a occupies flat positions 1-10, scene-twin-b 11-20 (canonical
+    // order = array order here, both chapter-1) -- scene-twin-b's own match 3
+    // is therefore global position 13.
+    if(count!=="13 из 20")throw new Error(`Expected Next after moving the caret into scene-twin-b (paragraph 3) to land on ITS OWN match 3 (13 из 20), got ${count} -- a wrong answer here means scene identity fell back to document-content comparison`);
+    if(await page.locator("#allSceneEditor-scene-twin-a .rte-find-match-active").count()!==0)
+      throw new Error("The identical-content TWIN scene (scene-twin-a) must never receive the active decoration meant for scene-twin-b");
+    if(await page.locator("#allSceneEditor-scene-twin-b .rte-find-match-active").count()!==1)
+      throw new Error("scene-twin-b must receive its own active decoration");
+  }
+  // Clicking a result row for scene-twin-a specifically must navigate to
+  // scene-twin-a, never its identical twin.
+  await page.locator("#allScenesModal .rte-project-result-group",{hasText:"Твин А"}).locator(".rte-project-result-row").nth(6).click();
+  await page.waitForTimeout(60);
+  {
+    if(await page.locator("#allSceneEditor-scene-twin-a .rte-find-match-active").count()!==1)
+      throw new Error("Clicking a scene-twin-a result must navigate to scene-twin-a");
+    if(await page.locator("#allSceneEditor-scene-twin-b .rte-find-match-active").count()!==0)
+      throw new Error("Clicking a scene-twin-a result must NOT leave/move the active decoration on its identical twin");
+    if(await page.evaluate(()=>allScenesEditorGroup.getActiveSceneId())!=="scene-twin-a")
+      throw new Error("Clicking a scene-twin-a result must retarget the active scene to scene-twin-a");
+  }
+  await page.click("#allScenesFindReplace .rte-find-close");
+
+  // ============================================================
+  // PART 16 (final D1 hardening pass, item 1/6): the complete search UI in
+  // "Весь текст" (toolbar + scope/query controls + project-results pane +
+  // its resize divider) behaves as ONE sticky region -- scrolling the
+  // manuscript must never make the result list disappear, and resizing the
+  // pane must correctly grow/shrink the amount of sticky vertical space.
+  // Deliberately avoids brittle pixel-perfect assertions: only the layout
+  // CONTRACT (results stay within the viewport after a big scroll; the
+  // sticky region's own rendered height tracks a resize) is checked.
+  // ============================================================
+  await page.click("#allScenesToolbar .rte-btn-find");
+  await page.click("#allScenesFindReplace .rte-scope-project");
+  await page.fill("#allScenesFindReplace .rte-find-input","рысь");
+  await page.waitForTimeout(80);
+  {
+    const resultsVisibleBefore=await page.locator("#allScenesModal .rte-project-results").isVisible();
+    if(!resultsVisibleBefore)throw new Error("Project results must be visible right after opening project scope with a matching query");
+  }
+  await page.locator("#allScenesModal .modal").evaluate(el=>{el.scrollTop=800});
+  await page.waitForTimeout(60);
+  {
+    const stickyPosition=await page.locator("#allScenesModal .rte-sticky-controls").evaluate(el=>getComputedStyle(el).position);
+    if(stickyPosition!=="sticky")throw new Error("The sticky search region must remain position:sticky");
+    const resultsRect=await page.locator("#allScenesModal .rte-project-results").evaluate(el=>el.getBoundingClientRect());
+    const viewportHeight=await page.evaluate(()=>window.innerHeight);
+    if(resultsRect.top<0||resultsRect.bottom>viewportHeight)
+      throw new Error(`After scrolling the manuscript significantly, the project-results pane must still be fully within the viewport (the sticky-region contract), got rect ${JSON.stringify(resultsRect)} in a ${viewportHeight}px-tall viewport`);
+    // The manuscript itself must still be genuinely scrollable underneath --
+    // i.e. the scroll we just performed actually moved content, this isn't a
+    // no-op container.
+    const scrollTop=await page.locator("#allScenesModal .modal").evaluate(el=>el.scrollTop);
+    if(scrollTop<700)throw new Error(`Expected the manuscript to have actually scrolled underneath the sticky region, got scrollTop=${scrollTop}`);
+  }
+  // Resizing the results pane must correctly update the sticky region's own
+  // rendered height -- proof that the resizer and the sticky fix compose
+  // correctly rather than fighting each other.
+  {
+    const stickyHeightBefore=await page.locator("#allScenesModal .rte-sticky-controls").evaluate(el=>el.getBoundingClientRect().height);
+    const resizer=page.locator("#allScenesModal .rte-project-results-resizer");
+    const handleBox=await resizer.boundingBox();
+    await page.mouse.move(handleBox.x+handleBox.width/2,handleBox.y+handleBox.height/2);
+    await page.mouse.down();
+    await page.mouse.move(handleBox.x+handleBox.width/2,handleBox.y+handleBox.height/2+100,{steps:5});
+    await page.mouse.up();
+    await page.waitForTimeout(60);
+    const stickyHeightAfter=await page.locator("#allScenesModal .rte-sticky-controls").evaluate(el=>el.getBoundingClientRect().height);
+    if(stickyHeightAfter<stickyHeightBefore+80)
+      throw new Error(`Growing the results pane by ~100px must grow the sticky region's own rendered height correspondingly, got ${stickyHeightBefore} -> ${stickyHeightAfter}`);
+    // Standalone "Текст сцены"/Scene modal must be unaffected by this --
+    // they have no .rte-sticky-controls wrapper at all, so this is purely a
+    // "Весь текст" layout change, never a general modal redesign.
+    if(await page.locator("#textModal .rte-sticky-controls").count()!==0)
+      throw new Error("Standalone Текст сцены must not have gained a sticky-controls wrapper");
+    if(await page.locator("#sceneModal .rte-sticky-controls").count()!==0)
+      throw new Error("Scene modal must not have gained a sticky-controls wrapper");
+  }
   await page.click("#allScenesFindReplace .rte-find-close");
   await page.click("#closeAllScenes");
 

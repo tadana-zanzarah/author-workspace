@@ -58,7 +58,12 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
   });
   toolbar.bind(editor.view);
   toolbar.update(editor.view.state);
-  findReplace?.attachView(editor.view);
+  // Final D1 hardening pass: passes scene?.id through so the controller can
+  // identify "which scene is this view showing" by id, never by comparing
+  // document content (see find-replace-controller.js's own attachedSceneId
+  // comment) -- null for a brand-new, not-yet-saved scene, exactly like the
+  // registry registration below already treats that case.
+  findReplace?.attachView(editor.view,scene?.id??null);
   const registrationId=scene?.id?registerMountedScene(scene.id,{
     view:editor.view,surfaceId,
     activate(){revealSurface?.();editor.focus();if(scene?.id)markMountedSceneActive(scene.id,registrationId)}
@@ -142,7 +147,9 @@ export function createSceneEditorGroup({toolbarContainer,characters=[],findRepla
     inst.editor.view.dom.tabIndex=0;
     toolbar.bind(inst.editor.view);
     toolbar.update(inst.editor.view.state);
-    findReplace?.attachView(inst.editor.view);
+    // Final D1 hardening pass: `sceneId` is already this function's own
+    // parameter -- see mountSceneEditor's identical comment above.
+    findReplace?.attachView(inst.editor.view,sceneId);
   }
 
   function mountScene(sceneId,{editorContainer,scene}){

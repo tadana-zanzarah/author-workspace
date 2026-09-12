@@ -135,6 +135,18 @@ function revealDocPosition(view,pos){
 //     the navigation adapter only ever moves the real editor selection.
 export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null}={}){
   let view=null;
+  // Final D1 hardening pass: the sceneId the ATTACHED view is currently
+  // showing, threaded in by attachView's caller (which always already knows
+  // it -- see scene-editor-controller.js's own two attachView call sites).
+  // This is the ONLY thing project-scope "which scene is currently attached"
+  // logic below is allowed to compare against now (pickInitialProjectMatchIndex/
+  // resolveProjectIndexFromCaret) -- never ProseMirror Node#eq/doc-content
+  // comparison, which cannot tell apart two different scenes that happen to
+  // contain byte-for-byte identical prose. (applyProjectDecorations still
+  // uses Node#eq for a DIFFERENT, legitimate purpose -- see its own comment
+  // -- a staleness check on POSITIONS already correctly scoped to one sceneId
+  // via the registry, never an identity decision.)
+  let attachedSceneId=null;
   let query="";
   let replaceText="";
   let caseSensitive=false;
@@ -288,18 +300,21 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // Project-scope counterpart of pickInitialActiveIndex above: prefers a
   // caret-relative match WITHIN WHATEVER SCENE IS CURRENTLY OPEN in the
   // attached `view`, if that scene participates in the project results at
-  // all (matched via Node#eq against each flattened entry's own `doc` --
-  // exactly the doc each match's from/to are valid against, never a
-  // sceneId lookup this file would have to track separately). Falls back to
-  // the very first overall result when the current scene has no matches (or
-  // there's no usable attached view at all) -- there is no single sensible
-  // "caret" to prefer among scenes the user isn't even looking at.
+  // all -- identified by `attachedSceneId` (set by attachView's caller,
+  // which always already knows it), NEVER by comparing document content.
+  // Final D1 hardening pass: this used to match flat entries via ProseMirror
+  // Node#eq against the attached view's doc, which cannot distinguish two
+  // DIFFERENT scenes that happen to contain byte-for-byte identical prose --
+  // a real correctness gap flagged before Stage D2 (which needs to trust
+  // scene identity for project-wide writes). Falls back to the very first
+  // overall result when the current scene has no matches (or there's no
+  // attached scene at all) -- there is no single sensible "caret" to prefer
+  // among scenes the user isn't even looking at.
   function pickInitialProjectMatchIndex(flat){
     if(!flat.length)return -1;
-    if(!isViewUsable(view))return 0;
-    const currentDoc=view.state.doc;
+    if(!attachedSceneId||!isViewUsable(view))return 0;
     const inCurrentScene=[];
-    flat.forEach((match,index)=>{if(match.doc&&match.doc.eq(currentDoc))inCurrentScene.push({match,index})});
+    flat.forEach((match,index)=>{if(match.sceneId===attachedSceneId)inCurrentScene.push({match,index})});
     if(!inCurrentScene.length)return 0;
     const caret=view.state.selection.from;
     const containing=inCurrentScene.find(({match})=>caret>=match.from&&caret<match.to);
@@ -321,18 +336,23 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // own matches are always CONTIGUOUS within it (flattenProjectMatches
   // builds it scene-by-scene) -- so "does entry j come before/after the
   // current scene's own block" is just a flat-index comparison against that
-  // block's own first/last index, no per-entry doc lookups needed beyond
-  // grouping the current scene's own entries once up front.
+  // block's own first/last index.
+  //
+  // Final D1 hardening pass: identifies "which flat entries belong to the
+  // attached scene" via `attachedSceneId` (set by attachView's caller) --
+  // NEVER via ProseMirror Node#eq/doc-content comparison, which cannot tell
+  // apart two different scenes sharing byte-for-byte identical prose (see
+  // pickInitialProjectMatchIndex's own comment on why this matters before
+  // Stage D2).
   //
   // Returns null when the attached view's scene has no matches of its own
   // in the current results (nothing live to compare the caret against) --
   // callers fall back to the previous plain modular-step behavior in that
   // case, exactly like pickInitialProjectMatchIndex's own fallback.
   function resolveProjectIndexFromCaret(flat,direction){
-    if(!flat.length||!isViewUsable(view))return null;
-    const currentDoc=view.state.doc;
+    if(!flat.length||!attachedSceneId||!isViewUsable(view))return null;
     const sceneIndices=[];
-    flat.forEach((entry,index)=>{if(entry.doc&&entry.doc.eq(currentDoc))sceneIndices.push(index)});
+    flat.forEach((entry,index)=>{if(entry.sceneId===attachedSceneId)sceneIndices.push(index)});
     if(!sceneIndices.length)return null;
     const firstInScene=sceneIndices[0],lastInScene=sceneIndices[sceneIndices.length-1];
     const caret=view.state.selection.from;
@@ -404,19 +424,23 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // show anything in their place -- this is the single place that replaces
   // that with the real thing: for every scene the current project result
   // actually includes, find every LIVE mounted registration for it (there
-  // can be more than one -- see mounted-scene-registry.js) and, whenever
-  // that registration's own doc still matches EXACTLY what was searched
-  // (Node#eq -- if it doesn't, the doc has moved on since this search ran,
-  // and using stale positions on it is exactly what product brief item 2
-  // asks NOT to do, so that registration is just left undecorated until the
-  // next recompute catches up), dispatch the SAME accepted Stage C decoration
-  // set (find-replace-decorations.js's buildMatchDecorations -- every match
-  // dim, the active one strong) -- never a second/different highlighting
-  // mechanism. Previously decorated views that no longer qualify (scope left
-  // "project", the scene dropped out of the results, or its doc is now
-  // stale) are explicitly cleared, so nothing lingers -- see
-  // clearAllProjectDecorations for the full-clear case (leaving scope/
-  // closing) this function itself doesn't need to special-case.
+  // can be more than one -- see mounted-scene-registry.js) -- identified
+  // exclusively by `sceneResult.sceneId` via getMountedSceneRegistrations,
+  // never by comparing document content -- and, whenever that registration's
+  // own doc still matches EXACTLY what was searched (Node#eq -- NOT a scene-
+  // identity decision here, the registration is already known to belong to
+  // this exact sceneId; this is a STALENESS check only: if the doc doesn't
+  // match, it has moved on since this search ran, and using stale positions
+  // on it is exactly what product brief item 2 asks NOT to do, so that
+  // registration is just left undecorated until the next recompute catches
+  // up), dispatch the SAME accepted Stage C decoration set (find-replace-
+  // decorations.js's buildMatchDecorations -- every match dim, the active
+  // one strong) -- never a second/different highlighting mechanism.
+  // Previously decorated views that no longer qualify (scope left "project",
+  // the scene dropped out of the results, or its doc is now stale) are
+  // explicitly cleared, so nothing lingers -- see clearAllProjectDecorations
+  // for the full-clear case (leaving scope/closing) this function itself
+  // doesn't need to special-case.
   function applyProjectDecorations(){
     const nextViews=new Set();
     if(scope==="project"&&projectResult){
@@ -520,10 +544,21 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
 
   // attachView is also how a fresh mount first hands the controller its
   // view, and how "Весь текст" retargets on every focus change.
-  function attachView(newView){
+  //
+  // Final D1 hardening pass: `sceneId` is now a required second argument
+  // (every real caller -- scene-editor-controller.js's mountSceneEditor and
+  // createSceneEditorGroup's own activate() -- already has it in scope; see
+  // this file's own top-of-factory comment on `attachedSceneId` for why this
+  // replaces every ProseMirror Node#eq-based "which scene is this" check
+  // below). A caller that omits it (an old test double, say) degrades to
+  // `attachedSceneId=null`, which just makes the project-scope caret
+  // resolvers above fall back to their existing "nothing live to compare
+  // against" behavior -- never a crash, never a silent wrong-scene guess.
+  function attachView(newView,sceneId=null){
     if(view===newView)return;
     if(isViewUsable(view))dispatchDecorations(view,buildMatchDecorations(view.state.doc,[],-1)); // clear stale highlights on the PREVIOUS view
     view=newView;
+    attachedSceneId=sceneId;
     matches=[];activeIndex=-1;
     recomputeAndReveal();
   }
@@ -531,7 +566,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     projectDecoratedViews.delete(oldView); // never hold a reference past its own destroy
     if(view!==oldView)return;
     if(isViewUsable(oldView))dispatchDecorations(oldView,buildMatchDecorations(oldView.state.doc,[],-1));
-    view=null;matches=[];activeIndex=-1;
+    view=null;attachedSceneId=null;matches=[];activeIndex=-1;
     notify();
   }
 

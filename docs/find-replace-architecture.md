@@ -251,6 +251,103 @@ pass; a robust fix would mean threading the scene id itself through
 `attachView`, which is exactly the kind of broader editor-lifecycle change
 this pass was explicitly told not to undertake.
 
+## Final D1 hardening pass (before Stage D2): sticky results, destination decorations, sceneId-based identity
+
+Manual retest of the second corrective pass (base `57d03f6`) found two
+remaining UX/integration defects, and the `Node#eq` scene-identity
+limitation documented above was explicitly called out as unsafe to carry
+into Stage D2 (project-wide writes cannot rely on document-content equality
+to know which scene they're touching). All three fixed in place:
+
+- **Non-sticky project results in "Весь текст" (root cause)**: the results
+  pane (`.rte-project-results-wrapper`) was inserted as a SIBLING of
+  `.rte-sticky-controls`, in normal document flow -- so it scrolled away
+  with the manuscript while the toolbar/find-replace row above it (INSIDE
+  `.rte-sticky-controls`) stayed pinned. The first corrective pass had
+  deliberately kept it outside the sticky region because, at the time, the
+  results list had no bounded height (an unbounded `max-height:260px`
+  overflow risk that could have grown tall enough to cover the manuscript).
+  That concern no longer applies once the pane gained an explicit, JS-
+  managed, hard-capped height (`DEFAULT_RESULTS_HEIGHT`/`MIN_RESULTS_HEIGHT`/
+  `MAX_RESULTS_HEIGHT`, second corrective pass) -- so `find-replace-panel.js`
+  now appends the results wrapper as `.rte-sticky-controls`'s own last child
+  in "Весь текст" specifically (detected via `container.closest
+  (".rte-sticky-controls")`), making the whole block (toolbar + controls +
+  results + resizer) stick and scroll as one unit through ordinary CSS
+  layout alone. No JS changes were needed for "resizing must update the
+  sticky vertical space" -- the sticky element's own rendered height already
+  includes its children's heights, and `find-replace-controller.js`'s
+  existing `stickyTopObstruction()` (which measures whatever height a
+  `position:sticky` child currently has) already picks that up automatically.
+  Standalone "Текст сцены"/Scene modal have no `.rte-sticky-controls`
+  wrapper at all, so they keep the pre-existing sibling-insertion behavior,
+  entirely unchanged.
+- **Destination highlight falling back to a native-selection look after
+  opening an unmounted scene (root cause)**: case B of `navigateToSceneMatch`
+  (`find-replace-navigation.js`) mounts a BRAND NEW surface via
+  `openSceneForEditing` -- a fresh `mountSceneEditor()` call that creates its
+  own independent, closed `find-replace-controller` instance with zero
+  connection to the ORIGINATING controller that drove the navigation (the
+  one whose `applyProjectDecorations` normally does all project-scope
+  decoration work). Nothing ever told that brand-new instance about the
+  query or the target match, so the destination editor's own decoration
+  plugin stayed at `DecorationSet.empty` -- the only visible trace of "this
+  is a match" was the real editor Selection `selectAndReveal` already sets,
+  which is exactly the native-selection-only look that was reported. Fixed
+  by a new `applyFallbackSceneDecorations()` in `find-replace-navigation.js`,
+  called ONLY for the case-B (just-mounted-via-fallback) path -- reusing the
+  exact same `findMatches`/`buildMatchDecorations`/`findReplacePluginKey`
+  primitives every other surface uses (never a second highlighting system):
+  every match in the destination scene gets the normal dim treatment, the
+  navigated-to one gets the strong active treatment, and (via the second
+  corrective pass's scoped `::selection` CSS, which needed no changes here)
+  that treatment is already focus-independent and survives an arbitrary user
+  selection. No lifecycle hook or `setTimeout` was needed: `openSceneForEditing`
+  is only ever awaited after `openSceneText`'s own `requestEditorTransition`
+  has already run `mountSceneEditor()` synchronously, so the destination view
+  is always fully mounted and registered by the time the `await` resolves.
+- **`Node#eq` removed as a scene-identity mechanism**: `find-replace-
+  controller.js` now tracks `attachedSceneId` alongside `view`, set by
+  `attachView(newView, sceneId)` -- both real call sites
+  (`scene-editor-controller.js`'s `mountSceneEditor` and
+  `createSceneEditorGroup`'s own `activate()`) already had the scene id in
+  scope, so this required no new plumbing beyond the function signatures.
+  `pickInitialProjectMatchIndex` and `resolveProjectIndexFromCaret` (the two
+  places that used to compare `view.state.doc` against each project-result
+  entry's own `doc` via `Node#eq` to guess "which scene is this") now compare
+  `entry.sceneId===attachedSceneId` instead -- an exact identity check,
+  never a content guess. **Two remaining `Node#eq` calls in the codebase are
+  NOT scene-identity decisions and were deliberately left as-is**:
+  `find-replace-controller.js`'s `applyProjectDecorations` uses it as a
+  STALENESS check on a registration ALREADY identified by `sceneId` (via
+  `getMountedSceneRegistrations(sceneResult.sceneId)`) -- "is it still safe
+  to apply these computed positions to this exact live doc", never "which
+  scene is this"; `mounted-scene-registry.js`'s `getPreferredLiveSceneView`
+  uses it to decide whether MULTIPLE registrations already known to share
+  one `sceneId` currently agree on content, again never an identity
+  decision (the registry's own `Map` has always been keyed by `sceneId`, at
+  every stage of D1 -- it was never part of this bug). Confirmed via a
+  dedicated regression (two different scene ids, `scene-twin-a`/`scene-twin-b`,
+  sharing one byte-for-byte identical document) that caret movement,
+  Next/Previous, decoration targeting, and result-row clicks all correctly
+  resolve to the SPECIFIC scene the user is interacting with.
+
+Regression coverage (all in `tools/find-replace-project-search-browser.test.mjs`):
+identical-document two-scene navigation/decoration targeting; destination-
+scene decoration state (all matches decorated, one active, focus-independent,
+survives an arbitrary user selection) immediately after opening an unmounted
+scene; and the sticky-region layout contract (results stay within the
+viewport after a large scroll, the sticky region's own height grows when the
+pane is resized, standalone/Scene-modal gained no sticky wrapper) without any
+brittle pixel-perfect assertions. Full unit suite, `find-replace-current-
+scene-browser` (Stage C), and the T1/T2 rich-text/dirty/scroll suites were
+re-run and remain green with zero changes needed to any of them.
+
+**Confirmed**: as of this pass, no Find/Replace production code path uses
+`Node#eq`/ProseMirror document-content comparison to determine scene
+identity anywhere. The two remaining `Node#eq` call sites are staleness/
+agreement checks on already-`sceneId`-identified data, documented above.
+
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 
 Pure, headless, DOM/EditorState/Supabase-independent. `findMatches(doc, query,

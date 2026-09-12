@@ -36,7 +36,8 @@
 import {TextSelection} from "prosemirror-state";
 import {getPreferredLiveSceneView} from "./mounted-scene-registry.js";
 import {reresolveMatch} from "./find-replace-project-search.js";
-import {findReplacePluginKey} from "./find-replace-decorations.js";
+import {findMatches} from "./find-replace-model.js";
+import {findReplacePluginKey,buildMatchDecorations} from "./find-replace-decorations.js";
 import {isViewUsable,revealDocPosition} from "./find-replace-controller.js";
 
 // Second corrective pass (manual-test regression fix, item 5): tags this
@@ -59,6 +60,38 @@ function selectAndReveal(view,match){
   view.focus();
 }
 
+// Final D1 hardening pass (item 2): case B (below) mounts a BRAND NEW
+// surface -- a fresh mountSceneEditor() call creates its own, independent,
+// closed find-replace-controller instance (see scene-editor-controller.js)
+// with no connection at all to the ORIGINATING controller that drove this
+// navigation. Left alone, nothing would ever decorate that destination: the
+// only visual trace of "this is a match" would be the real editor Selection
+// selectAndReveal already sets -- which is exactly the reported regression,
+// a plain native-selection look instead of the accepted strong/dim
+// decoration pair. This reuses the EXACT SAME primitives every other surface
+// uses (findMatches, buildMatchDecorations, findReplacePluginKey) -- no
+// second highlighting system: every match in the destination scene gets the
+// normal dim treatment, the one just navigated to gets the strong "active"
+// one, and (per the scoped `::selection` CSS from the previous corrective
+// pass) that treatment is already focus-independent and survives an
+// arbitrary user selection, with zero extra work needed here.
+//
+// No lifecycle hook or `setTimeout` needed: by the time this is called, the
+// caller has already `await`-ed openSceneForEditing(sceneId), and that
+// promise only resolves after the destination view has been SYNCHRONOUSLY
+// mounted and registered (openSceneText -> requestEditorTransition's own
+// openAction() call runs mountSceneEditor() with no async gap in between) --
+// so `view` here is always the real, already-mounted destination, never a
+// pending/about-to-mount one.
+function applyFallbackSceneDecorations(view,query,caseSensitive,resolvedMatch){
+  const allMatches=findMatches(view.state.doc,query,{caseSensitive});
+  const activeIndex=allMatches.findIndex(match=>match.from===resolvedMatch.from&&match.to===resolvedMatch.to);
+  const tr=view.state.tr
+    .setMeta(findReplacePluginKey,{decorations:buildMatchDecorations(view.state.doc,allMatches,activeIndex)})
+    .setMeta("addToHistory",false);
+  view.dispatch(tr);
+}
+
 // matchRange: {from,to,text,occurrenceIndex} -- exactly what
 // find-replace-project-search.js's per-match result entries carry.
 // options.query/options.caseSensitive are required for stale revalidation
@@ -73,12 +106,14 @@ function selectAndReveal(view,match){
 // throws for an ordinary "can't navigate right now" outcome.
 export async function navigateToSceneMatch(sceneId,matchRange,{query,caseSensitive=false,openSceneForEditing}={}){
   let preferred=getPreferredLiveSceneView(sceneId);
+  let mountedByFallback=false;
   if(!preferred||preferred.status!=="ok"){
     if(typeof openSceneForEditing!=="function")return {ok:false,reason:"not-mounted"};
     const opened=await openSceneForEditing(sceneId);
     if(!opened)return {ok:false,reason:"open-declined"};
     preferred=getPreferredLiveSceneView(sceneId);
     if(!preferred||preferred.status!=="ok")return {ok:false,reason:"open-failed"};
+    mountedByFallback=true;
   }
   const {registration}=preferred;
   if(!isViewUsable(registration.view))return {ok:false,reason:"view-destroyed"};
@@ -92,5 +127,13 @@ export async function navigateToSceneMatch(sceneId,matchRange,{query,caseSensiti
   const resolved=reresolveMatch(view.state.doc,query,{caseSensitive},matchRange);
   if(!resolved)return {ok:false,reason:"stale"};
   selectAndReveal(view,resolved);
+  // Final D1 hardening pass (item 2): ONLY for a scene mounted just now via
+  // the fallback -- an already-mounted (case A) registration is already
+  // being decorated by the ORIGINATING controller's own applyProjectDecorations
+  // (called right before this function, in next()/previous()/
+  // activateProjectMatch()); dispatching decorations here too for that case
+  // would reintroduce the exact "two competing decoration dispatchers"
+  // regression the first corrective pass already fixed.
+  if(mountedByFallback)applyFallbackSceneDecorations(view,query,caseSensitive,resolved);
   return {ok:true};
 }
