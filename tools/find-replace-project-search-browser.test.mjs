@@ -174,17 +174,21 @@ try{
   const firstRowMarkText=await page.locator("#allScenesModal .rte-project-results .rte-project-result-row").first().locator("mark").textContent();
   if(firstRowMarkText.toLowerCase()!=="кот")throw new Error(`Expected the highlighted snippet segment to be the matched text, got ${JSON.stringify(firstRowMarkText)}`);
 
-  // --- Project-scope Replace lockout: Заменить/Заменить все are disabled
-  // with an explanatory title, but the Replace INPUT itself stays usable.
-  if(!await page.locator("#allScenesFindReplace .rte-replace-one").isDisabled())
-    throw new Error("Заменить must be disabled while scope is Весь проект");
+  // --- Project-scope Replace/Replace All: Stage D2.1 enables single Replace
+  // for the currently active GLOBAL match (there is one here -- a query with
+  // matches was just typed); Replace All stays disabled/out of scope with an
+  // explanatory title (see tools/find-replace-project-replace-browser.test.mjs
+  // for D2.1's own dedicated coverage of the enabled Replace button).
+  if(await page.locator("#allScenesFindReplace .rte-replace-one").isDisabled())
+    throw new Error("Заменить must be enabled in project scope once there is an active global match (D2.1)");
   if(!await page.locator("#allScenesFindReplace .rte-replace-all").isDisabled())
-    throw new Error("Заменить все must be disabled while scope is Весь проект");
+    throw new Error("Заменить все must remain disabled while scope is Весь проект (Replace All is out of scope for D2.1)");
   if(await page.locator("#allScenesFindReplace .rte-replace-input").isDisabled())
     throw new Error("The Replace input itself must remain usable in project scope");
   await page.fill("#allScenesFindReplace .rte-replace-input","пёс");
   if((await page.locator("#allScenesFindReplace .rte-replace-input").inputValue())!=="пёс")
     throw new Error("Typing into the Replace input must still work in project scope");
+  await page.fill("#allScenesFindReplace .rte-replace-input","");
 
   // ============================================================
   // PART 3: navigation to an ALREADY-MOUNTED scene within the SAME "Весь

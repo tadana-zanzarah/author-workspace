@@ -23,6 +23,7 @@ import {findMatches,replaceOneMatch,replaceAllMatches} from "./find-replace-mode
 import {findReplacePluginKey,buildMatchDecorations} from "./find-replace-decorations.js";
 import {searchProject,flattenProjectMatches} from "./find-replace-project-search.js";
 import {getMountedSceneRegistrations} from "./mounted-scene-registry.js";
+import {replaceProjectMatch,syncMountedRegistrations} from "./find-replace-project-replace.js";
 import {TextSelection} from "prosemirror-state";
 
 function isViewUsable(view){
@@ -149,7 +150,16 @@ function revealDocPosition(view,pos){
 //     see currentNavigableSceneIds() below for why omitting it makes the
 //     domain default to "just the one attached scene", which is exactly
 //     their required behavior with zero extra wiring at either call site.
-export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null,getNavigableSceneIds=null}={}){
+// Find/Replace Stage D2.1: `saveSceneText`/`rebaseSceneDirtyBaseline` are
+// optional dependency-injection hooks for safe single Replace in project
+// scope -- see replaceProjectCurrent below and find-replace-project-
+// replace.js's own factory-doc comment for their exact contracts. Every
+// pre-D2.1 caller/test that omits them keeps working unchanged
+// (replaceProjectCurrent simply reports {ok:false,reason:"not-configured"}
+// rather than throwing, matching every other optional-dependency guard in
+// this file). Wired for real by scene-editor-controller.js's
+// projectSearchDeps, exactly alongside getProjectData/navigateToSceneMatch.
+export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null,getNavigableSceneIds=null,saveSceneText=null,rebaseSceneDirtyBaseline=null}={}){
   let view=null;
   // Final D1 hardening pass: the sceneId the ATTACHED view is currently
   // showing, threaded in by attachView's caller (which always already knows
@@ -889,6 +899,62 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     return {count};
   }
 
+  // Find/Replace Stage D2.1: safe single Replace in project scope --
+  // "Replace changes ONLY the currently active global match" (product
+  // brief). The current project result is a NAVIGATION SNAPSHOT, never a
+  // write plan: this never mutates matches[]/projectResult's own stored
+  // from/to directly -- it hands the active match's sceneId + coordinates to
+  // find-replace-project-replace.js's replaceProjectMatch, which re-resolves
+  // the target against the scene's CURRENT document immediately before
+  // mutating (reresolveMatch, the same stale-safety policy navigation
+  // already relies on) and commits through the existing canonical
+  // single-scene save path (never bulkUpdateSceneText -- Replace All is
+  // explicitly out of scope for this stage).
+  //
+  // Scene-scope replaceCurrent()/replaceAll() above already refuse to run
+  // under scope "project"; this is the mirror guard -- it refuses to run
+  // under scope "scene", so the two can never be invoked against the wrong
+  // mode even if a caller bypasses the panel's own disabled-button gating.
+  async function replaceProjectCurrent(){
+    if(scope!=="project")return {ok:false,reason:"wrong-scope"};
+    if(!projectResult)return {ok:false,reason:"no-active-match"};
+    const flat=flattenProjectMatches(projectResult);
+    const target=flat[activeProjectMatchIndex];
+    if(!target)return {ok:false,reason:"no-active-match"};
+    const result=await replaceProjectMatch({
+      sceneId:target.sceneId,
+      matchRange:{from:target.from,to:target.to,text:target.text,occurrenceIndex:target.occurrenceIndex},
+      query,caseSensitive,replacementText:replaceText,
+      getProjectData,saveSceneText,rebaseSceneDirtyBaseline
+    });
+    // Failure (conflict/stale/sync-failed/persist-failed/not-configured/...):
+    // no mutation happened server/local-side, so nothing here may push a
+    // proposed change into any mounted view or re-search -- that would show
+    // a fake committed state. The caller (the panel) surfaces `result`
+    // itself; this file never fabricates UI feedback.
+    if(!result.ok)return result;
+    // No effective change (replacement text identical to the matched text):
+    // nothing was persisted, nothing to sync into other mounted views, and a
+    // fresh search would return the exact same result -- skip it rather than
+    // do needless decoration/dispatch work (product brief item 5).
+    if(!result.changed)return result;
+    // Only AFTER a confirmed successful commit: push the committed doc into
+    // every mounted registration for this scene (never just the attached
+    // one), then recompute project search from fresh canonical state --
+    // reusing the EXACT same recomputation path every other project-scope
+    // trigger already uses, never a manual patch of counts/offsets/snippets.
+    // recomputeProject()'s own existing "keep the same numeric flat index,
+    // clamped into the new range, else -1" policy is what selects the next
+    // logical match here for free: removing the replaced match shifts every
+    // later match's index down by exactly one, so the unchanged
+    // activeProjectMatchIndex value now names whatever match took its place
+    // -- the same trick scene-scope replaceCurrent() already relies on via
+    // ordinary recompute() (see that function's own comment).
+    syncMountedRegistrations(result.sceneId,result.doc,{resolvedMatch:result.resolvedMatch,replacementText:result.replacementText});
+    recomputeProject();
+    return result;
+  }
+
   function subscribe(listener){
     listeners.add(listener);
     listener(snapshot());
@@ -898,7 +964,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   return {
     attachView,detachView,handleTransaction,
     setQuery,setReplaceText,setCaseSensitive,
-    open,close,next,previous,replaceCurrent,replaceAll,
+    open,close,next,previous,replaceCurrent,replaceAll,replaceProjectCurrent,
     setScope,activateProjectMatch,
     subscribe,getSnapshot:snapshot,
     get view(){return view}

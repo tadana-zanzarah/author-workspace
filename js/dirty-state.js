@@ -35,6 +35,30 @@ function createDirtyTracker(id,getState){
     isDirty(){return active&&!normalizedEqual(baseline,getState())},
     resetDirty(){baseline=normalizeSnapshot(getState());active=false;syncBeforeUnload()},
     deactivate(){active=false;syncBeforeUnload()},
+    // Find/Replace D2.1: rebase ONLY the `extra` portion of this tracker's
+    // own baseline (see serializeForm's own {controls,extra} shape) -- for a
+    // programmatic, out-of-band text commit (project-wide Replace) that must
+    // stop reporting as dirty WITHOUT silently accepting any OTHER currently
+    // pending, unrelated dirty state already sitting in `baseline.controls`
+    // (real form fields) or a sibling key of `baseline.extra` (e.g.
+    // sceneModal's own `tags`/`newTags`, carried alongside `doc`). A full
+    // captureInitialState() would wrongly accept those too -- see AGENTS.md's
+    // own dirty-tracker discipline and docs/find-replace-architecture.md's
+    // "Project-wide Replace All requires synchronized state" section, which
+    // first named this exact need.
+    // `updater(extraBaseline) -> newExtraBaseline` receives the CURRENT
+    // baseline's own (already-normalized) `extra` snapshot and must return a
+    // new one with ONLY the relevant key(s) replaced, e.g.
+    // extra=>({...extra,doc:normalizeSnapshot(newDocJSON)}) for a single-doc
+    // tracker (sceneModal/textModal), or
+    // extra=>({...extra,docs:{...extra.docs,[sceneId]:normalizeSnapshot(newDocJSON)}})
+    // for allScenesModal's per-scene docs map. A no-op while the tracker
+    // isn't active -- nothing to rebase against.
+    rebaseExtra(updater){
+      if(!active)return;
+      baseline={...baseline,extra:updater(baseline.extra)};
+      syncBeforeUnload();
+    },
     get active(){return active}
   };
   dirtyTrackers.set(id,tracker);return tracker;
@@ -125,4 +149,4 @@ if(typeof document!=="undefined"){
 }
 
 Object.assign(globalThis,{dirtyTrackers,createDirtyTracker,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,showDiscardConfirmation,resolveDiscardConfirmation,serializeForm,syncBeforeUnload,createSaveButtonController});
-export {createDirtyTracker,normalizedEqual,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,resolveDiscardConfirmation,serializeForm,syncBeforeUnload,createSaveButtonController};
+export {createDirtyTracker,normalizedEqual,normalizeSnapshot,trackerFor,hasDirtyForms,forceHideModal,requestCloseModal,requestEditorTransition,confirmDiscardIfDirty,resolveDiscardConfirmation,serializeForm,syncBeforeUnload,createSaveButtonController};

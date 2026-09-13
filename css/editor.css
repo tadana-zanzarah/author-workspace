@@ -207,6 +207,13 @@
 .rte-project-results-resizer:focus-visible::after{background:var(--brand)}
 .rte-project-results-resizer:focus-visible{outline:2px solid var(--focus-ring);outline-offset:-2px}
 .rte-project-results-hint{color:var(--muted)}
+/* Find/Replace D2.1: the smallest possible feedback line for a controlled
+   project-scope Replace failure (conflict/stale/persist failure) -- see
+   js/editor/find-replace-panel.js's replaceStatusEl. Plain factual text, not
+   a new alert/dialog treatment. */
+.rte-project-replace-status{
+  padding:6px 12px 0;color:var(--danger);font-size:var(--text-sm);
+}
 .rte-project-results-summary{font-weight:600;margin-bottom:6px;color:var(--text-primary)}
 .rte-project-result-group{margin-bottom:8px}
 .rte-project-result-scene-header{color:var(--muted);margin-bottom:2px}

@@ -460,7 +460,13 @@ function mountSceneModalTextEditor(scene){
     // points at a scene with no live mounted registration at all (product
     // brief section 8, case B).
     getProjectData:()=>data,
-    openSceneForEditing:sceneId=>openSceneText(sceneId)
+    openSceneForEditing:sceneId=>openSceneText(sceneId),
+    // Find/Replace Stage D2.1: see js/import-export.js's saveSceneTextCanonical
+    // / js/app.js's rebaseSceneTextDirtyBaseline for what these actually do --
+    // this call site only wires them in, same as getProjectData/
+    // openSceneForEditing above.
+    saveSceneText:saveSceneTextCanonical,
+    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline
   });
 }
 
@@ -485,7 +491,11 @@ function openSceneTextNow(sceneId){
     // Find/Replace Stage D1: see mountSceneModalTextEditor's own comment
     // above.
     getProjectData:()=>data,
-    openSceneForEditing:sceneIdToOpen=>openSceneText(sceneIdToOpen)
+    openSceneForEditing:sceneIdToOpen=>openSceneText(sceneIdToOpen),
+    // Find/Replace Stage D2.1: see mountSceneModalTextEditor's own comment
+    // above.
+    saveSceneText:saveSceneTextCanonical,
+    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline
   });
   showModal("textModal",{initialFocus:sceneTextEditor.view.dom});
   trackerFor("textModal").captureInitialState();

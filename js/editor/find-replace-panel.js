@@ -213,6 +213,22 @@ export function createFindReplacePanel(container,controller){
   resultsWrapper.className="rte-project-results-wrapper";
   resultsWrapper.hidden=true;
 
+  // Find/Replace Stage D2.1: the smallest possible feedback surface for a
+  // controlled Replace failure in project scope (conflict/stale/persist
+  // failure -- see find-replace-controller.js's replaceProjectCurrent). A
+  // plain, factual status line, not a new conflict-resolution UI -- no
+  // retry affordance, no diff, no modal. Lives inside `resultsWrapper`
+  // (never a child of `container` itself) so it can never disturb Stage C's
+  // own "one compact control row" geometry check, and is automatically
+  // hidden/cleared whenever project results next re-render (a fresh
+  // successful action, a new query, leaving project scope) -- see
+  // renderProjectResults below.
+  const replaceStatusEl=document.createElement("div");
+  replaceStatusEl.className="rte-project-replace-status";
+  replaceStatusEl.setAttribute("role","status");
+  replaceStatusEl.setAttribute("aria-live","polite");
+  replaceStatusEl.hidden=true;
+
   const resultsRoot=document.createElement("div");
   resultsRoot.className="rte-project-results";
   resultsRoot.setAttribute("data-dirty-ignore","true");
@@ -232,7 +248,7 @@ export function createFindReplacePanel(container,controller){
   resizer.setAttribute("aria-valuemax",String(MAX_RESULTS_HEIGHT));
   resizer.tabIndex=0;
 
-  resultsWrapper.append(resultsRoot,resizer);
+  resultsWrapper.append(replaceStatusEl,resultsRoot,resizer);
 
   // Final D1 hardening pass (item 1): "Весь текст" wraps its toolbar+find/
   // replace panel in one shared .rte-sticky-controls element that stays
@@ -318,13 +334,46 @@ export function createFindReplacePanel(container,controller){
   replaceInput.addEventListener("keydown",event=>{
     if(event.key!=="Enter")return;
     event.preventDefault();
-    controller.replaceCurrent();
+    triggerReplaceOne();
   });
   prevButton.addEventListener("click",()=>controller.previous());
   nextButton.addEventListener("click",()=>controller.next());
   caseButton.addEventListener("click",()=>controller.setCaseSensitive(caseButton.getAttribute("aria-pressed")!=="true"));
   closeButton.addEventListener("click",()=>controller.close());
-  replaceOneButton.addEventListener("click",()=>controller.replaceCurrent());
+  // Find/Replace Stage D2.1: "Заменить" now does one of two genuinely
+  // different things depending on scope -- scene-scope replaceCurrent()
+  // (Stage C, unchanged) or project-scope replaceProjectCurrent() (this
+  // stage, safe single Replace of the active GLOBAL match only). Both
+  // controller functions already refuse to run under the wrong scope on
+  // their own (belt-and-braces, never relied on alone) -- this dispatch is
+  // just which one a click/Enter should even attempt. "Заменить все" stays
+  // wired to replaceAll() only, and stays disabled in project scope (Replace
+  // All is explicitly out of scope for D2.1 -- see the snapshot subscriber
+  // below).
+  function triggerReplaceOne(){
+    if(controller.getSnapshot().scope==="project")return handleProjectReplaceOne();
+    controller.replaceCurrent();
+  }
+  // A controlled failure (conflict between disagreeing mounted copies, a
+  // stale match, or a persistence failure) surfaces as the smallest possible
+  // factual status line -- see replaceStatusEl's own doc comment above. A
+  // success (changed or a no-op) shows nothing extra: the results list/
+  // active match/summary already reflect it via the controller's own fresh
+  // notify(), which is the existing, sufficient feedback mechanism.
+  const REPLACE_FAILURE_MESSAGES={
+    conflict:"Эта сцена открыта в нескольких местах с разным текстом — замена отменена.",
+    stale:"Совпадение больше не найдено в текущем тексте — замена отменена.",
+    "sync-failed":"Не удалось сохранить текст сцены — замена не выполнена.",
+    "persist-failed":"Не удалось сохранить замену — изменения не применены."
+  };
+  async function handleProjectReplaceOne(){
+    replaceStatusEl.hidden=true;replaceStatusEl.textContent="";
+    const result=await controller.replaceProjectCurrent();
+    if(result.ok)return;
+    replaceStatusEl.textContent=REPLACE_FAILURE_MESSAGES[result.reason]||"Замена не выполнена.";
+    replaceStatusEl.hidden=false;
+  }
+  replaceOneButton.addEventListener("click",triggerReplaceOne);
   replaceAllButton.addEventListener("click",()=>controller.replaceAll());
   sceneScopeButton.addEventListener("click",()=>controller.setScope("scene"));
   projectScopeButton.addEventListener("click",()=>controller.setScope("project"));
@@ -349,6 +398,11 @@ export function createFindReplacePanel(container,controller){
   // only, NEVER `innerHTML` -- manuscript content can never be interpreted
   // as markup (product brief section 7).
   function renderProjectResults(snapshot){
+    // Find/Replace Stage D2.1: any fresh render implies state has moved on
+    // from whatever moment a Replace failure status (see replaceStatusEl
+    // above) was showing -- clear it unconditionally here rather than
+    // tracking every individual action that should dismiss it.
+    replaceStatusEl.hidden=true;replaceStatusEl.textContent="";
     resultsRoot.innerHTML="";
     if(!snapshot.open||snapshot.scope!=="project"){resultsWrapper.hidden=true;return}
     resultsWrapper.hidden=false;
@@ -441,13 +495,17 @@ export function createFindReplacePanel(container,controller){
       const hasMatches=domainTotal>0;
       prevButton.disabled=!hasMatches;
       nextButton.disabled=!hasMatches;
-      // Product brief section 1/14: project-scope replacement is not part of
-      // D1 -- the Replace field stays visible and usable to type into, but
-      // executing a replacement is unavailable, with an explanation rather
-      // than a silently dead button.
-      replaceOneButton.disabled=true;
+      // Find/Replace Stage D2.1: "Заменить" now works in project scope --
+      // it targets exactly the currently ACTIVE GLOBAL match (never
+      // navigation-domain-restricted the way the arrows are -- an explicit
+      // result-row click, like Next/Previous, can set the active match to
+      // ANY project result, including an off-domain/excluded scene, and a
+      // click on this button must be able to replace THAT one). "Заменить
+      // все" (Replace All) stays out of scope for this stage -- see
+      // docs/find-replace-architecture.md.
+      replaceOneButton.disabled=snapshot.activeProjectMatchId==null;
       replaceAllButton.disabled=true;
-      replaceOneButton.title=PROJECT_SCOPE_REPLACE_TITLE;
+      replaceOneButton.title="Заменить текущее совпадение по всему проекту";
       replaceAllButton.title=PROJECT_SCOPE_REPLACE_TITLE;
     } else {
       countEl.textContent=snapshot.matchCount?`${snapshot.activeIndex+1} из ${snapshot.matchCount}`:"0 из 0";

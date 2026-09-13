@@ -29,7 +29,8 @@ import "./drag-drop.js";
 import "./import-export.js";
 import {sceneDocSchema} from "./editor/scene-doc-schema.js";
 import {docToJSON,loadSceneDocument} from "./editor/scene-doc-convert.js";
-import {normalizedEqual} from "./dirty-state.js";
+import {normalizedEqual,normalizeSnapshot} from "./dirty-state.js";
+import {getMountedSceneRegistrations} from "./editor/mounted-scene-registry.js";
 
 // Инициализация данных выполняется после регистрации функций миграции и хранения.
 data=loadDataSafe();
@@ -94,6 +95,35 @@ const editorTrackers={
   quickFieldModal:createDirtyTracker("quickFieldModal",()=>serializeForm("quickFieldModal")),
   recoveryModal:createDirtyTracker("recoveryModal",()=>serializeForm("recoveryModal"))
 };
+
+// Find/Replace Stage D2.1: after a project-wide Replace commits a scene's
+// text out-of-band (the commit itself never goes through any open form's own
+// Save button), any dirty tracker whose OWN baseline already carries THIS
+// scene's doc (because the scene happens to be mounted in that surface right
+// now) must have ONLY that doc/text portion of its baseline rebased -- see
+// js/dirty-state.js's own rebaseExtra() doc comment for why a full
+// captureInitialState() would be wrong here (it would silently accept any
+// OTHER unrelated pending edit already sitting in that same open form, e.g.
+// sceneModal's own tags/newTags alongside its doc). A scene can be mounted
+// in more than one surface at once (mounted-scene-registry.js) -- every
+// tracker for a surface that currently has it mounted is rebased, never just
+// the first found. `surfaceId` is exactly this app's own tracker id
+// (sceneModal/textModal/allScenesModal) by construction -- see
+// js/editor/scene-editor-controller.js's mountSceneEditor/
+// createSceneEditorGroup, the only two places that register a mounted scene.
+function rebaseSceneTextDirtyBaseline(sceneId,sceneTextDocJSON){
+  const surfaceIds=new Set(getMountedSceneRegistrations(sceneId).map(registration=>registration.surfaceId).filter(Boolean));
+  surfaceIds.forEach(surfaceId=>{
+    const tracker=trackerFor(surfaceId);
+    if(!tracker)return;
+    if(surfaceId==="allScenesModal"){
+      tracker.rebaseExtra(extra=>({...extra,docs:{...extra.docs,[sceneId]:normalizeSnapshot(sceneTextDocJSON)}}));
+    } else {
+      tracker.rebaseExtra(extra=>({...extra,doc:normalizeSnapshot(sceneTextDocJSON)}));
+    }
+  });
+}
+Object.assign(globalThis,{rebaseSceneTextDirtyBaseline});
 let characterSaveInFlight=false;
 const profileSaveButton=createSaveButtonController("saveProfile","profileEditorModal");
 globalThis.profileSaveButton=profileSaveButton;

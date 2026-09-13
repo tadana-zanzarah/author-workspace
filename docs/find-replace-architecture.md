@@ -3,11 +3,12 @@
 Status: **Stage A** (atomic cloud persistence foundation), **Stage B**
 (headless matching/replacement engine), **Stage C** (current-scene panel,
 shortcuts, highlighting, Replace/Replace All, across all three rich-text
-surfaces) and **Stage D1** (project-wide search, results, navigation) are
-implemented. Project-wide **Replace All** is explicitly **not** implemented
-yet — Stage D1's panel keeps the Replace field visible in "Весь проект" scope
-but disables the replace actions with an explanation; `bulkUpdateSceneText`
-remains unwired. This document records the decisions those later stages must
+surfaces), **Stage D1** (project-wide search, results, navigation) and
+**Stage D2.1** (safe single Replace in project scope) are implemented.
+Project-wide **Replace All** is explicitly **not** implemented yet — the
+panel's "Заменить все" stays disabled in "Весь проект" scope with an
+explanatory title; `bulkUpdateSceneText` and its migration remain unwired/
+unapplied. This document records the decisions those later stages must
 follow; it is deliberately not a full UI spec — unfinished UI details are not
 documented here until they're built.
 
@@ -666,6 +667,138 @@ scene fixture for the plural "не включены" form; and a zero-excluded-s
 case (`scene-lynx-a`/`scene-lynx-b`, both included) proving no clause is
 appended at all when nothing is excluded.
 
+## Stage D2.1: safe single Replace in project scope (this stage)
+
+Single Replace ("Заменить") now works in "Весь проект" scope, targeting
+**only the currently active global match**. Project-wide **Replace All**
+remains unimplemented (Stage D2.x/later — see "Project-wide Replace All
+requires synchronized state" below, still accurate for what Replace All
+itself will need); `bulkUpdateSceneText` and its migration are **not**
+touched by this stage.
+
+- **New module** (`js/editor/find-replace-project-replace.js`): headless,
+  same DOM/modal-independence discipline as `find-replace-project-search.js`.
+  - `resolveMountedSceneAgreement(sceneId)` — the pre-commit synchronization
+    gate. Inspects EVERY live (non-destroyed) registration for a scene via
+    `getMountedSceneRegistrations` (never `getPreferredLiveSceneView`'s own
+    visible-first/activation tie-break, which is built to always resolve to
+    a single answer — exactly wrong here) and compares doc CONTENT
+    (`Node#eq`), never object identity — stable scene identity stays
+    `sceneId` throughout, as everywhere else in this subsystem. Returns
+    `{status:"none"}` (no live registration — the persisted doc is current),
+    `{status:"agree",doc}` (every live registration's doc agrees, trivially
+    true for exactly one), or `{status:"conflict"}` (two or more disagree —
+    Replace must abort before any mutation, never pick a winner).
+  - `replaceProjectMatch({sceneId,matchRange,query,caseSensitive,
+    replacementText,getProjectData,saveSceneText,rebaseSceneDirtyBaseline})`
+    — the full single-Replace flow: resolve agreement → if the agreed live
+    doc differs from persisted, synchronize it through the SAME canonical
+    single-scene save path FIRST (a plain text-only save, not a Replace) →
+    re-resolve the target match against the now-current document via
+    `reresolveMatch` (Stage D1's own stale-safety policy, reused verbatim,
+    never a blind offset reuse) → build the replacement via `replaceOneMatch`
+    (Stage B, reused verbatim — Find and Replace can never disagree on what
+    "a match" is) → no effective doc change → report `changed:false`, no
+    persistence, no dirty state → otherwise commit through `saveSceneText`
+    and report the committed doc. `saveSceneText`/`rebaseSceneDirtyBaseline`
+    are injected dependencies (never imported directly), keeping this module
+    ignorant of cloud/local specifics — the same dependency-injection
+    pattern `getProjectData`/`navigateToSceneMatch` already use.
+  - `syncMountedRegistrations(sceneId,committedDoc,{resolvedMatch,
+    replacementText})` — pushes the committed doc into EVERY mounted
+    registration for the scene (never only the visible/preferred one — a
+    hidden-but-mounted registration, e.g. a standalone modal closed via
+    Escape/backdrop per this app's existing "destroy on next open" pattern,
+    must not remain stale). Every dispatch is tagged `addToHistory:false` —
+    a project-wide Replace must never become a ProseMirror undo entry;
+    Ctrl/Cmd+Z keeps referring only to that editor's own ordinary history.
+    Prefers REPLAYING the same localized `replaceOneMatch` transform as the
+    registration's own small transaction (verified safe by checking its
+    result against `committedDoc` first) over a wholesale full-document
+    replace — a wholesale replace, while still correctly never becoming its
+    OWN undo entry, maps every OTHER pending edit already in that view's own
+    undo history through a "delete everything, reinsert everything"
+    transform that `prosemirror-history` can no longer safely rebase across,
+    silently losing that unrelated edit's own undo entry (confirmed by
+    reproducing it in the browser suite before this fix). The wholesale
+    replace is kept as a fallback for a registration that genuinely diverged
+    during the one async gap in the whole flow (the `saveSceneText` await).
+- **Controller integration** (`find-replace-controller.js`): new
+  `replaceProjectCurrent()`, the project-scope mirror of `replaceCurrent()`
+  (which still refuses to run under scope "project", unchanged) — refuses to
+  run under scope "scene". Resolves the active GLOBAL match (by
+  `activeProjectMatchIndex` into `flattenProjectMatches(projectResult)` —
+  never navigation-domain-restricted the way Next/Previous are; an explicit
+  result-row click, like this Replace action, can target ANY project result
+  including an off-domain/excluded scene), delegates to
+  `replaceProjectMatch`, and on a real change (`changed:true`) calls
+  `syncMountedRegistrations` then the EXISTING `recomputeProject()` — never a
+  manual patch of counts/offsets/snippets. `recomputeProject()`'s own
+  pre-existing "keep the same numeric flat index, clamped into the new
+  range, else -1" policy is what selects the next logical active match for
+  free (the same trick scene-scope `replaceCurrent()` already relies on via
+  ordinary `recompute()`): removing the replaced match shifts every later
+  match's flat index down by one, so the unchanged `activeProjectMatchIndex`
+  now names whatever took its place; if nothing remains it lands on `-1`,
+  the existing zero-results state. A failure (`conflict`/`stale`/
+  `sync-failed`/`persist-failed`/`not-configured`/`no-active-match`/
+  `wrong-scope`) never syncs/rebases/re-searches — no fake committed state.
+- **Dependency wiring** (`scene-editor-controller.js`'s `projectSearchDeps`,
+  threaded through `mountSceneEditor`/`createSceneEditorGroup`'s existing
+  optional-param pattern): `saveSceneText`/`rebaseSceneDirtyBaseline` are new
+  optional pass-throughs, wired for real at the app layer —
+  `js/import-export.js`'s `saveSceneTextCanonical(sceneId,{sceneText,
+  sceneTextDoc})` (the exact same `updateSceneText`/`commitDataChange`
+  branches `saveAllScenes()`'s own per-scene loop already uses, just
+  addressed at one explicit sceneId — never `bulkUpdateSceneText`) and
+  `js/app.js`'s `rebaseSceneTextDirtyBaseline(sceneId,sceneTextDocJSON)`
+  (walks every mounted registration's own `surfaceId` for that scene and
+  calls that tracker's `rebaseExtra` — see below).
+- **Dirty-state addition** (`js/dirty-state.js`): `tracker.rebaseExtra
+  (updater)` — rebases ONLY `baseline.extra` (never `baseline.controls`, and
+  `updater` itself decides which key(s) of `extra` to replace, e.g. `doc`
+  for sceneModal/textModal or one entry of `docs` for allScenesModal) so a
+  programmatic, out-of-band text commit stops reporting as dirty WITHOUT
+  silently accepting any other currently-pending, unrelated dirty state in
+  the same open form — explicitly NOT a full `captureInitialState()`, which
+  would wrongly accept it too. A no-op while the tracker isn't active.
+- **UI** (`find-replace-panel.js`): "Заменить" is now enabled in project
+  scope whenever there's an active global match
+  (`snapshot.activeProjectMatchId!=null`) and dispatches to
+  `replaceProjectCurrent()`; "Заменить все" stays disabled with its existing
+  explanatory title (Replace All is still out of scope). A new, minimal
+  `.rte-project-replace-status` line (inside `resultsWrapper`, never a child
+  of the find/replace row itself, so it cannot disturb Stage C's own "one
+  compact control row" geometry check) surfaces a plain factual message on a
+  controlled failure (conflict/stale/persist failure) — cleared
+  automatically on the next fresh render, never a new conflict-resolution
+  UI.
+
+Regression coverage: `tools/find-replace-project-replace.test.mjs` (headless
+— real ProseMirror schema/EditorState, fake view stand-ins, injected
+save/rebase callbacks) covers stale-safety (valid offset, shifted text,
+unresolvable occurrence, longer/shorter/empty/identical replacement), scene
+identity, `included:false`, every mounted-agreement case A–E, post-commit
+synchronization (including the `addToHistory:false` + history-preserving-
+replay guarantees), failure/atomicity (no fake success on a sync or commit
+failure), and the full controller-level flow (active match selection after
+Replace, zero-results clearing, wrong-scope guards). `tools/dirty-
+state.test.mjs` covers `rebaseExtra` directly for both the single-doc and
+docs-map tracker shapes.
+`tools/find-replace-project-replace-browser.test.mjs` (new) proves the same
+end to end against the real running app: a real click → real
+`commitDataChange` persistence → fresh search → a genuine `addToHistory:
+false` proof (one Ctrl+Z after a Replace undoes an EARLIER real typed edit,
+never the Replace itself) → a real mounted-state conflict (reproduced via
+this app's own existing "close via Escape/backdrop leaves a hidden, still-
+registered surface" pattern, the same one Stage D1's own hardening passes
+exercise) → `included:false` → dirty-baseline behavior in a real Scene-modal
+form (an unrelated pending title edit survives the text-only rebase).
+`tools/find-replace-project-search-browser.test.mjs`'s own Replace-lockout
+assertion was updated (not reverted) to match this stage's intentional
+behavior change — "Заменить" is now expected enabled once a project-scope
+query has an active match; "Заменить все" stays disabled.
+
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 
 Pure, headless, DOM/EditorState/Supabase-independent. `findMatches(doc, query,
@@ -737,6 +870,14 @@ order — chapters in stored order, then scenes within each chapter in stored
 order — already covers every active scene with no unrepresented case.
 
 ## Project-wide Replace All requires synchronized state before it can commit
+
+**Still describes Replace All specifically (not yet built).** Stage D2.1
+implements the analogous single-scene synchronization gate for single
+Replace only — see "Stage D2.1" above for what actually exists today
+(`resolveMountedSceneAgreement`/`replaceProjectMatch` in
+`js/editor/find-replace-project-replace.js`); Replace All will need to
+generalize the same idea (steps 1-3 below) across every affected scene at
+once, still via `bulkUpdateSceneText`, which D2.1 does not call.
 
 Project-wide Replace All may commit **only** from a state where every scene it
 will touch is confirmed synchronized between whatever's live in an open editor

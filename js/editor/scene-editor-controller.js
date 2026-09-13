@@ -24,12 +24,21 @@ import {navigateToSceneMatch} from "./find-replace-navigation.js";
 // passes it at all, which makes the controller default to "just the one
 // attached scene" -- exactly standalone/Scene-modal's required behavior,
 // with no extra code needed at that call site.
-function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds}){
+// Find/Replace Stage D2.1: `saveSceneText`/`rebaseSceneDirtyBaseline` mirror
+// `openSceneForEditing`/`getNavigableSceneIds` above -- optional, passed
+// straight through to the controller (see find-replace-controller.js's own
+// replaceProjectCurrent) with no logic of their own here. Their REAL
+// implementations (js/import-export.js's saveSceneTextCanonical / js/app.js's
+// rebaseSceneTextDirtyBaseline) live at the application layer, exactly like
+// openSceneForEditing's real implementation (openSceneText) does -- this
+// file stays ignorant of what a "save" or a "dirty tracker" actually is.
+function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds,saveSceneText,rebaseSceneDirtyBaseline}){
   if(!getProjectData)return {};
   return {
     getProjectData,
     navigateToSceneMatch:(sceneId,matchRange,options)=>navigateToSceneMatch(sceneId,matchRange,{...options,openSceneForEditing}),
-    getNavigableSceneIds
+    getNavigableSceneIds,
+    saveSceneText,rebaseSceneDirtyBaseline
   };
 }
 
@@ -55,10 +64,10 @@ function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableScene
 // surface's modal/container to the front (e.g. `()=>showModal("textModal")`)
 // -- this module has no modal/route knowledge itself; the registration's own
 // `activate()` just calls it, then focuses this editor.
-export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null}){
+export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,saveSceneText=null,rebaseSceneDirtyBaseline=null}){
   editorContainer.innerHTML="";
   const doc=loadSceneDocument(sceneDocSchema,scene);
-  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing})):null;
+  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,saveSceneText,rebaseSceneDirtyBaseline})):null;
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
   const editor=createSceneEditor({
@@ -135,8 +144,8 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
 // (e.g. "Весь текст") to the front; each individual scene's registration
 // additionally retargets the shared toolbar/find-replace controller to that
 // scene and scrolls its own block into view -- see mountScene below.
-export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null}){
-  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds:()=>sceneIds()})):null;
+export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,saveSceneText=null,rebaseSceneDirtyBaseline=null}){
+  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds:()=>sceneIds(),saveSceneText,rebaseSceneDirtyBaseline})):null;
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
   const instances=new Map();
