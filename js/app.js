@@ -110,6 +110,21 @@ const editorTrackers={
 let characterSaveInFlight=false;
 const profileSaveButton=createSaveButtonController("saveProfile","profileEditorModal");
 globalThis.profileSaveButton=profileSaveButton;
+// Find/Replace Stage D2.1.3 (Finding 2/12): the profile modal's own single
+// Save button already used createSaveButtonController (js/dirty-state.js) --
+// the Scene modal/text-only modal/all-scenes modal never did, so their Save
+// buttons stayed permanently enabled (or permanently whatever their initial
+// disabled attribute happened to be) regardless of dirty state. Each surface
+// gets ONE controller per button (Save-only and Save-and-Close are separate
+// DOM elements, both reading the SAME underlying tracker's isDirty()), never
+// a second dirty-tracking mechanism -- these just subscribe the existing
+// pull-based trackers (js/dirty-state.js's own trackerFor) to a button.
+const sceneSaveButton=createSaveButtonController("saveScene","sceneModal");
+const sceneSaveAndCloseButton=createSaveButtonController("saveSceneAndClose","sceneModal");
+const textSaveButton=createSaveButtonController("saveText","textModal");
+const textSaveAndCloseButton=createSaveButtonController("saveTextAndClose","textModal");
+const allScenesSaveButton=createSaveButtonController("saveAllScenes","allScenesModal");
+const allScenesSaveAndCloseButton=createSaveButtonController("saveAllScenesAndClose","allScenesModal");
 document.getElementById("continueEditing").onclick=()=>resolveDiscardConfirmation(false);
 document.getElementById("discardChanges").onclick=()=>resolveDiscardConfirmation(true);
 document.getElementById("confirmActionCancel").onclick=()=>resolveConfirmAction(false);
@@ -482,6 +497,14 @@ document.getElementById("tagsModal").onclick=e=>{if(e.target.id==="tagsModal")re
 // tails at the very end.
 async function saveSceneModalOnly(){
   if(!sceneModalTextEditor)return false;
+  sceneSaveButton.beginSaving();sceneSaveAndCloseButton.beginSaving();
+  try{
+  return await saveSceneModalOnlyInner();
+  }finally{
+    sceneSaveButton.endSaving();sceneSaveAndCloseButton.endSaving();
+  }
+}
+async function saveSceneModalOnlyInner(){
   const existingScene=editingSceneId?sceneById(editingSceneId):null;
   const targetIndex=existingScene
     ?sceneIndexById(existingScene.id)
@@ -607,6 +630,14 @@ document.getElementById("saveSceneAndClose").onclick=async()=>{
 // so both buttons run the EXACT same validation/persistence -- only what
 // happens AFTER a successful save differs.
 async function saveTextModalOnly(){
+  textSaveButton.beginSaving();textSaveAndCloseButton.beginSaving();
+  try{
+  return await saveTextModalOnlyInner();
+  }finally{
+    textSaveButton.endSaving();textSaveAndCloseButton.endSaving();
+  }
+}
+async function saveTextModalOnlyInner(){
   const scene=sceneById(textEditingSceneId);
   if(!scene||!sceneTextEditor)return false;
   const {sceneText,sceneTextDoc}=sceneTextEditor.serialize();
@@ -1001,12 +1032,22 @@ document.getElementById("allScenesBtn").onclick=openAllScenes;
 // only then closes, on success. Save failure behaves exactly as before
 // either way -- the modal stays open, dirty state is untouched.
 document.getElementById("saveAllScenes").onclick=async()=>{
-  const result=await saveAllScenes();
-  if(result?.ok)trackerFor("allScenesModal").captureInitialState();
+  allScenesSaveButton.beginSaving();allScenesSaveAndCloseButton.beginSaving();
+  try{
+    const result=await saveAllScenes();
+    if(result?.ok)trackerFor("allScenesModal").captureInitialState();
+  }finally{
+    allScenesSaveButton.endSaving();allScenesSaveAndCloseButton.endSaving();
+  }
 };
 document.getElementById("saveAllScenesAndClose").onclick=async()=>{
-  const result=await saveAllScenes();
-  if(result?.ok){trackerFor("allScenesModal").captureInitialState();forceHideModal("allScenesModal");destroyAllScenesEditorGroup()}
+  allScenesSaveButton.beginSaving();allScenesSaveAndCloseButton.beginSaving();
+  try{
+    const result=await saveAllScenes();
+    if(result?.ok){trackerFor("allScenesModal").captureInitialState();forceHideModal("allScenesModal");destroyAllScenesEditorGroup()}
+  }finally{
+    allScenesSaveButton.endSaving();allScenesSaveAndCloseButton.endSaving();
+  }
 };
 document.getElementById("closeAllScenes").onclick=()=>requestCloseModal("allScenesModal","button");
 document.getElementById("allScenesModal").onclick=e=>{

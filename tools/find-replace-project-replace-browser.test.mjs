@@ -42,7 +42,8 @@ const project={
     scene("d212-switch","Переключение","chapter-1","Кошка гуляла во дворе."),
     scene("d212-excluded","Скрытая","chapter-unassigned","Выдра плыла.",{included:false}),
     scene("d212-save-full","СохранениеПолный","chapter-1","Ёж бежал."),
-    scene("d212-save-text","СохранениеТекст","chapter-1","Барсук ходил.")
+    scene("d212-save-text","СохранениеТекст","chapter-1","Барсук ходил."),
+    scene("d213-dirty-cycle","ДиртиЦикл","chapter-1","Кот сидит.")
   ]
 };
 
@@ -336,8 +337,20 @@ try{
       throw new Error("Save-only (Сохранить) must persist for the full Scene editor");
     if(!await page.locator("#sceneModal").isVisible())
       throw new Error("Save-only (Сохранить) must keep the Scene modal open");
+    // Find/Replace Stage D2.1.3 (Finding 2): Save-and-Close is now itself a
+    // Save button, correctly DISABLED right after the Save-only click above
+    // already cleaned the form -- clicking it with nothing new to save would
+    // never reach a click at all. A genuine further edit (matching the
+    // text-only/all-scenes blocks above and below, which already did this)
+    // is needed to exercise "Сохранить и закрыть persists AND closes".
+    await page.click("#sceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Ещё правка.");
+    await page.waitForTimeout(30);
     await page.click("#saveSceneAndClose");
     await page.waitForTimeout(80);
+    if((await sceneTextOf(page,"d212-save-full"))!=="Ёж бежал. Правка. Ещё правка.")
+      throw new Error("Сохранить и закрыть must persist for the full Scene editor too");
     if(!await isModalClosed(page,"sceneModal"))
       throw new Error("Сохранить и закрыть must close the Scene modal after a successful save");
 
@@ -506,6 +519,259 @@ try{
       throw new Error("Save must persist the replacement in the excluded scene");
     if((await rawProject(page)).scenes.find(s=>s.id==="d212-excluded").included!==false)
       throw new Error("Save must never flip included on an excluded scene");
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 13 (Find/Replace Stage D2.1.3, Finding 2/12): Save-button dirty-
+  // state cycle -- disabled while clean, enabled while dirty, re-disabled
+  // after a successful Save, refreshed live on Undo/Redo and on a
+  // PROGRAMMATIC Find/Replace Replace (neither of which fires a native DOM
+  // "input"/"change" event, unlike ordinary typing).
+  // ============================================================
+  {
+    const page=await freshPage();
+    const disabledOf=async ids=>{
+      const result={};
+      for(const id of ids)result[id]=await page.evaluate(elId=>document.getElementById(elId).disabled,id);
+      return result;
+    };
+
+    // -- text-only surface --
+    await page.evaluate(()=>openSceneText("d213-dirty-cycle"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    let state=await disabledOf(["saveText","saveTextAndClose"]);
+    if(!state.saveText||!state.saveTextAndClose)
+      throw new Error("Save/Save-and-close (text-only) must start disabled on a clean open");
+
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","Кот");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","Пёс");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextFindReplace .rte-replace-one"); // programmatic dispatch, no native input/change event
+    await page.waitForTimeout(80);
+    state=await disabledOf(["saveText","saveTextAndClose"]);
+    if(state.saveText||state.saveTextAndClose)
+      throw new Error("A programmatic Find/Replace Replace must enable Save (text-only) without any native input/change event");
+
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("Control+z"); // Undo -- also no native input/change event
+    await page.waitForTimeout(80);
+    state=await disabledOf(["saveText","saveTextAndClose"]);
+    if(!state.saveText||!state.saveTextAndClose)
+      throw new Error("Undo back to the saved baseline must re-disable Save (text-only)");
+
+    await page.keyboard.press("Control+y"); // Redo
+    await page.waitForTimeout(80);
+    state=await disabledOf(["saveText","saveTextAndClose"]);
+    if(state.saveText||state.saveTextAndClose)
+      throw new Error("Redo must re-enable Save (text-only)");
+
+    await page.click("#saveText");
+    await page.waitForTimeout(80);
+    state=await disabledOf(["saveText","saveTextAndClose"]);
+    if(!state.saveText||!state.saveTextAndClose)
+      throw new Error("A successful Save must re-disable Save/Save-and-close (text-only)");
+    if((await sceneTextOf(page,"d213-dirty-cycle"))!=="Пёс сидит.")
+      throw new Error("Setup for the remaining parts of this test expected the text Replace to have persisted");
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // -- full scene surface: a non-text field (title) must also count as dirty --
+    await page.evaluate(()=>editScene("d213-dirty-cycle"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    state=await disabledOf(["saveScene","saveSceneAndClose"]);
+    if(!state.saveScene||!state.saveSceneAndClose)
+      throw new Error("Save/Save-and-close (full scene) must start disabled on a clean open");
+    await page.fill("#sceneTitle","ДиртиЦикл (изменено)");
+    await page.waitForTimeout(60);
+    state=await disabledOf(["saveScene","saveSceneAndClose"]);
+    if(state.saveScene||state.saveSceneAndClose)
+      throw new Error("Editing a non-text field (title) must enable Save for the full Scene editor -- Finding 2 explicitly requires this");
+    await page.click("#saveScene");
+    await page.waitForTimeout(80);
+    state=await disabledOf(["saveScene","saveSceneAndClose"]);
+    if(!state.saveScene||!state.saveSceneAndClose)
+      throw new Error("A successful Save must re-disable Save/Save-and-close (full scene)");
+    await page.evaluate(()=>{destroySceneModalTextEditor();forceHideModal("sceneModal")});
+
+    // -- all-scenes surface --
+    await page.evaluate(()=>openAllScenes());
+    await page.waitForSelector("#allScenesList .ProseMirror");
+    state=await disabledOf(["saveAllScenes","saveAllScenesAndClose"]);
+    if(!state.saveAllScenes||!state.saveAllScenesAndClose)
+      throw new Error("Save/Save-and-close (all-scenes) must start disabled on a clean open");
+    await page.click("#allScenesToolbar .rte-btn-find");
+    await page.click("#allScenesFindReplace .rte-scope-project");
+    await page.fill("#allScenesFindReplace .rte-find-input","сидит");
+    await page.fill("#allScenesFindReplace .rte-replace-input","стоит");
+    await page.waitForTimeout(80);
+    // "Весь текст" mounts every scene at once -- the controller's own
+    // "attached" scene (whichever one Replace is allowed to mutate, per
+    // Finding 7's cross-scene guard) is whichever scene last actually
+    // received navigation/focus, not merely whichever scene the active
+    // project result happens to belong to. A fresh query's first active
+    // result can land in a scene nothing has explicitly navigated to yet --
+    // exactly the state Finding 7 requires Replace to REFUSE on rather than
+    // silently mutate. Next() is the normal navigation step that reconciles
+    // the two, so the realistic click sequence includes it here.
+    await page.click("#allScenesFindReplace .rte-find-next");
+    await page.waitForTimeout(80);
+    await page.click("#allScenesFindReplace .rte-replace-one"); // programmatic, no native input/change event
+    await page.waitForTimeout(80);
+    state=await disabledOf(["saveAllScenes","saveAllScenesAndClose"]);
+    if(state.saveAllScenes||state.saveAllScenesAndClose)
+      throw new Error("A programmatic Find/Replace Replace must enable Save (all-scenes) without any native input/change event");
+    if((await page.evaluate(()=>document.querySelector('[id="allSceneEditor-d213-dirty-cycle"] .ProseMirror')?.textContent))!=="Пёс стоит.")
+      throw new Error("Replace must actually have applied to the navigated-to match");
+    await page.click("#saveAllScenes");
+    await page.waitForTimeout(120);
+    state=await disabledOf(["saveAllScenes","saveAllScenesAndClose"]);
+    if(!state.saveAllScenes||!state.saveAllScenesAndClose)
+      throw new Error("A successful Save must re-disable Save/Save-and-close (all-scenes)");
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 14 (Find/Replace Stage D2.1.3, Finding 8/9): a current-scene
+  // ("Эта сцена") Find/Replace session -- query, replacement text,
+  // case-sensitive option, panel open state -- is preserved across an
+  // explicit Scene Editor <-> Text Scene surface switch, in BOTH directions,
+  // not just project-scope sessions (D2.1.2 only covered those). Also
+  // verifies the renamed switch-surface label ("Редактор сцены").
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d212-persist"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","кот");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","пёс");
+    await page.click("#fullSceneTextFindReplace .rte-find-case");
+    await page.waitForTimeout(60);
+
+    const switchLabel=await page.evaluate(()=>document.querySelector("#fullSceneTextToolbar .rte-btn-switch-surface")?.textContent);
+    if(switchLabel!=="⇄ Редактор сцены")
+      throw new Error(`Finding 9: text-only surface's switch button must read "⇄ Редактор сцены", got "${switchLabel}"`);
+
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(100);
+    let panelState=await page.evaluate(()=>({
+      query:document.querySelector("#sceneTextFindReplace .rte-find-input")?.value,
+      replaceText:document.querySelector("#sceneTextFindReplace .rte-replace-input")?.value,
+      caseSensitive:document.querySelector("#sceneTextFindReplace .rte-find-case")?.getAttribute("aria-pressed"),
+      scopeIsScene:document.querySelector("#sceneTextFindReplace .rte-scope-scene")?.classList.contains("active")
+    }));
+    if(panelState.query!=="кот"||panelState.replaceText!=="пёс"||panelState.caseSensitive!=="true"||!panelState.scopeIsScene)
+      throw new Error(`Finding 8: current-scene session must survive text-only -> full-scene switch, got ${JSON.stringify(panelState)}`);
+
+    const switchLabelBack=await page.evaluate(()=>document.querySelector("#sceneTextToolbar .rte-btn-switch-surface")?.textContent);
+    if(switchLabelBack!=="⇄ Текст сцены")
+      throw new Error(`Finding 9: full-scene surface's switch button must read "⇄ Текст сцены", got "${switchLabelBack}"`);
+
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(100);
+    panelState=await page.evaluate(()=>({
+      query:document.querySelector("#fullSceneTextFindReplace .rte-find-input")?.value,
+      replaceText:document.querySelector("#fullSceneTextFindReplace .rte-replace-input")?.value,
+      caseSensitive:document.querySelector("#fullSceneTextFindReplace .rte-find-case")?.getAttribute("aria-pressed"),
+      scopeIsScene:document.querySelector("#fullSceneTextFindReplace .rte-scope-scene")?.classList.contains("active")
+    }));
+    if(panelState.query!=="кот"||panelState.replaceText!=="пёс"||panelState.caseSensitive!=="true"||!panelState.scopeIsScene)
+      throw new Error(`Finding 8: current-scene session must survive full-scene -> text-only switch back, got ${JSON.stringify(panelState)}`);
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 15 (Find/Replace Stage D2.1.3, Finding 1/10/11): scope-toggle
+  // selection-sanity matrix -- toggling scope ("Эта сцена" <-> "Весь
+  // проект"), in BOTH directions, must never leave a stray non-collapsed
+  // real editor selection behind, at every checkpoint the finding calls out:
+  // before Replace, after Replace, after Undo, after an EMPTY-string
+  // Replace, after Undo of that empty Replace, and after arrow navigation.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d212-persist"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","кот");
+    await page.waitForTimeout(60);
+
+    // Real DOM selection only reflects ProseMirror's own model selection
+    // while the editor itself has DOM focus (PM deliberately does not steal
+    // focus/selection from e.g. the Find input or a toolbar button) -- so
+    // this refocuses the editor (a plain click, never altering the doc or
+    // the model selection itself) immediately before every reading, exactly
+    // as a user tabbing back into the editor would.
+    async function selectionSnapshot(){
+      await page.click("#fullSceneTextEditor .ProseMirror");
+      return page.evaluate(()=>{
+        const sel=window.getSelection();
+        return {text:sel.toString(),isCollapsed:sel.isCollapsed};
+      });
+    }
+    function assertClean(label,snap){
+      if(snap.text!==""||!snap.isCollapsed)
+        throw new Error(`Finding 1/10: ${label} must leave a collapsed, empty selection, got ${JSON.stringify(snap)}`);
+    }
+    async function toggleBothWays(label){
+      await page.click("#fullSceneTextFindReplace .rte-scope-scene");
+      await page.waitForTimeout(60);
+      assertClean(`${label} -> toggled to "Эта сцена"`,await selectionSnapshot());
+      await page.click("#fullSceneTextFindReplace .rte-scope-project");
+      await page.waitForTimeout(60);
+      assertClean(`${label} -> toggled back to "Весь проект"`,await selectionSnapshot());
+    }
+
+    // 1. Before Replace.
+    await toggleBothWays("before Replace");
+
+    // 2. After Replace (non-empty).
+    await page.click("#fullSceneTextFindReplace .rte-scope-project"); // re-affirm scope after toggling
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","пёс");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextFindReplace .rte-replace-one");
+    await page.waitForTimeout(80);
+    await toggleBothWays("after Replace");
+
+    // 3. After Undo (of the Replace).
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(80);
+    await toggleBothWays("after Undo");
+
+    // 4. After an EMPTY-string Replace.
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextFindReplace .rte-replace-one");
+    await page.waitForTimeout(80);
+    await toggleBothWays("after an empty-string Replace");
+
+    // 5. After Undo of that empty-string Replace.
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(80);
+    await toggleBothWays("after Undo of an empty-string Replace");
+
+    // 6. After arrow navigation.
+    await page.click("#fullSceneTextFindReplace .rte-find-next");
+    await page.waitForTimeout(80);
+    await toggleBothWays("after arrow navigation");
+
+    // Arrows must still work after all this scope toggling (matching
+    // decorations, no stuck/disabled state).
+    const countAfter=await page.evaluate(()=>document.querySelector("#fullSceneTextFindReplace .rte-find-count")?.textContent);
+    if(!countAfter||countAfter==="0 из 0")
+      throw new Error(`Finding 10: arrows must still report real matches after the full scope-toggle matrix, got "${countAfter}"`);
+    await page.click("#fullSceneTextFindReplace .rte-find-next");
+    await page.waitForTimeout(60);
+    const activeAfterArrow=await page.evaluate(()=>document.querySelector("#fullSceneTextEditor .rte-find-match-active")?.textContent);
+    if(!activeAfterArrow)
+      throw new Error("Finding 10: Next must still produce a real active-match decoration after the scope-toggle matrix");
     await page.close();
   }
 

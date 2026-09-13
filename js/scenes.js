@@ -528,7 +528,7 @@ function openSceneTextNow(sceneId,extra){
     // full-editor representation, carrying the current project session (if
     // any) across.
     onSwitchSurface:session=>editScene(sceneId,{projectSession:session}),
-    switchSurfaceLabel:"Полный редактор",
+    switchSurfaceLabel:"Редактор сцены",
     // Find/Replace Stage D2.1.1 (Goal A): hands the project-wide session
     // (if any) straight to the new controller mountSceneEditor is about to
     // create -- see that function's own doc comment.

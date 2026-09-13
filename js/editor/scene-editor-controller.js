@@ -92,7 +92,20 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
     mount:editorContainer,
     schema:sceneDocSchema,
     doc,
-    onUpdate:(state,transaction)=>{toolbar.update(state);findReplace?.handleTransaction(state,transaction)}
+    // Find/Replace Stage D2.1.3 (Finding 2/12): every doc-changing
+    // transaction -- typed input, Undo, Redo, and (crucially) a PROGRAMMATIC
+    // Find/Replace Replace dispatch -- flows through this one onUpdate hook
+    // regardless of source. Typed input already reaches js/dirty-state.js's
+    // own document-level "input"/"change" listener (native contenteditable
+    // typing dispatches those), but Undo/Redo (prosemirror-history's own
+    // keymap-bound commands) and a Replace click (a synthetic view.dispatch()
+    // with no real user keystroke) do neither -- so the Save button would
+    // otherwise stay stuck at whatever disabled/enabled state it last had
+    // until some UNRELATED input event happened to fire. Reusing the
+    // existing global syncBeforeUnload() (js/dirty-state.js) -- never a
+    // second dirty-tracking mechanism -- closes exactly that gap for every
+    // surface built through this factory.
+    onUpdate:(state,transaction)=>{toolbar.update(state);findReplace?.handleTransaction(state,transaction);if(transaction.docChanged)globalThis.syncBeforeUnload?.()}
   });
   toolbar.bind(editor.view);
   toolbar.update(editor.view.state);
@@ -195,7 +208,13 @@ export function createSceneEditorGroup({toolbarContainer,characters=[],findRepla
     const doc=loadSceneDocument(sceneDocSchema,scene);
     const editor=createSceneEditor({
       mount:editorContainer,schema:sceneDocSchema,doc,
-      onUpdate:(state,transaction)=>{if(activeId===sceneId){toolbar.update(state);findReplace?.handleTransaction(state,transaction)}}
+      // Finding 2/12 (see mountSceneEditor's identical comment above): a
+      // scene inside "Весь текст" can be edited (typing, Undo/Redo, Replace)
+      // even while a DIFFERENT scene is the group's own `activeId` -- the
+      // dirty refresh must fire regardless, unlike toolbar.update/
+      // findReplace.handleTransaction just above, which are deliberately
+      // scoped to the active scene only.
+      onUpdate:(state,transaction)=>{if(activeId===sceneId){toolbar.update(state);findReplace?.handleTransaction(state,transaction)}if(transaction.docChanged)globalThis.syncBeforeUnload?.()}
     });
     editor.view.dom.tabIndex=-1;
     const onFocusIn=()=>activate(sceneId);

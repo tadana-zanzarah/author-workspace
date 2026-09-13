@@ -1287,6 +1287,203 @@ project-search-browser.test.mjs` (Stage D1) and `tools/find-replace-
 current-scene-browser.test.mjs` (Stage C) were re-run unchanged and remain
 green.
 
+## Stage D2.1.3: interaction-state hardening (this stage)
+
+Manual acceptance of D2.1.2 raised twelve findings covering selection
+artifacts, Save-button staleness, reveal/scroll correctness, and terminology.
+This stage fixes the root causes rather than patching symptoms; no scope
+change (still no Replace All, no `bulkUpdateSceneText`, no project-level
+Undo).
+
+### Finding 1/11: a Replace→Undo→scope-switch cycle could leave a stray, non-collapsed real selection
+
+Root cause, traced through `prosemirror-history`'s own source
+(`node_modules/prosemirror-history/dist/index.js`): a real, undo-recorded
+transaction bookmarks `oldState.selection` (via `.getBookmark()`) as the
+selection Undo will later restore — regardless of whether that selection
+itself was ever added to history. `dispatchNavigation()` /
+find-replace-navigation.js's `selectAndReveal()` intentionally set the LIVE
+selection to a match's full range (`addToHistory:false`, so the selection
+change itself is never an undo step) as the deliberate Stage C "the match
+becomes the actual selection" design. If that range selection is still live
+the instant a *later* real edit (Replace) is dispatched, Undo of that edit
+restores the match-range selection verbatim — a genuine, visible,
+non-collapsed selection reappearing with no current Find operation left to
+justify it.
+
+Fix: `collapseSelectionIfRange(view)` (`js/editor/find-replace-controller.js`)
+dispatches a selection-only, zero-step, `addToHistory:false` transaction that
+collapses any non-collapsed selection to a caret at its own `from`. It never
+touches a selection the user made by dragging/shift-selecting — it only ever
+runs at moments this controller itself is about to move on from a match.
+Called immediately before capturing `view.state.tr` in `replaceCurrent()`,
+`replaceAll()`, and `replaceProjectCurrent()` (removing the stale range from
+history's own bookmark at the source, before the real edit is built — doing
+this after building `tr` would be too late), at the top of `setScope()`
+before switching scope, and in `recomputeAndReveal()`'s `else` branch
+whenever there is no active match left to reveal. This is a pure DOM-
+selection concern with nothing to verify without a real `EditorView` — the
+helper (and the reveal geometry code below) explicitly no-ops when a caller
+is a headless test double with no `view.dom` at all
+(`tools/find-replace-project-replace.test.mjs`'s own `fakeView`), never a
+silently-accepted invalid state in the running app.
+
+This is also the concrete instance of Finding 11's "keep three visual-state
+concepts distinct" requirement: decoration (`buildMatchDecorations`), active-
+match controller state (`activeIndex` / `activeProjectMatchIndex`), and the
+real ProseMirror/DOM selection are three different things, and only Stage C's
+own intentional case (an active Find match *is* the real selection while
+that match is current) is allowed to unify two of them. An audit of every
+`TextSelection.create` call site in `js/editor/` at the end of this stage
+found exactly five: `selectAndReveal`/`dispatchNavigation` (the intentional
+active-match range, always `addToHistory:false`), `collapseSelectionIfRange`
+(the fix above), and the two Replace functions' own explicit post-edit caret
+placement (a *collapsed* position, safe to bookmark). No other code path
+sets a real selection.
+
+### Finding 4: Replace now reveals through the same sticky-aware pipeline as arrow navigation
+
+`replaceCurrent()` and `replaceProjectCurrent()` used to rely solely on
+ProseMirror's own `tr.scrollIntoView()` transaction flag, which has no
+knowledge of a sticky-positioned header pinned over part of a scrollable
+ancestor (`stickyTopObstruction`/`revealDocPosition`, both already used by
+`dispatchNavigation()`/`selectAndReveal()` for arrow/click navigation —
+exactly the "Весь текст" toolbar+Find/Replace strip). A Replace whose target
+sat in that band could silently mutate it while leaving it visually hidden
+underneath the controls. Both functions now also call the same
+`revealDocPosition(view, caretPos)` right after their dispatch — reusing the
+existing reveal primitive, never a second one.
+
+### Finding 3/6: arrow-navigation reveal audited across all three surfaces, both directions, empty and non-empty replacement
+
+No code change was needed here — `revealDocPosition`'s generic scrollable-
+ancestor walk (recomputing `coordsAtPos` fresh at each ancestor, accounting
+for sticky obstructions) already covers every surface's own nested scroll
+container: the standalone "Текст сцены" and "Весь текст" surfaces reveal via
+their outer `.modal{overflow:auto}`, and the Scene modal additionally has its
+own inner `#sceneTextEditor{overflow-y:auto}` bounded editor — both already
+exercised by `tools/find-replace-current-scene-browser.test.mjs`. One
+practical clarification from this stage's audit: the real DOM/browser
+selection (`window.getSelection()`) only reflects ProseMirror's own model
+selection while the editor itself has DOM focus — `dispatchNavigation()`
+(scene-scope arrow nav within the same view) deliberately does *not* call
+`view.focus()`, so as not to steal focus from the Find input while a user is
+actively typing/clicking in the panel. The active match's decoration and its
+scroll-visibility remain correct regardless; only a plain `window.
+getSelection()` read is silent about it if the panel currently holds focus.
+Any test (or manual check) of "is the active match visible" should use the
+`.rte-find-match-active` decoration element's own geometry, not
+`window.getSelection()`, unless the editor was just explicitly refocused.
+
+### Finding 5: repeated Replace clicks already form a visible, correct sequence
+
+Verified, no code change: each click consumes the current active match (the
+scene's occurrence order is preserved — replacing the first remaining
+occurrence each time, never re-visiting an already-replaced one), the
+"N из M" counter decrements, and the newly active match gets the strong
+decoration and is revealed — an unambiguous progression rather than a
+same-looking click repeated with only a changing count to infer success
+from.
+
+### Finding 7: cross-scene invisible Replace is already refused correctly
+
+`replaceProjectCurrent()`'s existing guard (`attachedSceneId!==target.
+sceneId` → refuse with `no-active-editor`) already prevents a Replace click
+from mutating a scene the controller isn't currently attached to/navigated
+into — including the race this finding worried about (Next, then
+immediately Replace before an async cross-scene open resolves): the active
+match index advances synchronously in `next()`/`previous()` *before*
+`triggerProjectNavigation()` is even called, so `target.sceneId` already
+points at the new scene while `attachedSceneId` still names the old one
+until the destination view actually attaches — the guard reliably refuses in
+that window rather than mutating either scene. This stage's own new browser
+test coverage (Part 13's all-scenes step) independently rediscovered this
+guard by tripping over it: a fresh project query's first active result can
+land in a scene nothing has explicitly navigated to yet (whichever scene
+mounted first is "attached" by default), and Replace correctly no-ops rather
+than guessing — the realistic fix is the same one a real user would need:
+navigate to the result (arrow or a result-row click) before Replace, which
+is exactly what reconciles `attachedSceneId`.
+
+### Finding 8: current-scene ("Эта сцена") sessions now also survive a Scene Editor ⇄ Text Scene surface switch
+
+D2.1.2's `exportProjectSession()`/`adoptProjectSession()` only ever
+carried a session when `scope==="project"` — switching surfaces while scope
+was "Эта сцена" silently dropped query/replaceText/caseSensitive/open state
+entirely. Both functions are now scope-generic: the exported object carries
+its own `scope` (defaulting to `"project"` when omitted, so every
+pre-existing cross-scene-navigation caller — which never set this field —
+keeps its exact prior behavior) and its own `open` (panel open/closed state,
+defaulting to `true` when omitted for the same reason — a session export
+used to always force the destination panel open regardless of whether the
+source panel actually was, its own smaller instance of this same bug). A
+scene-scope session carries no cross-scene "exact result" to aim for; the
+destination's own upcoming `recompute()` (unlike project-scope's
+`recomputeProject()`) already re-runs the search fresh against the live
+destination doc on `attachView`, and falls back to its existing caret-
+relative `pickInitialActiveIndex` default — exactly the "deterministic
+current-scene result" fallback this finding allows in place of re-resolving
+the exact prior logical occurrence.
+
+### Finding 9: terminology rename
+
+"Только текст" had already been renamed to "Текст сцены" in an earlier pass;
+the one remaining old label, `switchSurfaceLabel:"Полный редактор"`
+(`js/scenes.js`, the text-only surface's own switch button), is now
+`"Редактор сцены"`. The toolbar's tooltip/`aria-label` are derived from the
+same `switchSurfaceLabel` string (`js/editor/scene-editor-toolbar.js`), so
+both update automatically. No internal identifier was renamed.
+
+### Finding 2/12: Save buttons now track dirty state live
+
+`js/dirty-state.js`'s `createSaveButtonController` already existed and was
+already used for the Character Profile modal's own single Save button, but
+`sceneModal`/`textModal`/`allScenesModal` never used it — their Save/Save-
+and-Close buttons never reflected dirty state at all. Each of the six
+buttons (Save-only and Save-and-Close, on all three surfaces) now has its
+own controller, all reading the *same* underlying tracker per modal — never
+a second dirty-tracking mechanism. `beginSaving()`/`endSaving()` bracket
+each surface's save function (`try`/`finally`, so a failed save still
+re-enables the button rather than getting stuck showing "Сохранение…").
+
+The existing document-level `input`/`change` listener
+(`js/dirty-state.js`'s own `syncBeforeUnload`) already refreshes every
+registered button on ordinary typing, but two real edit paths never fire a
+native `input`/`change` event at all: Undo/Redo (prosemirror-history's own
+keymap-bound commands, not the browser's native undo manager) and a Find/
+Replace Replace click (a synthetic `view.dispatch()` with no real user
+keystroke). `js/editor/scene-editor-controller.js`'s `onUpdate` hook — the
+one choke point every doc-changing transaction already flows through
+regardless of source or surface — now also calls the existing global
+`syncBeforeUnload()` whenever `transaction.docChanged`, closing that gap for
+every surface built through this factory. A non-text field (e.g. the Scene
+modal's title input) already counted as dirty before this stage —
+`serializeForm` scans every `input`/`select`/`textarea` under the tracked
+root — so Finding 2's "non-text field edits must also enable Save" needed
+only the button-refresh wiring, not a new dirty check.
+
+### Test coverage added this stage
+
+`tools/find-replace-project-replace-browser.test.mjs` gained three new
+parts: Part 13 (Save-button dirty-state cycle — disabled on open, enabled on
+a programmatic Replace/Undo/Redo with no native input event, re-disabled
+after a successful Save — across all three surfaces, plus the non-text-field
+case for the Scene modal), Part 14 (current-scene session preservation
+across an explicit surface switch in both directions, including case-
+sensitive, plus the renamed label), and Part 15 (the full scope-toggle
+selection-sanity matrix: before Replace, after Replace, after Undo, after an
+empty-string Replace, after Undo of that empty Replace, and after arrow
+navigation — each followed by toggling scope both ways and asserting a
+collapsed, empty real selection, then confirming arrows still work). Part
+8/9's existing Scene-modal Save-and-Close assertion was corrected to make a
+fresh edit before clicking it — with Save-and-Close now itself correctly
+disabled while clean (Finding 2), clicking it immediately after a Save-only
+click (which already cleaned the form) is no longer a valid click to expect
+to succeed. The existing D1/D2 browser suites
+(`find-replace-current-scene-browser.test.mjs`,
+`find-replace-project-search-browser.test.mjs`) and the full unit suite
+(`npm test`) were re-run unchanged and remain green.
+
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 
 Pure, headless, DOM/EditorState/Supabase-independent. `findMatches(doc, query,

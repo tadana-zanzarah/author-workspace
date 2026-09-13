@@ -94,8 +94,59 @@ function stickyTopObstruction(container){
   return obstruction;
 }
 
+// Find/Replace Stage D2.1.3 (Finding 1/11): collapses the view's REAL
+// selection to a plain caret whenever it's a non-collapsed range this
+// module itself set to represent an ACTIVE Find match (Stage C's own
+// Word/browser-Find-style "the match becomes the actual selection" design,
+// kept as-is -- this function never touches a selection the USER made by
+// dragging/shift-selecting; it only ever runs at moments this controller
+// itself is about to move on from a match, see call sites below).
+//
+// Root cause traced via prosemirror-history's own source
+// (node_modules/prosemirror-history/dist/index.js): a real, undo-recorded
+// transaction bookmarks `oldState.selection` (via `.getBookmark()`) as the
+// selection Undo will restore -- REGARDLESS of whether that selection was
+// ever itself added to history. `dispatchNavigation()`/find-replace-
+// navigation.js's `selectAndReveal()` intentionally set the LIVE selection
+// to a match's full range (addToHistory:false, so the selection CHANGE
+// itself is never an undo step) -- but if that range is still the live
+// selection the instant a LATER real edit (Replace) is dispatched, Undo of
+// THAT edit restores the match-range selection verbatim: a genuine,
+// visible, non-collapsed selection reappearing with no current Find
+// operation to justify it. Collapsing to a caret immediately before any
+// real, undo-recorded dispatch (replaceCurrent/replaceProjectCurrent/
+// replaceAll) removes the stale range from history's own bookmark at the
+// source, rather than trying to clean it up after the fact.
+//
+// Also called wherever a scope switch or an empty-match recompute is about
+// to leave a stale match-range selection with no active Find operation left
+// to justify it (setScope/recomputeAndReveal below) -- the same "three
+// different visual states" distinction (Finding 11): decoration and active-
+// match STATE persist independently in `matches`/`activeIndex`/
+// `projectResult`; only the REAL selection is reset here, and only when
+// nothing is about to immediately re-claim it via a genuine navigation
+// reveal.
+function collapseSelectionIfRange(targetView){
+  if(!isViewUsable(targetView))return;
+  if(targetView.state.selection.empty)return; // already a caret -- nothing to do
+  const pos=targetView.state.selection.from;
+  targetView.dispatch(targetView.state.tr.setSelection(TextSelection.create(targetView.state.doc,pos)).setMeta("addToHistory",false));
+}
+
 function revealDocPosition(view,pos){
   if(!isViewUsable(view))return;
+  // Find/Replace Stage D2.1.3 (Finding 4): replaceCurrent/replaceProjectCurrent
+  // now call this from headless unit tests (find-replace-project-replace.
+  // test.mjs's own `fakeView` -- a real EditorState with no real EditorView/
+  // DOM at all, deliberately, per that file's own comment: "EditorState has
+  // no DOM dependency at all -- only EditorView needs a real DOM"). Reveal is
+  // a pure DOM-geometry concern with nothing to verify without a real `view.
+  // dom`; every actual reveal behavior is covered by the browser test suites
+  // instead (find-replace-*-browser.test.mjs). A view missing `.dom` is
+  // never a real, usable EditorView in the running app, so this is not a
+  // silently-accepted invalid state anywhere outside these intentionally
+  // headless tests.
+  if(!view.dom)return;
   const margin=16;
   let node=view.dom.parentElement;
   while(node&&node!==document.body&&node!==document.documentElement){
@@ -654,6 +705,12 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   function recomputeAndReveal(){
     recompute();
     if(activeIndex>=0)dispatchNavigation();
+    // Finding 1/11: no active scene-scope match to reveal (project scope
+    // always takes this branch too, since `activeIndex` is scene-scope-only
+    // and stays -1 there) -- collapse any stale match-range selection left
+    // over from an earlier Find operation that is no longer current, rather
+    // than letting it linger as an unexplained real selection.
+    else collapseSelectionIfRange(view);
   }
 
   // Navigation moves the REAL editor selection to the active match's range
@@ -738,21 +795,45 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // just uses its existing caret-relative pickInitialProjectMatchIndex
   // default (see resolveFreshProjectActiveIndex) -- exactly right for "keep
   // searching the same thing", not "jump to this exact result".
+  // Find/Replace Stage D2.1.3 (Finding 8): originally project-scope-only (a
+  // scene-scope session was simply never exported, so a same-scene surface
+  // switch while scope was "Эта сцена" silently dropped query/replaceText/
+  // caseSensitive/open state). Generalized to cover BOTH scopes -- `scope`
+  // is now part of the exported object itself, so the adopter on the
+  // destination knows which mode to restore rather than assuming "project"
+  // unconditionally. `open` (the panel's own open/closed state) is included
+  // for the same reason: a session export used to always force the
+  // destination panel open regardless of whether the SOURCE panel was
+  // actually open, which is its own smaller instance of the same bug this
+  // finding is about.
   function exportProjectSession(){
-    if(scope!=="project")return null;
-    return {query,replaceText,caseSensitive};
+    return {scope,query,replaceText,caseSensitive,open:open_};
   }
 
   function adoptProjectSession(session){
     if(!session)return;
-    scope="project";
+    // Find/Replace Stage D2.1.3 (Finding 8): `scope` defaults to "project"
+    // when omitted -- every pre-existing caller (find-replace-navigation.js's
+    // own inline session, built for cross-scene project-result navigation)
+    // never set this field and always meant "project", so this preserves
+    // their exact prior behavior unchanged.
+    scope=session.scope==="scene"?"scene":"project";
     query=session.query||"";
     replaceText=session.replaceText||"";
     caseSensitive=!!session.caseSensitive;
-    open_=true;
+    // `open` defaults to true when omitted, for the same backward-
+    // compatibility reason: the pre-existing cross-scene navigation session
+    // always wanted the destination panel open on arrival.
+    open_=session.open!==false;
     matches=[];activeIndex=-1;
     projectResult=null;activeProjectMatchIndex=-1;
-    pendingActiveTarget=session.target||null;
+    // A scene-scope session has no cross-scene "exact result" to aim for --
+    // the destination's own upcoming recompute() (scene-scope, unlike
+    // recomputeProject) already re-runs the search fresh against the live
+    // destination doc and falls back to its existing caret-relative
+    // pickInitialActiveIndex default, exactly the "deterministic current-
+    // scene result" fallback this finding asks for.
+    pendingActiveTarget=scope==="scene"?null:(session.target||null);
   }
 
   // attachView is also how a fresh mount first hands the controller its
@@ -880,6 +961,14 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   function setScope(newScope){
     const next_=newScope==="project"?"project":"scene";
     if(scope===next_)return;
+    // Finding 1/10: a scope switch never itself re-navigates to a specific
+    // match (scene scope only reveals one if recomputeAndReveal below finds
+    // one; project scope deliberately never auto-navigates on scope entry
+    // -- see recomputeProject's own comment) -- collapse any match-range
+    // selection left over from whichever scope is being LEFT first, so a
+    // stale "active match" selection from the previous scope (or one Undo
+    // just restored) can never survive a scope toggle unexplained.
+    collapseSelectionIfRange(view);
     scope=next_;
     activeIndex=-1;
     if(scope==="scene"){
@@ -1003,6 +1092,14 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   function replaceCurrent(){
     if(scope==="project")return false;
     if(!isViewUsable(view)||activeIndex<0||!matches[activeIndex])return false;
+    // Finding 1: collapse a live match-range selection to a caret BEFORE
+    // capturing `view.state.tr` below -- prosemirror-history bookmarks
+    // `view.state.selection` (the state as it is AT THIS POINT) as the
+    // selection Undo will restore for the transaction about to be built
+    // from it; doing this after building `tr` would be too late; setting
+    // `tr`'s own final selection later (already done below) has no effect
+    // on that bookmark at all, since it comes from the state BEFORE `tr`.
+    collapseSelectionIfRange(view);
     const match=matches[activeIndex];
     const transform=replaceOneMatch(view.state.doc,match,replaceText);
     const tr=view.state.tr;
@@ -1021,6 +1118,15 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     tr.setSelection(TextSelection.create(tr.doc,caretPos)).scrollIntoView();
     view.dispatch(closeHistory(tr));
     view.focus();
+    // Finding 4: PM's own `.scrollIntoView()` transaction flag above knows
+    // nothing about a sticky-positioned header pinned over part of a
+    // scrollable ancestor (see stickyTopObstruction/revealDocPosition) --
+    // exactly the "Весь текст" toolbar+Find/Replace strip. Without this, a
+    // Replace on a match sitting in that band silently mutates it while
+    // leaving it visually hidden underneath the controls. Reuse the SAME
+    // reveal primitive dispatchNavigation()/selectAndReveal() already use,
+    // rather than a second reveal mechanism.
+    revealDocPosition(view,caretPos);
     return true;
   }
 
@@ -1036,6 +1142,8 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   function replaceAll(){
     if(scope==="project")return {count:0};
     if(!isViewUsable(view)||!matches.length)return {count:0};
+    // Finding 1: see replaceCurrent's identical comment above.
+    collapseSelectionIfRange(view);
     const count=matches.length;
     const transform=replaceAllMatches(view.state.doc,matches,replaceText);
     const tr=view.state.tr;
@@ -1084,6 +1192,8 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     // the caller (the panel) surfaces `outcome` itself; this file never
     // fabricates UI feedback.
     if(!outcome.ok||!outcome.changed)return outcome;
+    // Finding 1: see replaceCurrent's identical comment above.
+    collapseSelectionIfRange(view);
     const tr=view.state.tr;
     outcome.transform.steps.forEach(step=>tr.step(step));
     // Goal D/E: explicit, deterministic caret placement (never left to
@@ -1095,6 +1205,11 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     // valid position in `tr.doc` after the steps are applied.
     const caretPos=Math.min(outcome.resolvedMatch.from+(replaceText?replaceText.length:0),tr.doc.content.size);
     tr.setSelection(TextSelection.create(tr.doc,caretPos)).scrollIntoView();
+    // Finding 4: see replaceCurrent's identical comment above -- project-
+    // scope Replace needs the same sticky-aware reveal, not just PM's own
+    // scrollIntoView() flag. Dispatched a few lines below; revealDocPosition
+    // is called right after that dispatch so it measures the POST-replace
+    // geometry (matching dispatchNavigation's own dispatch-then-reveal order).
     // Goal J: tells the upcoming recompute (triggered synchronously by this
     // very dispatch, via handleTransaction -- see pendingPostReplaceLocality's
     // own declaration comment) to prefer a LOCAL remaining match in this
@@ -1109,6 +1224,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     // simply left alone, precisely as an ordinary typed edit would leave it.
     view.dispatch(closeHistory(tr));
     view.focus(); // Goal D: the active editor stays the user-facing focus context
+    revealDocPosition(view,caretPos);
     return {ok:true,changed:true,sceneId:target.sceneId};
   }
 
