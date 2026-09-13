@@ -179,11 +179,18 @@ function resetSceneModalScroll(){
   if(scrollBox)scrollBox.scrollTop=0;
 }
 
-function editScene(sceneId){
-  return requestEditorTransition(()=>editSceneNow(sceneId));
+// Find/Replace Stage D2.1.2 (Goal H/I): `extra` (optional) carries
+// `{projectSession}` -- forwarded to mountSceneModalTextEditor exactly like
+// openSceneText's own `extra` param -- either from a project-result
+// navigation whose ORIGIN surface was itself the full Scene modal (Goal H:
+// surface-preserving navigation), or from the explicit full<->text-only
+// switch action (Goal I). Every other existing caller omits it and mounts
+// exactly as before.
+function editScene(sceneId,extra){
+  return requestEditorTransition(()=>editSceneNow(sceneId,extra));
 }
 
-function editSceneNow(sceneId){
+function editSceneNow(sceneId,extra){
   editingSceneId=sceneId;
   insertBeforeSceneId=null;
   insertChapterId=null;
@@ -194,7 +201,7 @@ function editSceneNow(sceneId){
   document.getElementById("sceneDate").value=s.date||"";
   document.getElementById("sceneTime").value=s.time||"";
   document.getElementById("sceneTitle").value=s.title||"";
-  mountSceneModalTextEditor(s);
+  mountSceneModalTextEditor(s,extra);
   document.getElementById("sceneStatus").value=s.status||"floating";
   document.getElementById("sceneIncluded").checked=s.included!==false;
   populateSceneSelectors();
@@ -441,7 +448,14 @@ function destroySceneModalTextEditor(){
   if(sceneModalTextEditor){sceneModalTextEditor.destroy();sceneModalTextEditor=null}
 }
 
-function mountSceneModalTextEditor(scene){
+// Find/Replace Stage D2.1.2 (Goal H/I): `extra` (optional) is
+// `{projectSession}` -- forwarded straight into mountSceneEditor, which
+// hands it to the new controller via adoptProjectSession before attaching
+// the view. Supplied either by a project-result navigation whose ORIGIN was
+// itself the full Scene modal (Goal H: surface-preserving navigation stays
+// on the SAME surface type), or by the explicit full<->text-only switch
+// action (Goal I).
+function mountSceneModalTextEditor(scene,extra){
   destroySceneModalTextEditor();
   sceneModalTextEditor=mountSceneEditor({
     editorContainer:document.getElementById("sceneTextEditor"),
@@ -464,31 +478,28 @@ function mountSceneModalTextEditor(scene){
     // registration's activate() is about to select, one microtask later. Only
     // call it when the modal isn't already showing.
     revealSurface:()=>{if(document.getElementById("sceneModal").style.display!=="flex")showModal("sceneModal")},
-    // Find/Replace Stage D1: getProjectData/openSceneForEditing wire this
-    // surface's Find/Replace panel into project-wide search -- see
-    // js/editor/find-replace-project-search.js and
-    // js/editor/find-replace-navigation.js. openSceneText is the generic
-    // "open this scene for editing" fallback used when a project result
-    // points at a scene with no live mounted registration at all (product
-    // brief section 8, case B).
     getProjectData:()=>data,
-    // Find/Replace Stage D2.1.1: forwards a second `extra` argument (never
-    // constructed here, only ever by find-replace-navigation.js) so a case-B
-    // navigation FROM this controller's own project search can hand its
-    // session to whatever it opens next -- see openSceneText's own comment.
-    openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra),
-    // Find/Replace Stage D2.1: see js/import-export.js's saveSceneTextCanonical
-    // / js/app.js's rebaseSceneTextDirtyBaseline for what these actually do --
-    // this call site only wires them in, same as getProjectData/
-    // openSceneForEditing above.
-    saveSceneText:saveSceneTextCanonical,
-    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline
+    // Find/Replace Stage D2.1.2 (Goal H): a project result opened from a
+    // surface that is itself the FULL scene editor stays on the full editor
+    // for the destination too -- case B (scene mounted nowhere) now opens
+    // via editScene, never openSceneText, when navigation originates HERE.
+    // `extra` (projectSession/pendingTarget) is forwarded unchanged, exactly
+    // like openSceneText's own case-B fallback already does.
+    openSceneForEditing:(sceneId,nextExtra)=>editScene(sceneId,nextExtra),
+    // Find/Replace Stage D2.1.2 (Goal I): switches THIS SAME scene to its
+    // text-only representation, carrying the current project session (if
+    // any) across -- openSceneText's own existing dirty guard
+    // (requestEditorTransition) still runs first, unchanged.
+    onSwitchSurface:session=>openSceneText(scene.id,{projectSession:session}),
+    switchSurfaceLabel:"Текст сцены",
+    projectSession:extra?.projectSession
   });
 }
 
-// Find/Replace Stage D2.1.1: `extra` (optional) is `{projectSession}` when
-// this open is the destination of a project-result navigation (see
-// openSceneText's own comment) -- threaded straight into mountSceneEditor,
+// Find/Replace Stage D2.1.1/D2.1.2: `extra` (optional) is `{projectSession}`
+// when this open is the destination of a project-result navigation (see
+// mountSceneModalTextEditor's own comment) or of the explicit full<->text-
+// only switch action (Goal I) -- threaded straight into mountSceneEditor,
 // which is the one place that actually hands it to the new controller (via
 // adoptProjectSession) before attaching the view.
 function openSceneTextNow(sceneId,extra){
@@ -509,14 +520,15 @@ function openSceneTextNow(sceneId,extra){
     // See mountSceneModalTextEditor's own comment above on why this must not
     // call showModal unconditionally.
     revealSurface:()=>{if(document.getElementById("textModal").style.display!=="flex")showModal("textModal",{initialFocus:sceneTextEditor?.view.dom})},
-    // Find/Replace Stage D1: see mountSceneModalTextEditor's own comment
-    // above.
     getProjectData:()=>data,
+    // Find/Replace Stage D2.1.2 (Goal H): a project result opened from the
+    // TEXT-ONLY surface stays text-only for the destination too.
     openSceneForEditing:(sceneIdToOpen,nextExtra)=>openSceneText(sceneIdToOpen,nextExtra),
-    // Find/Replace Stage D2.1: see mountSceneModalTextEditor's own comment
-    // above.
-    saveSceneText:saveSceneTextCanonical,
-    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline,
+    // Find/Replace Stage D2.1.2 (Goal I): switches THIS SAME scene to its
+    // full-editor representation, carrying the current project session (if
+    // any) across.
+    onSwitchSurface:session=>editScene(sceneId,{projectSession:session}),
+    switchSurfaceLabel:"Полный редактор",
     // Find/Replace Stage D2.1.1 (Goal A): hands the project-wide session
     // (if any) straight to the new controller mountSceneEditor is about to
     // create -- see that function's own doc comment.

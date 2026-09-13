@@ -29,8 +29,7 @@ import "./drag-drop.js";
 import "./import-export.js";
 import {sceneDocSchema} from "./editor/scene-doc-schema.js";
 import {docToJSON,loadSceneDocument} from "./editor/scene-doc-convert.js";
-import {normalizedEqual,normalizeSnapshot} from "./dirty-state.js";
-import {getMountedSceneRegistrations} from "./editor/mounted-scene-registry.js";
+import {normalizedEqual} from "./dirty-state.js";
 
 // Инициализация данных выполняется после регистрации функций миграции и хранения.
 data=loadDataSafe();
@@ -96,34 +95,18 @@ const editorTrackers={
   recoveryModal:createDirtyTracker("recoveryModal",()=>serializeForm("recoveryModal"))
 };
 
-// Find/Replace Stage D2.1: after a project-wide Replace commits a scene's
-// text out-of-band (the commit itself never goes through any open form's own
-// Save button), any dirty tracker whose OWN baseline already carries THIS
-// scene's doc (because the scene happens to be mounted in that surface right
-// now) must have ONLY that doc/text portion of its baseline rebased -- see
-// js/dirty-state.js's own rebaseExtra() doc comment for why a full
-// captureInitialState() would be wrong here (it would silently accept any
-// OTHER unrelated pending edit already sitting in that same open form, e.g.
-// sceneModal's own tags/newTags alongside its doc). A scene can be mounted
-// in more than one surface at once (mounted-scene-registry.js) -- every
-// tracker for a surface that currently has it mounted is rebased, never just
-// the first found. `surfaceId` is exactly this app's own tracker id
-// (sceneModal/textModal/allScenesModal) by construction -- see
-// js/editor/scene-editor-controller.js's mountSceneEditor/
-// createSceneEditorGroup, the only two places that register a mounted scene.
-function rebaseSceneTextDirtyBaseline(sceneId,sceneTextDocJSON){
-  const surfaceIds=new Set(getMountedSceneRegistrations(sceneId).map(registration=>registration.surfaceId).filter(Boolean));
-  surfaceIds.forEach(surfaceId=>{
-    const tracker=trackerFor(surfaceId);
-    if(!tracker)return;
-    if(surfaceId==="allScenesModal"){
-      tracker.rebaseExtra(extra=>({...extra,docs:{...extra.docs,[sceneId]:normalizeSnapshot(sceneTextDocJSON)}}));
-    } else {
-      tracker.rebaseExtra(extra=>({...extra,doc:normalizeSnapshot(sceneTextDocJSON)}));
-    }
-  });
-}
-Object.assign(globalThis,{rebaseSceneTextDirtyBaseline});
+// Find/Replace Stage D2.1.2: project-wide Single Replace is now an ordinary
+// unsaved local edit (see js/editor/find-replace-controller.js's
+// replaceProjectCurrent) -- it never persists anything itself, so the
+// dirty-tracker baseline is never out of sync with a "secretly already
+// saved" doc the way D2.1's immediate-persist design needed to correct for.
+// The existing pull-based dirty trackers (js/dirty-state.js) already report
+// dirty correctly the instant the live doc differs from its own baseline --
+// no rebase glue is needed here any more. (js/dirty-state.js's own
+// `rebaseExtra` primitive is kept as generic, tested infrastructure for a
+// future stage that DOES need it -- e.g. project-wide Replace All's own
+// eventual pre-commit synchronization save, per docs/find-replace-
+// architecture.md -- just not wired to anything today.)
 let characterSaveInFlight=false;
 const profileSaveButton=createSaveButtonController("saveProfile","profileEditorModal");
 globalThis.profileSaveButton=profileSaveButton;
@@ -490,8 +473,15 @@ document.getElementById("tagsModal").onclick=e=>{if(e.target.id==="tagsModal")re
 
 
 
-document.getElementById("saveScene").onclick=async()=>{
-  if(!sceneModalTextEditor)return;
+// Manual UX finding (D2.1.2, Goal F): save-only vs save-and-close, factored
+// into one shared save (never touching modal visibility/the mounted editor)
+// so both buttons run the EXACT same validation/persistence -- only what
+// happens AFTER a successful save differs. Every internal early exit below
+// is a save FAILURE (returns false, modal stays open, dirty state
+// untouched, exactly the existing failure behavior) except the two success
+// tails at the very end.
+async function saveSceneModalOnly(){
+  if(!sceneModalTextEditor)return false;
   const existingScene=editingSceneId?sceneById(editingSceneId):null;
   const targetIndex=existingScene
     ?sceneIndexById(existingScene.id)
@@ -539,7 +529,7 @@ document.getElementById("saveScene").onclick=async()=>{
     for(const tagId of scene.tags){
       if(!sceneNewTagDraft[tagId]){resolvedTags.push(tagId);continue}
       const created=await runCloudMutation("createTag",(api,revision)=>api.createTag(cloudProjectSync.projectId,revision,{name:sceneNewTagDraft[tagId]}),{renderAfter:false});
-      if(!created.ok)return;resolvedTags.push(created.data?.id);
+      if(!created.ok)return false;resolvedTags.push(created.data?.id);
     }
     const cloudScene={...scene,tags:resolvedTags};
     const previousPosition=data.scenes[sceneIndex-1]?.position,nextPosition=data.scenes[sceneIndex]?.position;
@@ -548,14 +538,14 @@ document.getElementById("saveScene").onclick=async()=>{
       ?(api,revision)=>api.updateScene(cloudProjectSync.projectId,existingScene.id,revision,sceneToCloud(cloudScene))
       :(api,revision)=>api.createScene(cloudProjectSync.projectId,revision,sceneToCloud(cloudScene,createPosition));
     const result=await runCloudMutation(existingScene?"updateScene":"createScene",mutation,{renderAfter:false});
-    if(!result.ok)return;
+    if(!result.ok)return false;
     const sceneId=existingScene?.id||result.data?.id;
     if(sceneId){
       const tagsResult=await runCloudMutation("setSceneTags",(api,revision)=>api.setSceneTags(cloudProjectSync.projectId,sceneId,revision,resolvedTags),{renderAfter:false});
-      if(!tagsResult.ok)return;
+      if(!tagsResult.ok)return false;
       const participants=Object.entries(scene.people).map(([characterId,person],sortOrder)=>({projectCharacterId:characterById(characterId)?.projectCharacterId,action:person.action,legacyState:person.legacyState||null,sortOrder})).filter(item=>item.projectCharacterId);
       const participantResult=await runCloudMutation("setSceneCharacters",(_api,revision)=>cloudState.characterApi.setSceneCharacters(cloudProjectSync.projectId,sceneId,revision,participants),{renderAfter:false});
-      if(!participantResult.ok)return;
+      if(!participantResult.ok)return false;
       const changes=[];
       for(const [fromId,person] of Object.entries(scene.people))for(const toId of new Set([...Object.keys(person.relationChanges||{}),...(person.visibleRelations||[])])){
         const explicit=Object.prototype.hasOwnProperty.call(person.relationChanges||{},toId),value=person.relationChanges?.[toId];
@@ -563,7 +553,7 @@ document.getElementById("saveScene").onclick=async()=>{
           valueOperation:explicit?(value?"set":"clear"):null,value:explicit&&value?value:null,visible:(person.visibleRelations||[]).includes(toId)});
       }
       const relationResult=await runCloudMutation("setSceneRelationChanges",(_api,revision)=>cloudState.characterApi.setSceneRelationChanges(cloudProjectSync.projectId,sceneId,revision,changes.filter(item=>item.fromProjectCharacterId&&item.toProjectCharacterId)),{renderAfter:false});
-      if(!relationResult.ok)return;
+      if(!relationResult.ok)return false;
       // updateScene never touches the metadata column -- this modal now always
       // produces a real, editor-derived sceneTextDoc (T2), so the follow-up
       // narrow RPC is the only way that ever reaches the server. Skipped when
@@ -571,13 +561,20 @@ document.getElementById("saveScene").onclick=async()=>{
       // avoid a pointless extra round trip on saves that only touch other
       // fields (chapter/location/tags/...); the RPC itself would also no-op
       // server-side either way, so this is a pure efficiency nicety.
-      const baselineDoc=docToJSON(loadSceneDocument(sceneDocSchema,existingScene));
-      if(!normalizedEqual(baselineDoc,scene.sceneTextDoc)){
+      const baselineDoc=existingScene?docToJSON(loadSceneDocument(sceneDocSchema,existingScene)):null;
+      if(!existingScene||!normalizedEqual(baselineDoc,scene.sceneTextDoc)){
         const textResult=await runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,sceneId,revision,{sceneText:scene.sceneText,metadata:{richText:scene.sceneTextDoc}}),{renderAfter:false});
-        if(!textResult.ok)return;
+        if(!textResult.ok)return false;
       }
     }
-    data=cloudProjectSync.confirmedProject;trackerFor("sceneModal").captureInitialState();forceHideModal("sceneModal");destroySceneModalTextEditor();render();return;
+    data=cloudProjectSync.confirmedProject;
+    // Goal F: keeping the modal open after a save that CREATED a new scene
+    // means a SECOND save-only click must update that same scene, never
+    // create a duplicate -- retarget this modal onto it exactly like
+    // reopening it via editScene() would.
+    if(!existingScene&&sceneId){editingSceneId=sceneId;document.getElementById("sceneModalTitle").textContent="Изменить сцену"}
+    trackerFor("sceneModal").captureInitialState();render();
+    return true;
   }
 
   const result=commitDataChange(next=>{
@@ -593,15 +590,25 @@ document.getElementById("saveScene").onclick=async()=>{
     const order=new Map(next.chapters.map((c,i)=>[c.id,i]));
     next.scenes=next.scenes.map((item,i)=>({item,i})).sort((a,b)=>(order.get(a.item.chapterId)??9999)-(order.get(b.item.chapterId)??9999)||a.i-b.i).map(x=>x.item);
   },{renderAfter:false});
-  if(!result.ok)return;
-  trackerFor("sceneModal").captureInitialState();forceHideModal("sceneModal");destroySceneModalTextEditor();render();
+  if(!result.ok)return false;
+  if(!existingScene){editingSceneId=scene.id;document.getElementById("sceneModalTitle").textContent="Изменить сцену"}
+  trackerFor("sceneModal").captureInitialState();render();
+  return true;
+}
+document.getElementById("saveScene").onclick=()=>saveSceneModalOnly();
+document.getElementById("saveSceneAndClose").onclick=async()=>{
+  if(await saveSceneModalOnly()){forceHideModal("sceneModal");destroySceneModalTextEditor()}
 };
 
 
 
-document.getElementById("saveText").onclick=async()=>{
+// Manual UX finding (D2.1.2, Goal F): save-only vs save-and-close, factored
+// into one shared save (never touching modal visibility/the mounted editor)
+// so both buttons run the EXACT same validation/persistence -- only what
+// happens AFTER a successful save differs.
+async function saveTextModalOnly(){
   const scene=sceneById(textEditingSceneId);
-  if(!scene||!sceneTextEditor)return;
+  if(!scene||!sceneTextEditor)return false;
   const {sceneText,sceneTextDoc}=sceneTextEditor.serialize();
   if(isCloudWorkspace()){
     // Narrow, scoped RPC (scene_text + metadata.richText only) instead of the
@@ -610,15 +617,20 @@ document.getElementById("saveText").onclick=async()=>{
     // one RPC means a mid-save failure can never leave prose and formatting out of
     // sync with each other.
     const result=await runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,scene.id,revision,{sceneText,metadata:{richText:sceneTextDoc}}));
-    if(!result.ok)return;
-    trackerFor("textModal").captureInitialState();forceHideModal("textModal");destroySceneTextEditor();return;
+    if(!result.ok)return false;
+    trackerFor("textModal").captureInitialState();return true;
   }
   const result=commitDataChange(next=>{
     const target=next.scenes.find(s=>s.id===textEditingSceneId);
     target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
   },{renderAfter:false});
-  if(!result.ok)return;
-  trackerFor("textModal").captureInitialState();forceHideModal("textModal");destroySceneTextEditor();
+  if(!result.ok)return false;
+  trackerFor("textModal").captureInitialState();
+  return true;
+}
+document.getElementById("saveText").onclick=()=>saveTextModalOnly();
+document.getElementById("saveTextAndClose").onclick=async()=>{
+  if(await saveTextModalOnly()){forceHideModal("textModal");destroySceneTextEditor()}
 };
 document.getElementById("closeText").onclick=()=>requestCloseModal("textModal","button");
 document.getElementById("textModal").onclick=e=>{if(e.target.id==="textModal")requestCloseModal("textModal","backdrop")};
@@ -983,7 +995,16 @@ document.getElementById("saveProfile").onclick=async()=>{
 
 
 document.getElementById("allScenesBtn").onclick=openAllScenes;
+// Manual UX finding (D2.1.2, Goal F): Save becomes SAVE-ONLY -- it keeps
+// "Весь текст" open so a cross-scene Find/Replace session can continue
+// uninterrupted. "Сохранить и закрыть" performs the exact same save and
+// only then closes, on success. Save failure behaves exactly as before
+// either way -- the modal stays open, dirty state is untouched.
 document.getElementById("saveAllScenes").onclick=async()=>{
+  const result=await saveAllScenes();
+  if(result?.ok)trackerFor("allScenesModal").captureInitialState();
+};
+document.getElementById("saveAllScenesAndClose").onclick=async()=>{
   const result=await saveAllScenes();
   if(result?.ok){trackerFor("allScenesModal").captureInitialState();forceHideModal("allScenesModal");destroyAllScenesEditorGroup()}
 };

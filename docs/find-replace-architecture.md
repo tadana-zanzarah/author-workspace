@@ -3,16 +3,20 @@
 Status: **Stage A** (atomic cloud persistence foundation), **Stage B**
 (headless matching/replacement engine), **Stage C** (current-scene panel,
 shortcuts, highlighting, Replace/Replace All, across all three rich-text
-surfaces), **Stage D1** (project-wide search, results, navigation),
-**Stage D2.1** (safe single Replace in project scope) and **Stage D2.1.1**
-(the project-wide Find/Replace session survives explicit cross-scene result
-navigation; a Single Replace is an ordinary, undo-able edit in the scene's
-active editor) are implemented. Project-wide **Replace All** is explicitly
-**not** implemented yet — the panel's "Заменить все" stays disabled in
-"Весь проект" scope with an explanatory title; `bulkUpdateSceneText` and its
-migration remain unwired/unapplied, and there is still no project-level/
-multi-scene Undo. This document records the decisions those later stages
-must follow; it is deliberately not a full UI spec — unfinished UI details
+surfaces), **Stage D1** (project-wide search, results, navigation), and
+**Stage D2.1.2** (current, authoritative project-wide Single Replace
+semantics — see that section; it supersedes D2.1/D2.1.1's own "persists
+immediately" contract) are implemented. Project-wide Single Replace is an
+ORDINARY, UNSAVED local edit of the scene's active editor — it is **not**
+automatically persisted; the scene's own existing Save flow is the only
+persistence path, "Закрыть без сохранения" truly discards it, and project
+search always reads the live mounted editor doc. Project-wide **Replace
+All** is explicitly **not** implemented yet — the panel's "Заменить все"
+stays disabled in "Весь проект" scope with an explanatory title;
+`bulkUpdateSceneText` and its migration remain unwired/unapplied, and there
+is still no project-level/multi-scene Undo. This document records the
+decisions those later stages must follow; it is deliberately not a full UI
+spec — unfinished UI details
 are not documented here until they're built.
 
 ## Stage D1: project-wide search, results, navigation (this stage)
@@ -670,7 +674,23 @@ scene fixture for the plural "не включены" form; and a zero-excluded-s
 case (`scene-lynx-a`/`scene-lynx-b`, both included) proving no clause is
 appended at all when nothing is excluded.
 
-## Stage D2.1: safe single Replace in project scope (this stage)
+## Stage D2.1: safe single Replace in project scope
+
+**Superseded by Stage D2.1.2 below.** This stage's central design decision —
+Single Replace **persists immediately** through `updateSceneText`/
+`commitDataChange` (via a mounted-state "agreement" gate,
+`resolveMountedSceneAgreement`, and a synchronization fan-out,
+`syncMountedRegistrations`) — was rejected by manual acceptance: it made
+Replace look like an ordinary editor edit (undoable, can be discarded via
+"Закрыть без сохранения") while secretly already being saved underneath.
+Stage D2.1.2 replaces this with "Single Replace is an ordinary UNSAVED local
+edit; only explicit Save persists it." The sections below are kept as a
+historical record of what was built and why (the matcher/replacement engine,
+stale-safety policy, `included` handling, and cloud/local persistence
+*primitives* they describe are all still accurate and still reused) — but
+`resolveMountedSceneAgreement`, `replaceProjectMatch` (the persisting
+version), `syncMountedRegistrations`, and `applyUndoableReplacement` no
+longer exist in the codebase; see Stage D2.1.2 for what replaced them.
 
 Single Replace ("Заменить") now works in "Весь проект" scope, targeting
 **only the currently active global match**. Project-wide **Replace All**
@@ -808,11 +828,25 @@ never the Replace itself" (`syncMountedRegistrations` dispatching
 user was actively looking at) — was a deliberate D2.1 decision, but manual
 acceptance changed the product rule: see Stage D2.1.1 for the current,
 correct behavior (the active target editor's own Replace IS now a normal,
-undo-able edit). The mounted-state agreement gate, stale-match
-re-resolution, `included:false` handling, and cloud/local persistence paths
-described above are all unchanged by D2.1.1 and remain accurate as written.
+undo-able edit). Stale-match re-resolution, `included:false` handling, and
+cloud/local persistence *primitives* described above are all still accurate;
+the mounted-state agreement gate specifically is **superseded by Stage
+D2.1.2** below (Single Replace stopped persisting at all, so there is no
+longer anything to gate a commit on).
 
-## Stage D2.1.1: UX/Undo follow-up for project-wide Single Replace (this stage)
+## Stage D2.1.1: UX/Undo follow-up for project-wide Single Replace
+
+**Superseded in part by Stage D2.1.2 below.** Goal A (session
+preservation/`adoptProjectSession`/`pendingActiveTarget`/
+`reresolveFlatMatchIndex`) is unchanged and still accurate. Goal B's own
+mechanism — `applyUndoableReplacement` giving the ACTIVE editor a normal
+transaction while `syncMountedRegistrations` pushed the SAME committed doc
+into every OTHER ("secondary") mounted registration with `addToHistory:
+false` — no longer exists: once Single Replace stopped persisting (D2.1.2),
+there is nothing to "commit" that a secondary registration could need
+synchronizing to, so secondary registrations are now left completely alone
+(see D2.1.2's Finding C). The `closeHistory`-based undo-isolation technique
+itself is still used, just simplified to the one dispatch that now exists.
 
 Manual acceptance of Stage D2.1 found two gaps before it could be considered
 complete — both fixed in place, same files, no new stage number beyond this
@@ -905,6 +939,14 @@ originating controller, and a controller that's never handed a session
 
 ### Fix 2: the active target editor's Replace is a normal, undo-able edit (Goal B)
 
+**Superseded by Stage D2.1.2 below** — this whole subsection describes the
+D2.1.1-era mechanism (`applyUndoableReplacement`/`syncMountedRegistrations`
+with `excludeView`, and an immediate persist happening alongside the
+undo-able dispatch). None of `buildSyncTransaction`/`applyUndoableReplacement`/
+the `excludeView` parameter exist any more. Kept only as a historical record
+of the reasoning that led to `closeHistory`-based undo isolation, which
+Stage D2.1.2 still uses.
+
 `find-replace-project-replace.js`'s synchronization internals were split
 into a shared `buildSyncTransaction(view, committedDoc, {resolvedMatch,
 replacementText})` (unchanged logic: prefers the verified-safe localized
@@ -986,6 +1028,265 @@ suite (Stage D1) was re-run unchanged and remains green — case-B
 navigation's core mount/registry/decoration behavior it already covers was
 not altered by this stage, only extended.
 
+## Stage D2.1.2: Single Replace semantics + editor navigation/save UX correction (this stage)
+
+Manual acceptance of D2.1.1 exposed a fundamental mismatch: project-wide
+Single Replace **persisted immediately**, then presented itself as an
+ordinary, undoable, dirtyable local edit — a misleading model (Save button
+present, but the edit was already saved before Save was ever pressed). This
+stage corrects the persistence model and fixes several related navigation/
+selection defects manual testing found along the way.
+
+### Single Replace is now an ordinary UNSAVED local edit (Findings A/B/C/K/L/M)
+
+**Project-wide Single Replace no longer persists anything itself.** It
+mutates the ACTIVE TARGET EditorView directly, as one normal
+`prosemirror-history` entry, exactly like the user had typed it:
+
+```
+Single Replace → mutate active EditorView → normal history entry
+  → normal dirty state → user explicitly Saves → only then persistence occurs
+```
+
+- `js/editor/find-replace-project-replace.js` shrank drastically: the entire
+  mounted-state "agreement" gate (`resolveMountedSceneAgreement`), the
+  persisting `replaceProjectMatch`, `syncMountedRegistrations`, and
+  `applyUndoableReplacement` are all **gone**. The one thing left is
+  `buildProjectReplacement(doc, matchRange, {query, caseSensitive,
+  replacementText})` — pure planning, no view, no dispatch, no I/O: resolves
+  `matchRange` against `doc`'s CURRENT content (`reresolveMatch`, unchanged
+  stale-safety policy) and builds the replacement via `replaceOneMatch`
+  (Stage B, unchanged) — the exact same two primitives Find itself already
+  uses, so Find and Replace can never disagree on what "a match" is.
+- `find-replace-controller.js`'s `replaceProjectCurrent()` is now
+  synchronous (no more `await saveSceneText(...)`) and does everything
+  itself: identifies the active target editor as `attachedSceneId===
+  target.sceneId && isViewUsable(view)` (the controller's OWN existing
+  attachment state — never a heuristic over the mounted-scene registry; see
+  Finding D's root cause below for why this specific identity matters), asks
+  `buildProjectReplacement` to plan the edit against `view.state.doc`, then
+  replays the resulting steps onto `view.state.tr` and dispatches it wrapped
+  in `closeHistory` (a normal, undo-able transaction, isolated into its own
+  undo group regardless of typing speed — see Goal L below). If the target
+  scene isn't the one this controller is actually attached to right now
+  (e.g. an earlier navigation to it failed or was declined), it refuses
+  safely with `{ok:false,reason:"no-active-editor"}` — it never persists
+  first, never rebuilds the editor from canonical state, and never
+  synchronizes the active view from anything.
+- **Secondary mounted registrations of the same scene are now left
+  completely alone.** D2.1/D2.1.1's whole "agreement gate + synchronize
+  every other registration" apparatus existed only because Replace used to
+  WRITE canonical state and needed every live copy to agree with (or be
+  synced to) that write. Once Replace stopped writing anything, there is
+  nothing for a secondary registration to be synchronized TO — it is simply
+  left exactly as an ordinary user edit in one editor would leave every
+  other, unrelated mounted copy of the same scene: untouched. This is not a
+  new collaborative-synchronization gap; it is the removal of a mechanism
+  that only ever existed to serve the now-removed immediate-persist
+  contract.
+- `saveSceneTextCanonical` (`js/import-export.js`) and
+  `rebaseSceneTextDirtyBaseline` (`js/app.js`) — the D2.1 glue that
+  persisted a Replace and rebased a dirty baseline out-of-band — are
+  removed as dead code (`js/dirty-state.js`'s generic `rebaseExtra`
+  primitive itself is kept, unused today, for a future stage that might
+  need it, e.g. Replace All's own eventual pre-commit synchronization
+  save). The existing PULL-based dirty trackers already report dirty
+  correctly the instant a live doc differs from its baseline — no rebase
+  glue is needed for an edit nobody secretly saved out from under the
+  tracker.
+- **`included:false` is unaffected**: Replace still never touches the
+  `included` flag (it only ever edits the doc), and discard/Save both work
+  identically for an excluded scene as for any other.
+
+### Goal K: project search reads the live, unsaved editor doc
+
+Unchanged architecture, now load-bearing rather than incidental:
+`find-replace-project-search.js`'s `resolveSceneDoc` has always preferred a
+scene's LIVE mounted doc over its persisted `sceneText`/`sceneTextDoc` when
+one exists (`mounted-scene-registry.js`'s `getPreferredLiveSceneView`). Since
+an unsaved Replace only ever changes the live doc, every subsequent project
+search (typing a new query, navigating, or the fresh search triggered by
+`replaceProjectCurrent()` itself) automatically reflects the unsaved edit —
+counts, snippets, and highlights all read the replaced text — while
+`data.scenes`/canonical persisted state stays exactly as it was until an
+explicit Save. No new plumbing was needed for this; it was true before this
+stage too, just never load-bearing for a Single Replace's own correctness
+until now.
+
+### Finding D/E: selection/focus bug root cause and fix
+
+**Root cause:** neither `replaceCurrent()` (scene scope) nor the
+D2.1/D2.1.1-era project Replace ever set an explicit selection after
+building the replacement transform, and neither called `view.focus()`
+afterward — unlike this app's OWN formatting-toolbar buttons
+(`scene-editor-toolbar.js`'s `bind()`), which have always called
+`view.focus()` after running a command specifically because clicking any
+`<button>` moves real browser DOM focus to that button, not the
+contenteditable editor. Find/Replace's own Replace button never did this,
+so the ProseMirror MODEL selection could end up correctly placed while the
+actual browser focus silently stayed on the panel/button — the reported
+"caret disappears" symptom. Combined with the OLD "keep the same numeric
+flat index" active-result policy (see Goal J below), replacing the LAST
+match in a scene could also visibly jump the active project result into an
+unrelated scene, compounding the confusion.
+
+**Fix**, applied identically to scene-scope `replaceCurrent()` and the new
+project-scope `replaceProjectCurrent()`:
+- An explicit, deterministic caret is set after the replacement steps are
+  applied — `resolvedMatch.from + replacementText.length` (exactly at the
+  deletion point when `replacementText` is empty) — never left to default
+  step-mapping of whatever selection happened to be set before the dispatch.
+  Valid for a single-match replacement specifically: nothing to the left of
+  `resolvedMatch.from` is touched by it, so that position stays valid in the
+  post-replacement document.
+- `view.focus()` is called after the dispatch, exactly matching the
+  toolbar's own established pattern — the active editor stays the
+  user-facing focus context.
+- `closeHistory` (see Goal L) guarantees the Replace is deterministically
+  its own undo step regardless of how little time elapsed since the
+  author's last real edit.
+
+Audited (Finding E) and fixed identically across every surface Replace
+exists on: current-scene Replace in the text-only editor, current-scene
+Replace in the full Scene editor, and project-wide Single Replace in both
+— empty and non-empty replacement in each case (see
+`tools/find-replace-project-replace-browser.test.mjs`'s dedicated
+surface-matrix loop). "Весь текст" has no scene-scope Replace of its own
+(only project-wide, which goes through the same `replaceProjectCurrent()`
+path) — Replace All was never in scope for this stage on any surface.
+
+### Goal J: active-result locality after Replace
+
+`find-replace-project-search.js` gained `pickPostReplaceActiveIndex(flat,
+{sceneId, position, sceneOrder})` — the LOCALITY-preferring policy used
+**only** for the one recompute that immediately follows a successful
+Replace (via `find-replace-controller.js`'s `pendingPostReplaceLocality`,
+consumed the instant the Replace's own dispatch synchronously triggers
+`handleTransaction → recompute → recomputeProject`). Every OTHER recompute
+trigger (typing a query, an edit elsewhere, `Next`/`Previous`, a session
+handoff) is completely unaffected — this policy activates for post-Replace
+recomputes exclusively:
+
+1. Prefer the next remaining match in the SAME scene, at/after the
+   replaced location.
+2. Otherwise the nearest remaining match in the SAME scene BEFORE it (the
+   last one, since `flat` preserves in-scene document order).
+3. Only when the scene has NO remaining matches at all: fall through to
+   normal canonical project ordering (the first match at/after that scene's
+   own former `sceneOrder`, wrapping to the very first overall result) —
+   never an arbitrary index-0 jump as a mere byproduct of the flat list
+   shrinking.
+
+If no matches remain anywhere, the active result clears to `-1` exactly as
+before (the existing, unchanged zero-results state).
+
+### Finding H: surface-preserving project-result navigation
+
+Project-result navigation now preserves the ORIGIN surface's type on the
+destination whenever that destination supports it:
+
+- The full Scene modal's own `openSceneForEditing` (wired in
+  `js/scenes.js`'s `mountSceneModalTextEditor`) now calls `editScene`, never
+  `openSceneText` — a case-B navigation FROM the full editor opens the
+  destination in the full editor too.
+- The standalone text-only editor's own `openSceneForEditing` (in
+  `openSceneTextNow`) is unchanged — still `openSceneText`, so a case-B
+  navigation FROM text-only opens text-only.
+- "Весь текст"'s own case-B fallback is explicitly **unchanged** (still
+  `openSceneText`) — per this stage's own product brief, "preserve its
+  existing surface-specific navigation semantics rather than arbitrarily
+  changing to another editor type." "Весь текст" has no per-scene "full
+  editor" representation of its own to preserve into.
+- `editScene`/`editSceneNow` (`js/scenes.js`) gained the same optional
+  `extra`/`projectSession` threading `openSceneText`/`openSceneTextNow`
+  already had (Stage D2.1.1) — mounted via the same
+  `mountSceneEditor`/`adoptProjectSession` mechanism, so the project
+  session (query/replacement/scope/options/target) survives a
+  surface-preserving hop exactly as it already did for the text-only path.
+  The existing dirty guard (`requestEditorTransition`) runs first,
+  unchanged, for both surfaces.
+
+### Finding I: explicit full-scene ⇄ text-only switch, same scene
+
+A small new toolbar action (`scene-editor-toolbar.js`'s
+`onSwitchSurface`/`switchSurfaceLabel`, rendered only when the caller
+supplies them — no new modal type) lets the author jump between the full
+Scene editor and the text-only editor for the SAME scene in either
+direction:
+
+- `scene-editor-controller.js`'s `mountSceneEditor` gained
+  `onSwitchSurface`/`switchSurfaceLabel` — when given, the toolbar's new
+  button calls `onSwitchSurface(findReplace?.exportProjectSession?.()??null)`
+  on click. `exportProjectSession()` (new on `find-replace-controller.js`)
+  returns `{query,replaceText,caseSensitive}` when scope is "project",
+  `null` otherwise — deliberately no `target`, since a manual surface switch
+  isn't aimed at any one specific match (the destination's own fresh search
+  just uses its existing caret-relative default).
+- `js/scenes.js` wires the actual open on both sides:
+  `mountSceneModalTextEditor`'s `onSwitchSurface` calls
+  `openSceneText(scene.id,{projectSession})`; `openSceneTextNow`'s calls
+  `editScene(sceneId,{projectSession})`. Both go through the SAME
+  `openSceneText`/`editScene` functions (and their existing
+  `requestEditorTransition` dirty guard) every other transition already
+  uses — cancelling the guard leaves the current surface untouched, exactly
+  like any other navigation.
+
+### Finding F/G: Save-only vs. Save-and-Close, discard unchanged
+
+The existing Save buttons ("Сохранить", "Сохранить текст", "Сохранить все
+изменения") are now **save-only** — they perform the exact same
+validation/persistence as before but no longer close their modal or destroy
+the mounted editor on success. A new, separate action, **"Сохранить и
+закрыть"**, performs the identical save and closes only after it succeeds;
+a failed save behaves exactly as it always did (modal stays open, dirty
+state untouched) on either button.
+
+- `js/app.js`'s `saveScene`/`saveText` click handlers were refactored into
+  shared `saveSceneModalOnly()`/`saveTextModalOnly()` functions (every
+  internal early return is a save FAILURE, unchanged validation/RPC/
+  `commitDataChange` logic throughout) that stop right after
+  `trackerFor(modalId).captureInitialState()` — never touching modal
+  visibility or the mounted editor. `#saveScene`/`#saveText` call the save
+  function alone; new `#saveSceneAndClose`/`#saveTextAndClose` call it and
+  then `forceHideModal`+destroy the editor only on success. Saving a
+  BRAND-NEW scene via save-only now also retargets the modal onto the
+  newly-created scene id (`editingSceneId`) so a second save-only click
+  updates it instead of creating a duplicate.
+- `js/import-export.js`'s `saveAllScenes()` was already close-agnostic (the
+  close/destroy steps lived entirely in `js/app.js`'s own button handler) —
+  only the button wiring changed: `#saveAllScenes` no longer closes;
+  `#saveAllScenesAndClose` is new.
+- **Close/discard is completely unchanged.** "Закрыть"/"Отмена" still go
+  through the existing `requestCloseModal`/`confirmDiscardIfDirty` dirty
+  guard exactly as before — an unsaved Replace shows the same "Закрыть без
+  сохранения" prompt any other unsaved edit would, discarding it destroys
+  the mounted editor (so reopening loads the last-PERSISTED text, never the
+  discarded Replace), and cancelling leaves the editor exactly as it was.
+
+Regression coverage: `tools/find-replace-project-replace.test.mjs` was
+rewritten around the simplified architecture — pure `buildProjectReplacement`
+stale-safety/no-op/length-variant coverage, controller-level tests proving
+zero persistence before Save, `closeHistory`-based undo/redo isolation with a
+REAL `prosemirror-history`-enabled `EditorState` (not just meta-flag
+inspection), a secondary registration receiving zero doc-changing
+transactions, scene identity, `included:false`, the full
+`pickPostReplaceActiveIndex` policy (unit + controller-integration, covering
+"prefer next in scene", "fall back to previous in scene", "fall through to
+the next scene only when genuinely empty"), and explicit caret-position
+assertions for both empty and non-empty replacement.
+`tools/find-replace-project-replace-browser.test.mjs` was rewritten in full
+against the real running app: persistence-free Replace with a dirty editor,
+discard truly discarding it, manual-edit-then-Replace undo/redo ordering,
+live project search reflecting the unsaved doc, focus/selection correctness
+for empty and non-empty replacement on both the text-only and full Scene
+surfaces, active-result locality, Save-only vs. Save-and-Close on all three
+surfaces, surface-preserving navigation in both directions, the explicit
+full⇄text-only switch (including its own dirty-guard check), and
+`included:false` under both discard and Save. `tools/find-replace-
+project-search-browser.test.mjs` (Stage D1) and `tools/find-replace-
+current-scene-browser.test.mjs` (Stage C) were re-run unchanged and remain
+green.
+
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 
 Pure, headless, DOM/EditorState/Supabase-independent. `findMatches(doc, query,
@@ -1059,12 +1360,15 @@ order — already covers every active scene with no unrepresented case.
 ## Project-wide Replace All requires synchronized state before it can commit
 
 **Still describes Replace All specifically (not yet built).** Stage D2.1
-implements the analogous single-scene synchronization gate for single
-Replace only — see "Stage D2.1" above for what actually exists today
-(`resolveMountedSceneAgreement`/`replaceProjectMatch` in
-`js/editor/find-replace-project-replace.js`); Replace All will need to
-generalize the same idea (steps 1-3 below) across every affected scene at
-once, still via `bulkUpdateSceneText`, which D2.1 does not call.
+originally implemented an analogous single-scene synchronization gate for
+Single Replace (`resolveMountedSceneAgreement`/`replaceProjectMatch`), but
+that gate existed only to serve D2.1's "persist immediately" contract, which
+Stage D2.1.2 replaced with an ordinary UNSAVED local edit (see that section)
+— there is no longer anything for Single Replace to synchronize/commit, so
+that gate no longer exists in the codebase. Replace All, whenever it is
+built, will need its OWN synchronization step of this shape (steps 1-3
+below) across every affected scene at once, via `bulkUpdateSceneText`, which
+no current stage calls.
 
 Project-wide Replace All may commit **only** from a state where every scene it
 will touch is confirmed synchronized between whatever's live in an open editor

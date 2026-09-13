@@ -58,7 +58,7 @@ function openAllScenesNow(){
     // call would steal focus back from a just-selected project-search match
     // (openModal() always re-schedules its own default-initial-focus
     // microtask, even when reopening an already-open modal).
-    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra),saveSceneText:saveSceneTextCanonical,rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline});
+    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra)});
     items.forEach(scene=>allScenesEditorGroup.mountScene(scene.id,{editorContainer:document.getElementById(`allSceneEditor-${scene.id}`),scene}));
   }
   showModal("allScenesModal");
@@ -107,32 +107,6 @@ async function saveAllScenes(){
   }),{renderAfter:false});
 }
 
-// Find/Replace Stage D2.1: the ONE canonical single-scene text+doc write
-// project-wide Replace uses -- both for its own pre-commit synchronization
-// save (see js/editor/find-replace-project-replace.js's
-// resolveMountedSceneAgreement/replaceProjectMatch) and for committing the
-// replacement itself. Exactly the same two branches saveAllScenes()'s own
-// per-scene loop above already uses (the narrow updateSceneText RPC /
-// commitDataChange) -- never a parallel write mechanism, never
-// bulkUpdateSceneText (Replace All is explicitly out of scope for this
-// stage) -- just addressed at one explicit sceneId instead of iterated from
-// whichever scenes happen to be mounted in "Весь текст". Injected into
-// find-replace-controller.js as `saveSceneText` (see
-// js/editor/scene-editor-controller.js's projectSearchDeps) rather than
-// imported directly there, keeping js/editor/* ignorant of cloud/local
-// persistence specifics.
-async function saveSceneTextCanonical(sceneId,{sceneText,sceneTextDoc}){
-  const scene=data.scenes.find(s=>s.id===sceneId);
-  if(!scene)return {ok:false,code:"NOT_FOUND",message:"Сцена не найдена"};
-  if(isCloudWorkspace()){
-    return runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,sceneId,revision,{sceneText,metadata:{richText:sceneTextDoc}}));
-  }
-  return commitDataChange(next=>{
-    const target=next.scenes.find(s=>s.id===sceneId);
-    target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
-  });
-}
-
 function exportWholeText(){
   const items=includedScenes();
   if(!items.length){alert("Нет сцен, включённых в общий текст.");return}
@@ -168,5 +142,5 @@ function exportWholeText(){
 // mounted yet).
 registerFindReplaceShortcuts("allScenesModal",{openFind:()=>allScenesEditorGroup?.openFind(),openReplace:()=>allScenesEditorGroup?.openReplace()});
 
-Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,saveSceneTextCanonical,destroyAllScenesEditorGroup,exportWholeText});
-export {includedScenes,openAllScenes,saveAllScenes,saveSceneTextCanonical,destroyAllScenesEditorGroup,exportWholeText};
+Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText});
+export {includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText};

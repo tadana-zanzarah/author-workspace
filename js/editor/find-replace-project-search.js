@@ -233,4 +233,45 @@ export function reresolveFlatMatchIndex(flat,{sceneId,from,to,text,occurrenceInd
   return -1;
 }
 
+// Find/Replace Stage D2.1.2 (Goal J): deterministic, LOCALITY-preferring
+// active-result policy for the fresh project search that follows a
+// successful Single Replace -- the previous "keep the same numeric flat
+// index, clamped into range" default (still correct for every OTHER kind of
+// doc change, e.g. an unrelated edit elsewhere) is not good enough here:
+// removing the one remaining match in a scene could shift that same numeric
+// slot onto a completely unrelated scene's own first match, which reads as
+// "Replace randomly jumped to another scene" even though nothing about the
+// user's own editing context actually moved.
+//
+// `sceneId`/`position` identify the scene and (pre-replacement) document
+// position the just-replaced match occupied; `sceneOrder` is that scene's
+// own canonical project position (already carried by every flat entry --
+// see flattenProjectMatches), used only as the last-resort fallback below.
+//
+// Policy, in order:
+//   1. The next remaining match in the SAME scene at/after `position` (the
+//      match that was "after" the one just replaced, now shifted into its
+//      place).
+//   2. Otherwise the nearest remaining match in the SAME scene BEFORE
+//      `position` (the last one, since `flat` preserves in-scene document
+//      order).
+//   3. Only when the scene has NO remaining matches at all: fall through to
+//      normal project ordering -- the first match at/after this scene's own
+//      former canonical position, wrapping to the very first overall result
+//      if this was the last scene with matches. Never an arbitrary jump to
+//      index 0 as a mere byproduct of index shifting.
+// Returns -1 only when `flat` itself is empty (no matches remain anywhere).
+export function pickPostReplaceActiveIndex(flat,{sceneId,position,sceneOrder}){
+  if(!flat.length)return -1;
+  const sceneIndices=[];
+  flat.forEach((match,index)=>{if(match.sceneId===sceneId)sceneIndices.push(index)});
+  if(sceneIndices.length){
+    const after=sceneIndices.find(index=>flat[index].from>=position);
+    if(after!==undefined)return after;
+    return sceneIndices[sceneIndices.length-1];
+  }
+  const nextScene=flat.findIndex(match=>match.sceneOrder>=sceneOrder);
+  return nextScene>=0?nextScene:0;
+}
+
 export {buildMatchSnippet};

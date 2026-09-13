@@ -354,21 +354,19 @@ export function createFindReplacePanel(container,controller){
     if(controller.getSnapshot().scope==="project")return handleProjectReplaceOne();
     controller.replaceCurrent();
   }
-  // A controlled failure (conflict between disagreeing mounted copies, a
-  // stale match, or a persistence failure) surfaces as the smallest possible
-  // factual status line -- see replaceStatusEl's own doc comment above. A
-  // success (changed or a no-op) shows nothing extra: the results list/
-  // active match/summary already reflect it via the controller's own fresh
-  // notify(), which is the existing, sufficient feedback mechanism.
+  // A controlled failure (the active editor's target scene isn't actually
+  // mounted here right now, or the match is stale) surfaces as the smallest
+  // possible factual status line -- see replaceStatusEl's own doc comment
+  // above. A success (changed or a no-op) shows nothing extra: the results
+  // list/active match/summary already reflect it via the controller's own
+  // fresh notify(), which is the existing, sufficient feedback mechanism.
   const REPLACE_FAILURE_MESSAGES={
-    conflict:"Эта сцена открыта в нескольких местах с разным текстом — замена отменена.",
-    stale:"Совпадение больше не найдено в текущем тексте — замена отменена.",
-    "sync-failed":"Не удалось сохранить текст сцены — замена не выполнена.",
-    "persist-failed":"Не удалось сохранить замену — изменения не применены."
+    "no-active-editor":"Эта сцена сейчас не открыта для редактирования — замена отменена.",
+    stale:"Совпадение больше не найдено в текущем тексте — замена отменена."
   };
-  async function handleProjectReplaceOne(){
+  function handleProjectReplaceOne(){
     replaceStatusEl.hidden=true;replaceStatusEl.textContent="";
-    const result=await controller.replaceProjectCurrent();
+    const result=controller.replaceProjectCurrent();
     if(result.ok)return;
     replaceStatusEl.textContent=REPLACE_FAILURE_MESSAGES[result.reason]||"Замена не выполнена.";
     replaceStatusEl.hidden=false;

@@ -3,590 +3,450 @@ import {EditorState} from "prosemirror-state";
 import {history,undo,redo} from "prosemirror-history";
 import {sceneDocSchema as schema} from "../js/editor/scene-doc-schema.js";
 import {plainTextToDoc,loadSceneDocument} from "../js/editor/scene-doc-convert.js";
-import {findMatches,replaceOneMatch} from "../js/editor/find-replace-model.js";
-import {flattenProjectMatches,reresolveFlatMatchIndex} from "../js/editor/find-replace-project-search.js";
+import {findMatches} from "../js/editor/find-replace-model.js";
+import {flattenProjectMatches,pickPostReplaceActiveIndex} from "../js/editor/find-replace-project-search.js";
 import {registerMountedScene,unregisterMountedScene,_resetMountedSceneRegistryForTests} from "../js/editor/mounted-scene-registry.js";
-import {resolveMountedSceneAgreement,replaceProjectMatch,syncMountedRegistrations,applyUndoableReplacement} from "../js/editor/find-replace-project-replace.js";
+import {buildProjectReplacement} from "../js/editor/find-replace-project-replace.js";
 import {createFindReplaceController} from "../js/editor/find-replace-controller.js";
 
-// Find/Replace Stage D2.1: safe single Replace in project scope, exercised
-// headlessly -- real ProseMirror schema/docs/EditorState throughout (never a
-// mocked schema), fake "view" stand-ins (only `.state`/`.isDestroyed`/
-// `.dispatch` are ever read by production code -- see mounted-scene-
-// registry.test.mjs's own identical fakeView convention), and injected
-// saveSceneText/rebaseSceneDirtyBaseline callbacks standing in for the real
-// cloud/local write path and the real dirty-tracker glue (js/import-
-// export.js's saveSceneTextCanonical / js/app.js's rebaseSceneTextDirtyBaseline)
-// -- proving the ORCHESTRATION is correct regardless of which real backend
-// sits behind it.
+// Find/Replace Stage D2.1.2: project-wide SINGLE Replace is now an ordinary,
+// UNSAVED local edit of the active target EditorView -- NEVER an immediate
+// persist (D2.1/D2.1.1's own contract, rejected by manual acceptance). This
+// file exercises the new, drastically simplified architecture headlessly --
+// real ProseMirror schema/EditorState (with the REAL prosemirror-history
+// plugin, needed for genuine undo/redo assertions, not just meta-flag
+// inspection), fake "view" stand-ins only where a registry registration is
+// needed.
 function scene(id,title,chapterId,sceneText,{included=true}={}){
   return {id,title,chapterId,sceneText,included,sceneTextDoc:null};
 }
-// find-replace-project-search.js's searchProject() attaches `occurrenceIndex`
-// to each raw findMatches() result before it ever reaches a caller (see its
-// own matches.map(...)) -- a real matchRange handed to replaceProjectMatch
-// always carries it. Mirror that here rather than passing a raw findMatches()
-// entry, which would lack the field entirely.
 function withOccurrenceIndex(rawMatches){
   return rawMatches.map((match,occurrenceIndex)=>({...match,occurrenceIndex}));
 }
 function firstMatch(sceneObj,query,options={}){
   return withOccurrenceIndex(findMatches(loadSceneDocument(schema,sceneObj),query,options))[0];
 }
-// A real EditorState (no DOM/EditorView needed -- EditorState itself has no
-// DOM dependency) wrapped just enough to look like the registry's own
-// `{view,surfaceId,activate}` `view` shape to production code.
+// A real EditorState WITH prosemirror-history installed (EditorState has no
+// DOM dependency at all -- only EditorView needs a real DOM) -- needed for
+// genuine undo()/redo() behavior, not just addToHistory meta inspection.
 function fakeView(doc){
-  const view={isDestroyed:false,dispatchCount:0};
-  view.state=EditorState.create({schema,doc});
-  view.dispatch=tr=>{view.dispatchCount++;view.state=view.state.apply(tr)};
-  return view;
-}
-// Same fake-view shape, but with the REAL prosemirror-history plugin
-// installed -- needed to test actual undo/redo behavior (Stage D2.1.1, Goal
-// B), never just the presence/absence of an addToHistory meta flag.
-function fakeHistoryView(doc){
-  const view={isDestroyed:false,dispatchCount:0,dispatchedTrs:[]};
+  const view={isDestroyed:false,dispatchCount:0,dispatchedTrs:[],focus(){}};
   view.state=EditorState.create({schema,doc,plugins:[history()]});
   view.dispatch=tr=>{view.dispatchCount++;view.dispatchedTrs.push(tr);view.state=view.state.apply(tr)};
   return view;
 }
-function makeApp(scenes){
-  const project={chapters:[{id:"chapter-1",title:"Глава 1"}],scenes};
-  const saveCalls=[];
-  const rebaseCalls=[];
-  async function saveSceneText(sceneId,{sceneText,sceneTextDoc}){
-    saveCalls.push({sceneId,sceneText,sceneTextDoc});
-    const target=project.scenes.find(s=>s.id===sceneId);
-    if(!target)return {ok:false,code:"NOT_FOUND"};
-    target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
-    return {ok:true};
-  }
-  function rebaseSceneDirtyBaseline(sceneId,docJSON){rebaseCalls.push({sceneId,docJSON})}
-  return {project,getProjectData:()=>project,saveSceneText,rebaseSceneDirtyBaseline,saveCalls,rebaseCalls};
+function makeProject(scenes){
+  return {chapters:[{id:"chapter-1",title:"Глава 1"}],scenes};
 }
-
-_resetMountedSceneRegistryForTests();
-
-// ================================================================
-// 1. Pure/current-match stale-safety (no mounted registrations at all --
-//    resolveMountedSceneAgreement returns "none", so currentDoc is always
-//    the persisted document; reresolveMatch is the only thing doing the
-//    real work here).
-// ================================================================
-
-// 1a. Stored old offset still valid -> Replace works.
-{
-  const app=makeApp([scene("s1","Сцена 1","chapter-1","Кот сидел на окне.")]);
-  const match=firstMatch(app.project.scenes[0],"кот");
-  const result=await replaceProjectMatch({sceneId:"s1",matchRange:match,query:"кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(app.project.scenes[0].sceneText,"Пёс сидел на окне.");
-}
-
-// 1b. Text shifted before Replace (an unrelated earlier edit moved
-// everything) -- the stale from/to no longer point at the right place, but
-// the occurrenceIndex fallback still resolves the correct, only occurrence.
-{
-  const app=makeApp([scene("s2","Сцена 2","chapter-1","Кот сидел.")]);
-  const staleMatch=firstMatch(app.project.scenes[0],"кот");
-  app.project.scenes[0].sceneText="Однажды кот сидел.";
-  const result=await replaceProjectMatch({sceneId:"s2",matchRange:staleMatch,query:"кот",replacementText:"пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(app.project.scenes[0].sceneText,"Однажды пёс сидел.","must re-resolve against CURRENT text, never the stale offset");
-}
-
-// 1c. Intended occurrence no longer resolvable (the word is simply gone) ->
-// zero mutation.
-{
-  const app=makeApp([scene("s3","Сцена 3","chapter-1","Кот сидел.")]);
-  const staleMatch=firstMatch(app.project.scenes[0],"кот");
-  app.project.scenes[0].sceneText="Пёс сидел.";
-  const result=await replaceProjectMatch({sceneId:"s3",matchRange:staleMatch,query:"кот",replacementText:"пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.ok,false);assert.equal(result.reason,"stale");
-  assert.equal(app.saveCalls.length,0,"an unresolvable match must never fall back to a blind mutation");
-  assert.equal(app.project.scenes[0].sceneText,"Пёс сидел.");
-}
-
-// 1d. Replacement longer than the search text.
-{
-  const app=makeApp([scene("s4","Сцена 4","chapter-1","Кот сидел.")]);
-  const match=firstMatch(app.project.scenes[0],"кот");
-  const result=await replaceProjectMatch({sceneId:"s4",matchRange:match,query:"кот",replacementText:"котёнок",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.changed,true);
-  assert.equal(app.project.scenes[0].sceneText,"котёнок сидел.");
-}
-
-// 1e. Replacement shorter than the search text.
-{
-  const app=makeApp([scene("s5","Сцена 5","chapter-1","Котёнок сидел.")]);
-  const match=firstMatch(app.project.scenes[0],"котёнок");
-  const result=await replaceProjectMatch({sceneId:"s5",matchRange:match,query:"котёнок",replacementText:"кот",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.changed,true);
-  assert.equal(app.project.scenes[0].sceneText,"кот сидел.");
-}
-
-// 1f. Empty replacement deletes the match (Stage B's own deleteRange
-// branch, reused unchanged).
-{
-  const app=makeApp([scene("s6","Сцена 6","chapter-1","Кот сидел тихо.")]);
-  const match=firstMatch(app.project.scenes[0],"Кот ");
-  const result=await replaceProjectMatch({sceneId:"s6",matchRange:match,query:"Кот ",replacementText:"",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.changed,true);
-  assert.equal(app.project.scenes[0].sceneText,"сидел тихо.");
-}
-
-// 1g. Replacement identical to the matched text -> no effective write: no
-// persistence, no dirty-baseline rebase.
-{
-  const app=makeApp([scene("s7","Сцена 7","chapter-1","Кот сидел.")]);
-  const match=firstMatch(app.project.scenes[0],"Кот");
-  const result=await replaceProjectMatch({sceneId:"s7",matchRange:match,query:"Кот",replacementText:"Кот",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText,rebaseSceneDirtyBaseline:app.rebaseSceneDirtyBaseline});
-  assert.equal(result.ok,true);assert.equal(result.changed,false);
-  assert.equal(app.saveCalls.length,0,"an identical replacement must never persist anything");
-  assert.equal(app.rebaseCalls.length,0);
-  assert.equal(app.project.scenes[0].sceneText,"Кот сидел.");
+// Real EditorView instances call the controller's own handleTransaction from
+// their `onUpdate` hook on EVERY dispatch (see js/editor/scene-editor-
+// view.js) -- this is what makes replaceProjectCurrent's own dispatch
+// synchronously trigger a fresh recompute (the mechanism
+// pendingPostReplaceLocality relies on). A bare fake view has no such
+// wiring, so attaching one to a controller for an INTEGRATION test must
+// reproduce it explicitly, or the controller's own project result would
+// silently go stale after a dispatch, exactly the way a real mount never
+// would.
+function attachToController(view,controller,sceneId){
+  const baseDispatch=view.dispatch;
+  view.dispatch=tr=>{
+    baseDispatch(tr);
+    controller.handleTransaction(view.state,tr);
+  };
+  controller.attachView(view,sceneId);
 }
 
 // ================================================================
-// 2. Identity: two scenes with byte-for-byte identical text remain
-//    distinguished by sceneId -- only the active target scene changes.
-// ================================================================
-{
-  const sceneA=scene("twin-a","Твин А","chapter-1","Кот сидел.");
-  const sceneB=scene("twin-b","Твин Б","chapter-1","Кот сидел.");
-  const app=makeApp([sceneA,sceneB]);
-  const match=firstMatch(sceneA,"Кот");
-  const result=await replaceProjectMatch({sceneId:"twin-a",matchRange:match,query:"Кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(app.project.scenes.find(s=>s.id==="twin-a").sceneText,"Пёс сидел.");
-  assert.equal(app.project.scenes.find(s=>s.id==="twin-b").sceneText,"Кот сидел.","the identical sibling scene must remain untouched -- identity is sceneId, never doc content");
-}
-
-// ================================================================
-// 3. included:false -- Replace must work in an excluded scene and must
-//    never touch `included` or any unrelated scene metadata.
-// ================================================================
-{
-  const target=scene("excluded-1","Скрытая","chapter-1","Кот сидел.",{included:false});
-  const app=makeApp([target]);
-  const match=firstMatch(target,"Кот");
-  const result=await replaceProjectMatch({sceneId:"excluded-1",matchRange:match,query:"Кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(app.project.scenes[0].sceneText,"Пёс сидел.");
-  assert.equal(app.project.scenes[0].included,false,"included must never be modified by Replace");
-}
-
-// ================================================================
-// 4. Mounted-state agreement (product brief cases A-E).
+// 1. buildProjectReplacement -- pure planning, no view/dispatch/persistence
+//    involved at all.
 // ================================================================
 
-// 4a. No live registration -> persisted doc is current; exactly one save
-// call (the commit itself), no separate sync save.
+// 1a. Stored old offset still valid -> builds the replacement.
 {
-  _resetMountedSceneRegistryForTests();
-  const app=makeApp([scene("agree-none","Сцена","chapter-1","Кот сидел на окне.")]);
-  const agreement=resolveMountedSceneAgreement("agree-none");
-  assert.equal(agreement.status,"none");
-  const match=firstMatch(app.project.scenes[0],"кот");
-  const result=await replaceProjectMatch({sceneId:"agree-none",matchRange:match,query:"кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(app.saveCalls.length,1);
-}
-
-// 4b. One live registration whose doc already equals persisted -> still
-// exactly one save call (no unnecessary sync save).
-{
-  _resetMountedSceneRegistryForTests();
-  const app=makeApp([scene("agree-equal","Сцена","chapter-1","Кот сидел на окне.")]);
-  const persistedDoc=loadSceneDocument(schema,app.project.scenes[0]);
-  const view=fakeView(persistedDoc);
-  const regId=registerMountedScene("agree-equal",{view,surfaceId:"textModal",activate(){}});
-  const agreement=resolveMountedSceneAgreement("agree-equal");
-  assert.equal(agreement.status,"agree");
-  const match=firstMatch(app.project.scenes[0],"кот");
-  const result=await replaceProjectMatch({sceneId:"agree-equal",matchRange:match,query:"кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(app.saveCalls.length,1,"live doc already equals persisted -> no separate sync save needed");
-  unregisterMountedScene("agree-equal",regId);
-}
-
-// 4c. One live registration NEWER than persisted -> the agreed live text is
-// synchronized through the canonical save path FIRST, then the replacement
-// commits on top of it -- two save calls, two dirty-baseline rebases, in
-// that order.
-{
-  _resetMountedSceneRegistryForTests();
-  const app=makeApp([scene("agree-newer","Сцена","chapter-1","Кот сидел.")]);
-  const liveDoc=plainTextToDoc(schema,"Кот сидел. Ещё кот пришёл.");
-  const view=fakeView(liveDoc);
-  const regId=registerMountedScene("agree-newer",{view,surfaceId:"sceneModal",activate(){}});
-  const match=withOccurrenceIndex(findMatches(liveDoc,"кот"))[0];
-  const result=await replaceProjectMatch({sceneId:"agree-newer",matchRange:match,query:"кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText,rebaseSceneDirtyBaseline:app.rebaseSceneDirtyBaseline});
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(app.saveCalls.length,2,"an unsynchronized live doc must be saved first, THEN the replacement commit");
-  assert.equal(app.saveCalls[0].sceneText,"Кот сидел. Ещё кот пришёл.","the sync save persists the AGREED LIVE text verbatim, unreplaced");
-  assert.equal(app.saveCalls[1].sceneText,"Пёс сидел. Ещё кот пришёл.","the commit save reflects the replacement on top of the synced text");
-  assert.equal(app.rebaseCalls.length,2,"both the sync save and the commit save must rebase the dirty baseline");
-  unregisterMountedScene("agree-newer",regId);
-}
-
-// 4d. Multiple registrations with IDENTICAL current docs -> treated as one
-// agreed live state (same "differs from persisted -> sync first" behavior).
-{
-  _resetMountedSceneRegistryForTests();
-  const app=makeApp([scene("agree-multi","Сцена","chapter-1","Кот сидел.")]);
-  const doc=plainTextToDoc(schema,"Кот сидел. Кот встал.");
-  const viewA=fakeView(doc),viewB=fakeView(doc);
-  const idA=registerMountedScene("agree-multi",{view:viewA,surfaceId:"textModal",activate(){}});
-  const idB=registerMountedScene("agree-multi",{view:viewB,surfaceId:"allScenesModal",activate(){}});
-  const agreement=resolveMountedSceneAgreement("agree-multi");
-  assert.equal(agreement.status,"agree");
+  const doc=plainTextToDoc(schema,"Кот сидел на окне.");
   const match=withOccurrenceIndex(findMatches(doc,"кот"))[0];
-  const result=await replaceProjectMatch({sceneId:"agree-multi",matchRange:match,query:"кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText});
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(app.saveCalls.length,2,"agreed live doc differs from persisted -> sync save + commit save");
-  unregisterMountedScene("agree-multi",idA);unregisterMountedScene("agree-multi",idB);
+  const outcome=buildProjectReplacement(doc,match,{query:"кот",replacementText:"Пёс"});
+  assert.equal(outcome.ok,true);assert.equal(outcome.changed,true);
+  assert.equal(outcome.transform.doc.textContent,"Пёс сидел на окне.");
 }
 
-// 4e. Multiple registrations that DISAGREE -> conflict, safe abort, zero
-// mutation, never an arbitrarily chosen winner.
+// 1b. Text shifted before Replace -- the stale from/to no longer point at
+// the right place, but the occurrenceIndex fallback still resolves the
+// correct, only occurrence.
 {
-  _resetMountedSceneRegistryForTests();
-  const app=makeApp([scene("agree-conflict","Сцена","chapter-1","Кот сидел.")]);
-  const viewA=fakeView(plainTextToDoc(schema,"Кот сидел здесь."));
-  const viewB=fakeView(plainTextToDoc(schema,"Кот сидел там."));
-  const idA=registerMountedScene("agree-conflict",{view:viewA,surfaceId:"textModal",activate(){}});
-  const idB=registerMountedScene("agree-conflict",{view:viewB,surfaceId:"allScenesModal",activate(){}});
-  assert.equal(resolveMountedSceneAgreement("agree-conflict").status,"conflict");
-  const match=withOccurrenceIndex(findMatches(viewA.state.doc,"кот"))[0];
-  const result=await replaceProjectMatch({sceneId:"agree-conflict",matchRange:match,query:"кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:app.saveSceneText,rebaseSceneDirtyBaseline:app.rebaseSceneDirtyBaseline});
-  assert.equal(result.ok,false);assert.equal(result.reason,"conflict");
-  assert.equal(app.saveCalls.length,0,"a conflict must abort BEFORE any mutation");
-  assert.equal(app.rebaseCalls.length,0);
-  unregisterMountedScene("agree-conflict",idA);unregisterMountedScene("agree-conflict",idB);
+  const staleDoc=plainTextToDoc(schema,"Кот сидел.");
+  const staleMatch=withOccurrenceIndex(findMatches(staleDoc,"кот"))[0];
+  const currentDoc=plainTextToDoc(schema,"Однажды кот сидел.");
+  const outcome=buildProjectReplacement(currentDoc,staleMatch,{query:"кот",replacementText:"пёс"});
+  assert.equal(outcome.ok,true);assert.equal(outcome.changed,true);
+  assert.equal(outcome.transform.doc.textContent,"Однажды пёс сидел.");
+}
+
+// 1c. Intended occurrence no longer resolvable -> stale, zero mutation.
+{
+  const staleDoc=plainTextToDoc(schema,"Кот сидел.");
+  const staleMatch=withOccurrenceIndex(findMatches(staleDoc,"кот"))[0];
+  const currentDoc=plainTextToDoc(schema,"Пёс сидел.");
+  const outcome=buildProjectReplacement(currentDoc,staleMatch,{query:"кот",replacementText:"пёс"});
+  assert.equal(outcome.ok,false);assert.equal(outcome.reason,"stale");
+}
+
+// 1d/1e/1f. Longer / shorter / empty replacement.
+{
+  const doc=plainTextToDoc(schema,"Кот сидел.");
+  const match=withOccurrenceIndex(findMatches(doc,"кот"))[0];
+  assert.equal(buildProjectReplacement(doc,match,{query:"кот",replacementText:"котёнок"}).transform.doc.textContent,"котёнок сидел.");
+}
+{
+  const doc=plainTextToDoc(schema,"Котёнок сидел.");
+  const match=withOccurrenceIndex(findMatches(doc,"котёнок"))[0];
+  assert.equal(buildProjectReplacement(doc,match,{query:"котёнок",replacementText:"кот"}).transform.doc.textContent,"кот сидел.");
+}
+{
+  const doc=plainTextToDoc(schema,"Кот сидел тихо.");
+  const match=withOccurrenceIndex(findMatches(doc,"Кот "))[0];
+  const outcome=buildProjectReplacement(doc,match,{query:"Кот ",replacementText:""});
+  assert.equal(outcome.changed,true);
+  assert.equal(outcome.transform.doc.textContent,"сидел тихо.");
+}
+
+// 1g. Replacement identical to the matched text -> no-op.
+{
+  const doc=plainTextToDoc(schema,"Кот сидел.");
+  const match=withOccurrenceIndex(findMatches(doc,"Кот"))[0];
+  const outcome=buildProjectReplacement(doc,match,{query:"Кот",replacementText:"Кот"});
+  assert.equal(outcome.ok,true);assert.equal(outcome.changed,false);
 }
 
 // ================================================================
-// 5. Failure/atomicity: a failed precondition sync or a failed commit must
-//    never produce a fake committed state.
+// 2. Controller-level replaceProjectCurrent: active-editor identification,
+//    zero persistence, undo/redo isolation, active-result locality.
 // ================================================================
 
-// 5a. Precondition sync-save failure aborts before the replacement is even
-// attempted -- canonical state is untouched.
-{
-  _resetMountedSceneRegistryForTests();
-  const app=makeApp([scene("fail-sync","Сцена","chapter-1","Кот сидел.")]);
-  const liveDoc=plainTextToDoc(schema,"Кот сидел. Ещё кот.");
-  const view=fakeView(liveDoc);
-  const regId=registerMountedScene("fail-sync",{view,surfaceId:"textModal",activate(){}});
-  const failingSave=async()=>({ok:false,code:"REVISION_CONFLICT"});
-  const match=withOccurrenceIndex(findMatches(liveDoc,"кот"))[0];
-  const rebaseCalls=[];
-  const result=await replaceProjectMatch({sceneId:"fail-sync",matchRange:match,query:"кот",replacementText:"пёс",getProjectData:app.getProjectData,saveSceneText:failingSave,rebaseSceneDirtyBaseline:(id,doc)=>rebaseCalls.push(id)});
-  assert.equal(result.ok,false);assert.equal(result.reason,"sync-failed");
-  assert.equal(app.project.scenes[0].sceneText,"Кот сидел.","canonical state must not change when the precondition sync save fails");
-  assert.equal(rebaseCalls.length,0);
-  unregisterMountedScene("fail-sync",regId);
-}
-
-// 5b. Commit-save failure -> reports failure, no fake success, no dirty
-// rebase.
-{
-  const app=makeApp([scene("fail-commit","Сцена","chapter-1","Кот сидел.")]);
-  const match=firstMatch(app.project.scenes[0],"Кот");
-  const failingSave=async()=>({ok:false,code:"REVISION_CONFLICT"});
-  const result=await replaceProjectMatch({sceneId:"fail-commit",matchRange:match,query:"Кот",replacementText:"Пёс",getProjectData:app.getProjectData,saveSceneText:failingSave,rebaseSceneDirtyBaseline:app.rebaseSceneDirtyBaseline});
-  assert.equal(result.ok,false);assert.equal(result.reason,"persist-failed");
-  assert.equal(app.rebaseCalls.length,0,"a failed commit must never rebase any dirty baseline");
-}
-
-// 5c. Missing dependencies refuse safely rather than crashing or faking
-// success.
-{
-  const result=await replaceProjectMatch({sceneId:"whatever",matchRange:{from:0,to:1,text:"x",occurrenceIndex:0},query:"x"});
-  assert.equal(result.ok,false);assert.equal(result.reason,"not-configured");
-}
-
-// ================================================================
-// 6. Post-commit mounted-registration synchronization.
-// ================================================================
+// 2a. No active editor attached to the target scene -> safe refusal, zero
+// mutation -- never persist-first, never rebuild the editor, never
+// synchronize the active view from anything.
 _resetMountedSceneRegistryForTests();
 {
-  const baseDoc=plainTextToDoc(schema,"Кот сидел.");
-  const committedDoc=plainTextToDoc(schema,"Пёс сидел.");
-  const viewMounted=fakeView(baseDoc);
-  const viewHidden=fakeView(baseDoc); // stands in for a closed-but-still-registered surface
-  const viewAlreadyCommitted=fakeView(committedDoc);
-  const viewOtherScene=fakeView(baseDoc);
-  const id1=registerMountedScene("sync-scene",{view:viewMounted,surfaceId:"textModal",activate(){}});
-  const id2=registerMountedScene("sync-scene",{view:viewHidden,surfaceId:"allScenesModal",activate(){}});
-  const id3=registerMountedScene("sync-scene",{view:viewAlreadyCommitted,surfaceId:"sceneModal",activate(){}});
-  const idOther=registerMountedScene("sync-other-scene",{view:viewOtherScene,surfaceId:"textModal",activate(){}});
-
-  const synced=syncMountedRegistrations("sync-scene",committedDoc);
-
-  assert.equal(synced.length,2,"only the registrations that actually differed from the committed doc are touched");
-  assert.ok(viewMounted.state.doc.eq(committedDoc),"every mounted registration must end up showing the committed doc");
-  assert.ok(viewHidden.state.doc.eq(committedDoc),"a hidden-but-mounted registration must not remain stale");
-  assert.equal(viewAlreadyCommitted.dispatchCount,0,"a registration already showing the exact committed doc must not be mutated");
-  assert.ok(viewOtherScene.state.doc.eq(baseDoc),"a registration for an unrelated scene must never be touched");
-
-  unregisterMountedScene("sync-scene",id1);unregisterMountedScene("sync-scene",id2);unregisterMountedScene("sync-scene",id3);
-  unregisterMountedScene("sync-other-scene",idOther);
+  const project=makeProject([scene("solo","Сцена","chapter-1","Кот сидел.")]);
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const before=controller.getSnapshot();
+  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
+  // No attachView() call at all -- no editor is attached to ANY scene.
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,false);assert.equal(result.reason,"no-active-editor");
+  assert.equal(project.scenes[0].sceneText,"Кот сидел.","zero mutation when there is no active target editor");
 }
 
-// addToHistory:false is enforced on every synchronization dispatch -- a
-// project-wide Replace must never become a ProseMirror undo entry.
+// 2b. The active target editor gets the replacement as an ordinary,
+// undo-able local edit -- ZERO persistence: canonical `project.scenes` data
+// is never touched by replaceProjectCurrent itself.
+_resetMountedSceneRegistryForTests();
 {
-  _resetMountedSceneRegistryForTests();
-  const baseDoc=plainTextToDoc(schema,"Кот сидел.");
-  const committedDoc=plainTextToDoc(schema,"Пёс сидел.");
-  const view=fakeView(baseDoc);
-  let capturedTr=null;
-  const realDispatch=view.dispatch;
-  view.dispatch=tr=>{capturedTr=tr;realDispatch(tr)};
-  const id=registerMountedScene("sync-history",{view,surfaceId:"textModal",activate(){}});
-  syncMountedRegistrations("sync-history",committedDoc);
-  assert.ok(capturedTr,"a dispatch must have happened");
-  assert.equal(capturedTr.getMeta("addToHistory"),false,"post-commit sync must never become a ProseMirror undo entry");
-  unregisterMountedScene("sync-history",id);
+  const project=makeProject([scene("s1","Сцена","chapter-1","Кот сидел.")]);
+  const view=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const regId=registerMountedScene("s1",{view,surfaceId:"textModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(view,controller,"s1");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const before=controller.getSnapshot();
+  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
+
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  assert.equal(view.state.doc.textContent,"пёс сидел.","the active editor's own live doc changed");
+  assert.equal(project.scenes[0].sceneText,"Кот сидел.","canonical/persisted data must be COMPLETELY untouched -- zero persistence before Save");
+
+  unregisterMountedScene("s1",regId);
 }
 
-// ================================================================
-// 6b. Stage D2.1.1 (Goal B): applyUndoableReplacement -- the ACTIVE target
-//    editor gets a NORMAL, undo-able transaction for the Replace, isolated
-//    from whatever else is already in its own undo history.
-// ================================================================
+// 2c. Undo/redo isolation: a manual edit, then a project Single Replace --
+// one undo() undoes exactly the Replace (never skipping past it), redo
+// restores it.
+_resetMountedSceneRegistryForTests();
 {
-  const baseDoc=plainTextToDoc(schema,"Кот сидел.");
-  const view=fakeHistoryView(baseDoc);
-  // A real, EARLIER edit -- this is what proves isolation: one undo() after
-  // the Replace must land here, not skip past it.
-  {
-    const tr=view.state.tr.insertText(" Привет.",view.state.doc.content.size-1);
-    view.dispatch(tr);
-  }
-  const afterManualEdit=view.state.doc;
-  assert.equal(afterManualEdit.textContent,"Кот сидел. Привет.");
+  const project=makeProject([scene("s2","Сцена","chapter-1","Кот сидел.")]);
+  const view=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const regId=registerMountedScene("s2",{view,surfaceId:"textModal",activate(){}});
+  // A real, earlier, unrelated edit.
+  view.dispatch(view.state.tr.insertText(" Привет.",view.state.doc.content.size-1));
+  assert.equal(view.state.doc.textContent,"Кот сидел. Привет.");
 
-  const resolvedMatch=withOccurrenceIndex(findMatches(view.state.doc,"Кот"))[0];
-  const committedDoc=replaceOneMatch(view.state.doc,resolvedMatch,"Пёс").doc;
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(view,controller,"s2");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const before=controller.getSnapshot();
+  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
 
-  const handled=applyUndoableReplacement(view,committedDoc,{resolvedMatch,replacementText:"Пёс"});
-  assert.equal(handled,true,"a verifiably safe localized replay must be reported as handled");
-  assert.equal(view.state.doc.textContent,"Пёс сидел. Привет.","the active view must show the committed replacement");
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  assert.equal(view.state.doc.textContent,"пёс сидел. Привет.");
 
-  // No addToHistory:false anywhere on this dispatch -- it's a normal edit.
-  const replaceTr=view.dispatchedTrs[view.dispatchedTrs.length-1];
-  assert.notEqual(replaceTr.getMeta("addToHistory"),false,"the active target's own Replace transaction must be a normal, undo-able edit");
-
-  // Exactly ONE undo() must undo the Replace and land back on the EARLIER
-  // manual edit -- never skip past it (closeHistory forces its own group
-  // regardless of timing between the two dispatches).
   undo(view.state,view.dispatch);
   assert.equal(view.state.doc.textContent,"Кот сидел. Привет.","one undo must undo exactly the Replace, leaving the earlier manual edit in place");
-
-  // A second undo() reaches the ORIGINAL manual edit.
   undo(view.state,view.dispatch);
-  assert.equal(view.state.doc.textContent,"Кот сидел.","a second undo must reach the original pre-edit text");
+  assert.equal(view.state.doc.textContent,"Кот сидел.","a second undo reaches the original pre-edit text");
+  redo(view.state,view.dispatch);
+  redo(view.state,view.dispatch);
+  assert.equal(view.state.doc.textContent,"пёс сидел. Привет.","redo restores the Replace");
 
-  // Redo restores the manual edit, then the Replace, in order.
-  redo(view.state,view.dispatch);
-  assert.equal(view.state.doc.textContent,"Кот сидел. Привет.");
-  redo(view.state,view.dispatch);
-  assert.equal(view.state.doc.textContent,"Пёс сидел. Привет.","redo must restore the Replace");
+  unregisterMountedScene("s2",regId);
 }
 
-// applyUndoableReplacement must NOT force a whole-document replace onto the
-// active editor when the localized replay cannot be verified safe (a
-// genuine divergence) -- it reports `false` and does nothing, leaving the
-// caller to fall back to the same safe synchronization-only treatment every
-// secondary registration gets (never risking history corruption just to
-// manufacture an undo step).
-{
-  const view=fakeHistoryView(plainTextToDoc(schema,"Кот сидел здесь."));
-  const staleMatch={from:1,to:4,text:"Кот",occurrenceIndex:0}; // a real match in THIS view's own doc
-  const committedDoc=plainTextToDoc(schema,"Пёс сидел там."); // but replaying it here produces "Пёс сидел здесь." -- does NOT equal committedDoc, so the replay cannot be verified safe
-  const dispatchCountBefore=view.dispatchCount;
-  const handled=applyUndoableReplacement(view,committedDoc,{resolvedMatch:staleMatch,replacementText:"Пёс"});
-  assert.equal(handled,false,"an unverifiable replay must never be forced onto the active editor");
-  assert.equal(view.dispatchCount,dispatchCountBefore,"nothing should have been dispatched into the active view when the replay could not be verified");
-}
-
-// ================================================================
-// 7. Controller-level integration: find-replace-controller.js's
-//    replaceProjectCurrent, end to end -- active global match -> commit ->
-//    mounted sync -> fresh project search -> next active match.
-// ================================================================
+// 2d. Secondary mounted registrations of the SAME scene are left COMPLETELY
+// alone -- Single Replace is unsaved local editing of the active view only,
+// never a synchronization/collaboration mechanism.
 _resetMountedSceneRegistryForTests();
 {
-  const project={chapters:[{id:"chapter-1",title:"Глава 1"}],scenes:[
-    {id:"p1",title:"П1",chapterId:"chapter-1",sceneText:"Кот тут. Кот там.",included:true,sceneTextDoc:null},
-    {id:"p2",title:"П2",chapterId:"chapter-1",sceneText:"И кот здесь.",included:true,sceneTextDoc:null}
-  ]};
-  const saveCalls=[],rebaseCalls=[];
-  async function saveSceneText(sceneId,{sceneText,sceneTextDoc}){
-    saveCalls.push(sceneId);
-    const target=project.scenes.find(s=>s.id===sceneId);
-    target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
-    return {ok:true};
-  }
-  function rebaseSceneDirtyBaseline(sceneId){rebaseCalls.push(sceneId)}
-
-  const p1View=fakeView(loadSceneDocument(schema,project.scenes[0]));
-  const p1RegId=registerMountedScene("p1",{view:p1View,surfaceId:"textModal",activate(){}});
-
-  const controller=createFindReplaceController({getProjectData:()=>project,saveSceneText,rebaseSceneDirtyBaseline});
-  controller.open();
-  controller.setScope("project");
-  controller.setQuery("кот");
-  controller.setReplaceText("пёс");
-
+  const project=makeProject([scene("s3","Сцена","chapter-1","Кот сидел.")]);
+  const activeView=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const secondaryView=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const activeRegId=registerMountedScene("s3",{view:activeView,surfaceId:"textModal",activate(){}});
+  const secondaryRegId=registerMountedScene("s3",{view:secondaryView,surfaceId:"sceneModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(activeView,controller,"s3");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
   const before=controller.getSnapshot();
-  assert.equal(before.projectResult.totalMatches,3,"p1:2 + p2:1");
+  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
+
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  assert.equal(activeView.state.doc.textContent,"пёс сидел.");
+  // A secondary registration's own CONTENT must be left completely
+  // untouched -- no synchronization/collaboration mechanism. It may still
+  // receive ordinary decoration-only dispatches (the ambient project-search
+  // highlighting every mounted registration already gets, unrelated to this
+  // Replace), so the real invariant is "never a doc-changing transaction",
+  // not "never dispatched into at all".
+  assert.equal(secondaryView.state.doc.textContent,"Кот сидел.","a secondary registration must be left completely untouched -- no synchronization/collaboration mechanism");
+  for(const tr of secondaryView.dispatchedTrs){
+    assert.equal(tr.docChanged,false,"a secondary registration must never receive a doc-changing transaction from someone else's Replace");
+  }
+
+  unregisterMountedScene("s3",activeRegId);
+  unregisterMountedScene("s3",secondaryRegId);
+}
+
+// 2e. Identity: two scenes with byte-for-byte identical text remain
+// distinguished by sceneId -- only the active target scene changes.
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([scene("twin-a","Твин А","chapter-1","Кот сидел."),scene("twin-b","Твин Б","chapter-1","Кот сидел.")]);
+  const viewA=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const viewB=fakeView(loadSceneDocument(schema,project.scenes[1]));
+  const regA=registerMountedScene("twin-a",{view:viewA,surfaceId:"textModal",activate(){}});
+  const regB=registerMountedScene("twin-b",{view:viewB,surfaceId:"sceneModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(viewA,controller,"twin-a");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const before=controller.getSnapshot();
   const flatBefore=flattenProjectMatches(before.projectResult);
-  // Target p1's SECOND occurrence specifically (flat index 1) -- proving
-  // Replace acts on whichever match is actually active, not always the
-  // first.
-  assert.equal(flatBefore[1].sceneId,"p1");
-  controller.activateProjectMatch(flatBefore[1].matchId);
+  const targetInA=flatBefore.find(m=>m.sceneId==="twin-a");
+  controller.activateProjectMatch(targetInA.matchId);
 
-  const result=await controller.replaceProjectCurrent();
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-  assert.equal(project.scenes[0].sceneText,"Кот тут. пёс там.");
-  assert.deepEqual(saveCalls,["p1"]);
-  assert.deepEqual(rebaseCalls,["p1"]);
-  assert.ok(p1View.state.doc.eq(loadSceneDocument(schema,project.scenes[0])),"the mounted p1 registration must reflect the committed text");
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.sceneId,"twin-a");
+  assert.equal(viewA.state.doc.textContent,"пёс сидел.");
+  assert.equal(viewB.state.doc.textContent,"Кот сидел.","the identical sibling scene's own mounted view must remain untouched");
 
-  const after=controller.getSnapshot();
-  // Fresh state, never a manually patched count: p1 now has 1 "кот" match
-  // ("Кот"), p2 still has its own 1 -- total 2 matches across 2 scenes.
-  assert.equal(after.projectResult.totalMatches,2,"fresh search must reflect actual post-replace state");
-  assert.equal(after.projectResult.affectedSceneCount,2);
-  // Active match after Replace: the removed match (flat index 1) is gone,
-  // so keeping the SAME numeric index (recomputeProject's existing clamp
-  // policy) now names whatever took its place -- p2's own match, the next
-  // one in canonical order -- never a reset to the very first result.
-  const flatAfter=flattenProjectMatches(after.projectResult);
-  assert.equal(after.activeProjectMatchIndex,1);
-  assert.equal(flatAfter[1].sceneId,"p2");
-  assert.equal(after.activeProjectMatchId,flatAfter[1].matchId);
-
-  unregisterMountedScene("p1",p1RegId);
+  unregisterMountedScene("twin-a",regA);
+  unregisterMountedScene("twin-b",regB);
 }
 
-// 7a2. Stage D2.1.1 (Goal B, Test E -- history isolation): with TWO mounted
-// registrations for the same scene, only the one the controller is actually
-// ATTACHED to (the active target the user is looking at) gets the undo-able
-// Replace transaction; the OTHER (a hidden/secondary registration of the
-// SAME scene) reaches the identical committed document but strictly via a
-// synchronization-only update, never its own undo entry -- and the active
-// target's own undo isolation (from an earlier unrelated edit) still holds.
+// 2f. included:false -- Replace must work in an excluded scene and must
+// never touch `included`.
 _resetMountedSceneRegistryForTests();
 {
-  const project={chapters:[{id:"chapter-1",title:"Глава 1"}],scenes:[
-    {id:"tworeg",title:"ДваРег",chapterId:"chapter-1",sceneText:"Кот сидел.",included:true,sceneTextDoc:null}
-  ]};
-  async function saveSceneText(sceneId,{sceneText,sceneTextDoc}){
-    const target=project.scenes.find(s=>s.id===sceneId);
-    target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
-    return {ok:true};
-  }
-  const activeView=fakeHistoryView(loadSceneDocument(schema,project.scenes[0]));
-  // An earlier, real, unrelated edit already in the ACTIVE view's own undo
-  // history -- proves this Replace doesn't disturb it. The secondary
-  // registration below is built directly from the RESULTING content (as if
-  // it were mounted/synced to it by some other, already-settled means) --
-  // agreeing in CONTENT (required to pass the mounted-state agreement gate)
-  // while genuinely having no history entry of its own for how it got
-  // there, which is exactly the realistic "hidden secondary copy" shape.
-  activeView.dispatch(activeView.state.tr.insertText(" Привет.",activeView.state.doc.content.size-1));
-  assert.equal(activeView.state.doc.textContent,"Кот сидел. Привет.");
-
-  const secondaryView=fakeHistoryView(activeView.state.doc);
-  const activeRegId=registerMountedScene("tworeg",{view:activeView,surfaceId:"textModal",activate(){}});
-  const secondaryRegId=registerMountedScene("tworeg",{view:secondaryView,surfaceId:"sceneModal",activate(){}});
-
-  const controller=createFindReplaceController({getProjectData:()=>project,saveSceneText});
-  controller.attachView(activeView,"tworeg"); // this IS the active target
-  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
-
-  const before=controller.getSnapshot();
-  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
-  const secondaryDispatchTrs=[];
-  const realSecondaryDispatch=secondaryView.dispatch;
-  secondaryView.dispatch=tr=>{secondaryDispatchTrs.push(tr);realSecondaryDispatch(tr)};
-
-  const result=await controller.replaceProjectCurrent();
-  assert.equal(result.ok,true);assert.equal(result.changed,true);
-
-  // Both registrations reach the identical committed content.
-  assert.equal(activeView.state.doc.textContent,"пёс сидел. Привет.");
-  assert.equal(secondaryView.state.doc.textContent,"пёс сидел. Привет.","the secondary registration must also reach the committed content");
-
-  // The secondary registration's own dispatch(es) -- the content sync, plus
-  // a decoration-clear once "tworeg" drops out of the "кот" results -- are
-  // ALL synchronization-only, never an undo entry.
-  assert.ok(secondaryDispatchTrs.length>=1,"the secondary registration must have been dispatched into");
-  for(const tr of secondaryDispatchTrs){
-    assert.equal(tr.getMeta("addToHistory"),false,"a secondary registration must never gain its own undo entry for this Replace");
-  }
-
-  // One undo() in the ACTIVE target undoes exactly the Replace, landing back
-  // on the earlier manual edit -- proving the earlier history entry was not
-  // silently destroyed, and the Replace was isolated as its own step.
-  undo(activeView.state,activeView.dispatch);
-  assert.equal(activeView.state.doc.textContent,"Кот сидел. Привет.","one undo in the active target must undo exactly the Replace");
-
-  unregisterMountedScene("tworeg",activeRegId);
-  unregisterMountedScene("tworeg",secondaryRegId);
-}
-
-// 7b. If no matches remain after Replace, the active match clears safely
-// (never a stale index into an empty list).
-_resetMountedSceneRegistryForTests();
-{
-  const project={chapters:[{id:"chapter-1",title:"Глава 1"}],scenes:[
-    {id:"only","title":"Только","chapterId":"chapter-1",sceneText:"Кот один.",included:true,sceneTextDoc:null}
-  ]};
-  async function saveSceneText(sceneId,{sceneText,sceneTextDoc}){
-    const target=project.scenes.find(s=>s.id===sceneId);
-    target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
-    return {ok:true};
-  }
-  const controller=createFindReplaceController({getProjectData:()=>project,saveSceneText});
+  const project=makeProject([scene("excluded-1","Скрытая","chapter-1","Кот сидел.",{included:false})]);
+  const view=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const regId=registerMountedScene("excluded-1",{view,surfaceId:"textModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(view,controller,"excluded-1");
   controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
   const before=controller.getSnapshot();
   controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
-  const result=await controller.replaceProjectCurrent();
+  const result=controller.replaceProjectCurrent();
   assert.equal(result.ok,true);assert.equal(result.changed,true);
-  const after=controller.getSnapshot();
-  assert.equal(after.projectResult.totalMatches,0);
-  assert.equal(after.activeProjectMatchIndex,-1);
-  assert.equal(after.activeProjectMatchId,null);
+  assert.equal(view.state.doc.textContent,"пёс сидел.");
+  assert.equal(project.scenes[0].included,false,"Replace must never modify `included`");
+  unregisterMountedScene("excluded-1",regId);
 }
 
-// 7c. Guards: refuses to run under the wrong scope, and refuses safely with
-// no active match / no configuration, never throwing.
+// 2g. Guards: wrong scope, no active match -- never throws, never mutates.
 {
   const controller=createFindReplaceController({});
-  const wrongScope=await controller.replaceProjectCurrent();
+  const wrongScope=controller.replaceProjectCurrent();
   assert.equal(wrongScope.ok,false);assert.equal(wrongScope.reason,"wrong-scope");
-
   controller.open();controller.setScope("project");
-  const noConfig=await controller.replaceProjectCurrent();
-  assert.equal(noConfig.ok,false);
+  const noMatch=controller.replaceProjectCurrent();
+  assert.equal(noMatch.ok,false);assert.equal(noMatch.reason,"no-active-match");
 }
 
 // Scene-scope replaceCurrent/replaceAll must still refuse to run under
-// project scope, and vice versa -- the D2.1 guard is a mirror of the
-// existing D1 one, never a replacement for it.
+// project scope, and vice versa.
 {
   const controller=createFindReplaceController({});
   controller.open();controller.setScope("project");
   assert.equal(controller.replaceCurrent(),false);
   assert.deepEqual(controller.replaceAll(),{count:0});
+}
+
+// ================================================================
+// 3. Goal J -- active-result locality after Replace (pickPostReplaceActiveIndex).
+// ================================================================
+
+// 3a. Pure unit coverage of the policy itself.
+{
+  // The match at position 5 in scene B was just replaced and is GONE from
+  // this fresh list -- only its sibling (position 20) and scene C's own
+  // match remain.
+  const flatAfterRemovingFirst=[
+    {sceneId:"B",from:19,to:22,sceneOrder:2}, // was at 20, shifted left by 1 (replacement 1 char shorter)
+    {sceneId:"C",from:3,to:6,sceneOrder:3}
+  ];
+  // Replaced the match at position 5 in scene B -> prefer the NEXT one in B (index 0, now at 19).
+  assert.equal(pickPostReplaceActiveIndex(flatAfterRemovingFirst,{sceneId:"B",position:5,sceneOrder:2}),0);
+  // Replaced the match at position 20 (the LAST one in B) -> no match in B
+  // after it -> nearest one BEFORE it (index 0, position 5).
+  const flatAfterRemovingLast=[
+    {sceneId:"B",from:5,to:8,sceneOrder:2},
+    {sceneId:"C",from:3,to:6,sceneOrder:3}
+  ];
+  assert.equal(pickPostReplaceActiveIndex(flatAfterRemovingLast,{sceneId:"B",position:20,sceneOrder:2}),0);
+  // Scene B has NO remaining matches at all -> fall through to normal
+  // ordering: the first match at/after B's own canonical sceneOrder (2) --
+  // here that's scene C's own match (sceneOrder 3).
+  const flatNoBLeft=[{sceneId:"C",from:3,to:6,sceneOrder:3}];
+  assert.equal(pickPostReplaceActiveIndex(flatNoBLeft,{sceneId:"B",position:5,sceneOrder:2}),0);
+  // No matches anywhere.
+  assert.equal(pickPostReplaceActiveIndex([],{sceneId:"B",position:5,sceneOrder:2}),-1);
+}
+
+// 3b. Integration: replacing the MIDDLE occurrence in a scene with several
+// matches keeps the active result LOCAL to that same scene (the next
+// remaining one), never jumping to another scene merely because the flat
+// index shifted.
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([
+    {id:"p1",title:"П1",chapterId:"chapter-1",sceneText:"Кот один. Кот два. Кот три.",included:true,sceneTextDoc:null},
+    {id:"p2",title:"П2",chapterId:"chapter-1",sceneText:"И кот здесь.",included:true,sceneTextDoc:null}
+  ]);
+  const p1View=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const p1RegId=registerMountedScene("p1",{view:p1View,surfaceId:"textModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(p1View,controller,"p1");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+
+  const before=controller.getSnapshot();
+  const flatBefore=flattenProjectMatches(before.projectResult);
+  assert.equal(flatBefore.length,4,"p1:3 + p2:1");
+  // Target the MIDDLE occurrence in p1 (flat index 1, "Кот два").
+  controller.activateProjectMatch(flatBefore[1].matchId);
+
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  assert.equal(p1View.state.doc.textContent,"Кот один. пёс два. Кот три.");
+
+  const after=controller.getSnapshot();
+  const flatAfter=flattenProjectMatches(after.projectResult);
+  assert.equal(flatAfter.length,3,"p1:2 + p2:1");
+  // The active result must remain in p1 (the next remaining match there),
+  // never jump to p2 merely because indices shifted.
+  assert.equal(after.activeProjectMatchId,flatAfter[after.activeProjectMatchIndex].matchId);
+  assert.equal(flatAfter[after.activeProjectMatchIndex].sceneId,"p1","active result must stay LOCAL to the scene just edited while it still has matches");
+
+  unregisterMountedScene("p1",p1RegId);
+}
+
+// 3c. Integration: replacing the LAST remaining match in a scene falls
+// through to the next scene in canonical order -- never a manual/instant
+// index-0 jump, and only because the scene genuinely has nothing left.
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([
+    {id:"q1",title:"Q1",chapterId:"chapter-1",sceneText:"Кот один.",included:true,sceneTextDoc:null},
+    {id:"q2",title:"Q2",chapterId:"chapter-1",sceneText:"И кот здесь. И кот там.",included:true,sceneTextDoc:null}
+  ]);
+  const q1View=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const q1RegId=registerMountedScene("q1",{view:q1View,surfaceId:"textModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(q1View,controller,"q1");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const before=controller.getSnapshot();
+  const flatBefore=flattenProjectMatches(before.projectResult);
+  controller.activateProjectMatch(flatBefore[0].matchId); // q1's only match
+
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+
+  const after=controller.getSnapshot();
+  const flatAfter=flattenProjectMatches(after.projectResult);
+  assert.equal(flatAfter.length,2,"q1:0 + q2:2");
+  assert.equal(flatAfter[after.activeProjectMatchIndex].sceneId,"q2","q1 has no matches left -- falls through to the next scene in canonical order");
+
+  unregisterMountedScene("q1",q1RegId);
+}
+
+// 3d. If no matches remain anywhere, the active result clears safely.
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([{id:"only","title":"Только","chapterId":"chapter-1",sceneText:"Кот один.",included:true,sceneTextDoc:null}]);
+  const view=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const regId=registerMountedScene("only",{view,surfaceId:"textModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(view,controller,"only");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const before=controller.getSnapshot();
+  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  const after=controller.getSnapshot();
+  assert.equal(after.projectResult.totalMatches,0);
+  assert.equal(after.activeProjectMatchIndex,-1);
+  assert.equal(after.activeProjectMatchId,null);
+  unregisterMountedScene("only",regId);
+}
+
+// ================================================================
+// 4. Goal D -- selection/focus after Replace (empty and non-empty).
+// ================================================================
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([scene("sel-empty","Сцена","chapter-1","Кот сидел тихо.")]);
+  const view=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const regId=registerMountedScene("sel-empty",{view,surfaceId:"textModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(view,controller,"sel-empty");
+  controller.open();controller.setScope("project");controller.setQuery("Кот ");controller.setReplaceText("");
+  const before=controller.getSnapshot();
+  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
+  const result=controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  assert.equal(view.state.doc.textContent,"сидел тихо.");
+  // A well-defined, collapsed caret exactly at the deletion point -- never
+  // an invalid/vanished selection.
+  const sel=view.state.selection;
+  assert.equal(sel.empty,true);
+  assert.equal(sel.from,1,"caret lands exactly at the deletion point");
+  unregisterMountedScene("sel-empty",regId);
+}
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([scene("sel-nonempty","Сцена","chapter-1","Кот сидел тихо.")]);
+  const view=fakeView(loadSceneDocument(schema,project.scenes[0]));
+  const regId=registerMountedScene("sel-nonempty",{view,surfaceId:"textModal",activate(){}});
+  const controller=createFindReplaceController({getProjectData:()=>project});
+  attachToController(view,controller,"sel-nonempty");
+  controller.open();controller.setScope("project");controller.setQuery("Кот");controller.setReplaceText("Пёс");
+  const before=controller.getSnapshot();
+  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
+  controller.replaceProjectCurrent();
+  const sel=view.state.selection;
+  assert.equal(sel.empty,true);
+  assert.equal(sel.from,1+"Пёс".length,"caret lands right after the inserted replacement");
+  unregisterMountedScene("sel-nonempty",regId);
 }
 
 console.log("find-replace project-replace unit tests: OK");

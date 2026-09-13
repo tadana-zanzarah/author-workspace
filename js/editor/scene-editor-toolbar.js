@@ -70,7 +70,7 @@ function createSeparator(){
   return sep;
 }
 
-export function createSceneEditorToolbar(container,{characters=[],onFindReplace}={}){
+export function createSceneEditorToolbar(container,{characters=[],onFindReplace,onSwitchSurface,switchSurfaceLabel}={}){
   container.innerHTML="";
   container.classList.add("rte-toolbar");
   container.setAttribute("role","toolbar");
@@ -114,6 +114,26 @@ export function createSceneEditorToolbar(container,{characters=[],onFindReplace}
     findButton.textContent="a→z";
     findButton.onclick=()=>onFindReplace();
     container.appendChild(findButton);
+  }
+
+  // Find/Replace Stage D2.1.2 (Goal I): a small, explicit action to switch
+  // this SAME scene between its full-editor (Scene modal) and text-only
+  // ("Текст сцены") representations -- manual UX review found no direct way
+  // to do this. Only rendered when the caller actually wants it (mirrors
+  // onFindReplace's own optional-button pattern); the label names the
+  // DESTINATION surface ("Текст сцены" from the full editor, "Полный
+  // редактор" from text-only), set by the caller since only it knows which
+  // surface this toolbar instance belongs to.
+  if(onSwitchSurface){
+    container.appendChild(createSeparator());
+    const switchButton=document.createElement("button");
+    switchButton.type="button";
+    switchButton.className="rte-btn-icon-text rte-btn-switch-surface";
+    switchButton.title=`Открыть: ${switchSurfaceLabel||"другой вид"}`;
+    switchButton.setAttribute("aria-label",`Открыть ${switchSurfaceLabel||"другой вид"}`);
+    switchButton.textContent=`⇄ ${switchSurfaceLabel||""}`.trim();
+    switchButton.onclick=()=>onSwitchSurface();
+    container.appendChild(switchButton);
   }
 
   // Microfix: a separator was missing between a→z and POV -- every other

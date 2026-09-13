@@ -24,21 +24,12 @@ import {navigateToSceneMatch} from "./find-replace-navigation.js";
 // passes it at all, which makes the controller default to "just the one
 // attached scene" -- exactly standalone/Scene-modal's required behavior,
 // with no extra code needed at that call site.
-// Find/Replace Stage D2.1: `saveSceneText`/`rebaseSceneDirtyBaseline` mirror
-// `openSceneForEditing`/`getNavigableSceneIds` above -- optional, passed
-// straight through to the controller (see find-replace-controller.js's own
-// replaceProjectCurrent) with no logic of their own here. Their REAL
-// implementations (js/import-export.js's saveSceneTextCanonical / js/app.js's
-// rebaseSceneTextDirtyBaseline) live at the application layer, exactly like
-// openSceneForEditing's real implementation (openSceneText) does -- this
-// file stays ignorant of what a "save" or a "dirty tracker" actually is.
-function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds,saveSceneText,rebaseSceneDirtyBaseline}){
+function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds}){
   if(!getProjectData)return {};
   return {
     getProjectData,
     navigateToSceneMatch:(sceneId,matchRange,options)=>navigateToSceneMatch(sceneId,matchRange,{...options,openSceneForEditing}),
-    getNavigableSceneIds,
-    saveSceneText,rebaseSceneDirtyBaseline
+    getNavigableSceneIds
   };
 }
 
@@ -76,13 +67,27 @@ function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableScene
 // attachView runs its own first recomputeAndReveal (so that first project
 // search already reflects the adopted query/scope/options rather than the
 // controller's own defaults).
-export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,saveSceneText=null,rebaseSceneDirtyBaseline=null,projectSession=null}){
+// Find/Replace Stage D2.1.2 (Goal I): `onSwitchSurface`/`switchSurfaceLabel`
+// are optional -- when given, the toolbar gets one extra small button
+// (rendered by createSceneEditorToolbar) that calls
+// `onSwitchSurface(exportedProjectSession)` on click, where
+// `exportedProjectSession` is this MOUNT's own controller's current project
+// session (via `findReplace.exportProjectSession()`, `null` outside project
+// scope) -- this module still has zero knowledge of "which OTHER surface"
+// exists; the caller (js/scenes.js) decides that and performs the actual
+// open (through the SAME `openSceneText`/`editScene` + existing dirty-guard
+// path every other transition already uses).
+export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,projectSession=null,onSwitchSurface=null,switchSurfaceLabel=null}){
   editorContainer.innerHTML="";
   const doc=loadSceneDocument(sceneDocSchema,scene);
-  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,saveSceneText,rebaseSceneDirtyBaseline})):null;
+  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing})):null;
   findReplace?.adoptProjectSession(projectSession);
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
-  const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
+  const toolbar=createSceneEditorToolbar(toolbarContainer,{
+    characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined,
+    onSwitchSurface:onSwitchSurface?()=>onSwitchSurface(findReplace?.exportProjectSession?.()??null):undefined,
+    switchSurfaceLabel
+  });
   const editor=createSceneEditor({
     mount:editorContainer,
     schema:sceneDocSchema,
@@ -157,8 +162,8 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
 // (e.g. "Весь текст") to the front; each individual scene's registration
 // additionally retargets the shared toolbar/find-replace controller to that
 // scene and scrolls its own block into view -- see mountScene below.
-export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,saveSceneText=null,rebaseSceneDirtyBaseline=null}){
-  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds:()=>sceneIds(),saveSceneText,rebaseSceneDirtyBaseline})):null;
+export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null}){
+  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds:()=>sceneIds()})):null;
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
   const instances=new Map();
