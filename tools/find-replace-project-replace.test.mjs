@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import {EditorState} from "prosemirror-state";
+import {history,undo,redo} from "prosemirror-history";
 import {sceneDocSchema as schema} from "../js/editor/scene-doc-schema.js";
 import {plainTextToDoc,loadSceneDocument} from "../js/editor/scene-doc-convert.js";
-import {findMatches} from "../js/editor/find-replace-model.js";
-import {flattenProjectMatches} from "../js/editor/find-replace-project-search.js";
+import {findMatches,replaceOneMatch} from "../js/editor/find-replace-model.js";
+import {flattenProjectMatches,reresolveFlatMatchIndex} from "../js/editor/find-replace-project-search.js";
 import {registerMountedScene,unregisterMountedScene,_resetMountedSceneRegistryForTests} from "../js/editor/mounted-scene-registry.js";
-import {resolveMountedSceneAgreement,replaceProjectMatch,syncMountedRegistrations} from "../js/editor/find-replace-project-replace.js";
+import {resolveMountedSceneAgreement,replaceProjectMatch,syncMountedRegistrations,applyUndoableReplacement} from "../js/editor/find-replace-project-replace.js";
 import {createFindReplaceController} from "../js/editor/find-replace-controller.js";
 
 // Find/Replace Stage D2.1: safe single Replace in project scope, exercised
@@ -39,6 +40,15 @@ function fakeView(doc){
   const view={isDestroyed:false,dispatchCount:0};
   view.state=EditorState.create({schema,doc});
   view.dispatch=tr=>{view.dispatchCount++;view.state=view.state.apply(tr)};
+  return view;
+}
+// Same fake-view shape, but with the REAL prosemirror-history plugin
+// installed -- needed to test actual undo/redo behavior (Stage D2.1.1, Goal
+// B), never just the presence/absence of an addToHistory meta flag.
+function fakeHistoryView(doc){
+  const view={isDestroyed:false,dispatchCount:0,dispatchedTrs:[]};
+  view.state=EditorState.create({schema,doc,plugins:[history()]});
+  view.dispatch=tr=>{view.dispatchCount++;view.dispatchedTrs.push(tr);view.state=view.state.apply(tr)};
   return view;
 }
 function makeApp(scenes){
@@ -344,6 +354,67 @@ _resetMountedSceneRegistryForTests();
 }
 
 // ================================================================
+// 6b. Stage D2.1.1 (Goal B): applyUndoableReplacement -- the ACTIVE target
+//    editor gets a NORMAL, undo-able transaction for the Replace, isolated
+//    from whatever else is already in its own undo history.
+// ================================================================
+{
+  const baseDoc=plainTextToDoc(schema,"Кот сидел.");
+  const view=fakeHistoryView(baseDoc);
+  // A real, EARLIER edit -- this is what proves isolation: one undo() after
+  // the Replace must land here, not skip past it.
+  {
+    const tr=view.state.tr.insertText(" Привет.",view.state.doc.content.size-1);
+    view.dispatch(tr);
+  }
+  const afterManualEdit=view.state.doc;
+  assert.equal(afterManualEdit.textContent,"Кот сидел. Привет.");
+
+  const resolvedMatch=withOccurrenceIndex(findMatches(view.state.doc,"Кот"))[0];
+  const committedDoc=replaceOneMatch(view.state.doc,resolvedMatch,"Пёс").doc;
+
+  const handled=applyUndoableReplacement(view,committedDoc,{resolvedMatch,replacementText:"Пёс"});
+  assert.equal(handled,true,"a verifiably safe localized replay must be reported as handled");
+  assert.equal(view.state.doc.textContent,"Пёс сидел. Привет.","the active view must show the committed replacement");
+
+  // No addToHistory:false anywhere on this dispatch -- it's a normal edit.
+  const replaceTr=view.dispatchedTrs[view.dispatchedTrs.length-1];
+  assert.notEqual(replaceTr.getMeta("addToHistory"),false,"the active target's own Replace transaction must be a normal, undo-able edit");
+
+  // Exactly ONE undo() must undo the Replace and land back on the EARLIER
+  // manual edit -- never skip past it (closeHistory forces its own group
+  // regardless of timing between the two dispatches).
+  undo(view.state,view.dispatch);
+  assert.equal(view.state.doc.textContent,"Кот сидел. Привет.","one undo must undo exactly the Replace, leaving the earlier manual edit in place");
+
+  // A second undo() reaches the ORIGINAL manual edit.
+  undo(view.state,view.dispatch);
+  assert.equal(view.state.doc.textContent,"Кот сидел.","a second undo must reach the original pre-edit text");
+
+  // Redo restores the manual edit, then the Replace, in order.
+  redo(view.state,view.dispatch);
+  assert.equal(view.state.doc.textContent,"Кот сидел. Привет.");
+  redo(view.state,view.dispatch);
+  assert.equal(view.state.doc.textContent,"Пёс сидел. Привет.","redo must restore the Replace");
+}
+
+// applyUndoableReplacement must NOT force a whole-document replace onto the
+// active editor when the localized replay cannot be verified safe (a
+// genuine divergence) -- it reports `false` and does nothing, leaving the
+// caller to fall back to the same safe synchronization-only treatment every
+// secondary registration gets (never risking history corruption just to
+// manufacture an undo step).
+{
+  const view=fakeHistoryView(plainTextToDoc(schema,"Кот сидел здесь."));
+  const staleMatch={from:1,to:4,text:"Кот",occurrenceIndex:0}; // a real match in THIS view's own doc
+  const committedDoc=plainTextToDoc(schema,"Пёс сидел там."); // but replaying it here produces "Пёс сидел здесь." -- does NOT equal committedDoc, so the replay cannot be verified safe
+  const dispatchCountBefore=view.dispatchCount;
+  const handled=applyUndoableReplacement(view,committedDoc,{resolvedMatch:staleMatch,replacementText:"Пёс"});
+  assert.equal(handled,false,"an unverifiable replay must never be forced onto the active editor");
+  assert.equal(view.dispatchCount,dispatchCountBefore,"nothing should have been dispatched into the active view when the replay could not be verified");
+}
+
+// ================================================================
 // 7. Controller-level integration: find-replace-controller.js's
 //    replaceProjectCurrent, end to end -- active global match -> commit ->
 //    mounted sync -> fresh project search -> next active match.
@@ -403,6 +474,73 @@ _resetMountedSceneRegistryForTests();
   assert.equal(after.activeProjectMatchId,flatAfter[1].matchId);
 
   unregisterMountedScene("p1",p1RegId);
+}
+
+// 7a2. Stage D2.1.1 (Goal B, Test E -- history isolation): with TWO mounted
+// registrations for the same scene, only the one the controller is actually
+// ATTACHED to (the active target the user is looking at) gets the undo-able
+// Replace transaction; the OTHER (a hidden/secondary registration of the
+// SAME scene) reaches the identical committed document but strictly via a
+// synchronization-only update, never its own undo entry -- and the active
+// target's own undo isolation (from an earlier unrelated edit) still holds.
+_resetMountedSceneRegistryForTests();
+{
+  const project={chapters:[{id:"chapter-1",title:"Глава 1"}],scenes:[
+    {id:"tworeg",title:"ДваРег",chapterId:"chapter-1",sceneText:"Кот сидел.",included:true,sceneTextDoc:null}
+  ]};
+  async function saveSceneText(sceneId,{sceneText,sceneTextDoc}){
+    const target=project.scenes.find(s=>s.id===sceneId);
+    target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
+    return {ok:true};
+  }
+  const activeView=fakeHistoryView(loadSceneDocument(schema,project.scenes[0]));
+  // An earlier, real, unrelated edit already in the ACTIVE view's own undo
+  // history -- proves this Replace doesn't disturb it. The secondary
+  // registration below is built directly from the RESULTING content (as if
+  // it were mounted/synced to it by some other, already-settled means) --
+  // agreeing in CONTENT (required to pass the mounted-state agreement gate)
+  // while genuinely having no history entry of its own for how it got
+  // there, which is exactly the realistic "hidden secondary copy" shape.
+  activeView.dispatch(activeView.state.tr.insertText(" Привет.",activeView.state.doc.content.size-1));
+  assert.equal(activeView.state.doc.textContent,"Кот сидел. Привет.");
+
+  const secondaryView=fakeHistoryView(activeView.state.doc);
+  const activeRegId=registerMountedScene("tworeg",{view:activeView,surfaceId:"textModal",activate(){}});
+  const secondaryRegId=registerMountedScene("tworeg",{view:secondaryView,surfaceId:"sceneModal",activate(){}});
+
+  const controller=createFindReplaceController({getProjectData:()=>project,saveSceneText});
+  controller.attachView(activeView,"tworeg"); // this IS the active target
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+
+  const before=controller.getSnapshot();
+  controller.activateProjectMatch(before.projectResult.scenes[0].matches[0].matchId);
+  const secondaryDispatchTrs=[];
+  const realSecondaryDispatch=secondaryView.dispatch;
+  secondaryView.dispatch=tr=>{secondaryDispatchTrs.push(tr);realSecondaryDispatch(tr)};
+
+  const result=await controller.replaceProjectCurrent();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+
+  // Both registrations reach the identical committed content.
+  assert.equal(activeView.state.doc.textContent,"пёс сидел. Привет.");
+  assert.equal(secondaryView.state.doc.textContent,"пёс сидел. Привет.","the secondary registration must also reach the committed content");
+
+  // The secondary registration's own dispatch(es) -- the content sync, plus
+  // a decoration-clear once "tworeg" drops out of the "кот" results -- are
+  // ALL synchronization-only, never an undo entry.
+  assert.ok(secondaryDispatchTrs.length>=1,"the secondary registration must have been dispatched into");
+  for(const tr of secondaryDispatchTrs){
+    assert.equal(tr.getMeta("addToHistory"),false,"a secondary registration must never gain its own undo entry for this Replace");
+  }
+
+  // One undo() in the ACTIVE target undoes exactly the Replace, landing back
+  // on the earlier manual edit -- proving the earlier history entry was not
+  // silently destroyed, and the Replace was isolated as its own step.
+  undo(activeView.state,activeView.dispatch);
+  assert.equal(activeView.state.doc.textContent,"Кот сидел. Привет.","one undo in the active target must undo exactly the Replace");
+
+  unregisterMountedScene("tworeg",activeRegId);
+  unregisterMountedScene("tworeg",secondaryRegId);
 }
 
 // 7b. If no matches remain after Replace, the active match clears safely

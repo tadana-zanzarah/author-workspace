@@ -409,8 +409,20 @@ function resetToInherited(button){
   if(checkbox&&input.value.trim()==="")checkbox.checked=false;
 }
 
-function openSceneText(sceneId){
-  return requestEditorTransition(()=>openSceneTextNow(sceneId));
+// Find/Replace Stage D2.1.1 (Goal A): `extra` is optional and, when given by
+// find-replace-navigation.js's case-B navigation, carries
+// `{projectSession}` -- the current project-wide Find/Replace session to
+// hand to the freshly-mounted destination controller (see
+// scene-editor-controller.js's mountSceneEditor). Every other existing
+// caller (plain "open this scene's text" from a scene card, etc.) omits it
+// entirely, so `openSceneTextNow` sees `undefined` and mounts exactly as
+// before. requestEditorTransition's own dirty-guard runs FIRST, unchanged --
+// `extra`/`projectSession` only ever reaches the destination mount if the
+// transition actually proceeds (openAction only runs after a clean/
+// confirmed-discard check), so cancelling the guard neither adopts a session
+// anywhere nor touches the originating one.
+function openSceneText(sceneId,extra){
+  return requestEditorTransition(()=>openSceneTextNow(sceneId,extra));
 }
 
 // Defensive destroy-before-create: every close path (Save, Cancel, Escape,
@@ -460,7 +472,11 @@ function mountSceneModalTextEditor(scene){
     // points at a scene with no live mounted registration at all (product
     // brief section 8, case B).
     getProjectData:()=>data,
-    openSceneForEditing:sceneId=>openSceneText(sceneId),
+    // Find/Replace Stage D2.1.1: forwards a second `extra` argument (never
+    // constructed here, only ever by find-replace-navigation.js) so a case-B
+    // navigation FROM this controller's own project search can hand its
+    // session to whatever it opens next -- see openSceneText's own comment.
+    openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra),
     // Find/Replace Stage D2.1: see js/import-export.js's saveSceneTextCanonical
     // / js/app.js's rebaseSceneTextDirtyBaseline for what these actually do --
     // this call site only wires them in, same as getProjectData/
@@ -470,7 +486,12 @@ function mountSceneModalTextEditor(scene){
   });
 }
 
-function openSceneTextNow(sceneId){
+// Find/Replace Stage D2.1.1: `extra` (optional) is `{projectSession}` when
+// this open is the destination of a project-result navigation (see
+// openSceneText's own comment) -- threaded straight into mountSceneEditor,
+// which is the one place that actually hands it to the new controller (via
+// adoptProjectSession) before attaching the view.
+function openSceneTextNow(sceneId,extra){
   textEditingSceneId=sceneId;
   const scene=sceneById(sceneId);
   if(!scene)return;
@@ -491,11 +512,15 @@ function openSceneTextNow(sceneId){
     // Find/Replace Stage D1: see mountSceneModalTextEditor's own comment
     // above.
     getProjectData:()=>data,
-    openSceneForEditing:sceneIdToOpen=>openSceneText(sceneIdToOpen),
+    openSceneForEditing:(sceneIdToOpen,nextExtra)=>openSceneText(sceneIdToOpen,nextExtra),
     // Find/Replace Stage D2.1: see mountSceneModalTextEditor's own comment
     // above.
     saveSceneText:saveSceneTextCanonical,
-    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline
+    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline,
+    // Find/Replace Stage D2.1.1 (Goal A): hands the project-wide session
+    // (if any) straight to the new controller mountSceneEditor is about to
+    // create -- see that function's own doc comment.
+    projectSession:extra?.projectSession
   });
   showModal("textModal",{initialFocus:sceneTextEditor.view.dom});
   trackerFor("textModal").captureInitialState();

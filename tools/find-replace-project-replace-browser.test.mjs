@@ -43,7 +43,15 @@ const project={
     scene("d21-history","История","chapter-1","Кот сидел."),
     scene("d21-conflict","Конфликт","chapter-1","Барсук ходил."),
     scene("d21-excluded","Скрытая","chapter-unassigned","Выдра плыла.",{included:false}),
-    scene("d21-dirty","Форма","chapter-1","Ёж бежал.")
+    scene("d21-dirty","Форма","chapter-1","Ёж бежал."),
+    // Goal A (session preservation): three scenes, none mounted anywhere at
+    // the start, each with its own "кошка" occurrence -- every explicit
+    // project-result navigation between them is case B (opens a scene
+    // nowhere previously mounted), exactly the scenario the project-wide
+    // Find/Replace session must survive.
+    scene("d21-sess-1","Сессия 1","chapter-1","Кошка сидела на окне."),
+    scene("d21-sess-2","Сессия 2","chapter-1","Кошка спала на диване."),
+    scene("d21-sess-3","Сессия 3","chapter-1","Кошка гуляла во дворе.")
   ]
 };
 
@@ -63,8 +71,11 @@ try{
   // ============================================================
   // PART 1: end-to-end single Replace via standalone "Текст сцены" --
   // real click -> real commitDataChange persistence -> fresh project search
-  // -> the replace's own mounted-view sync is NOT a ProseMirror undo entry
-  // (Ctrl+Z only ever reaches the editor's OWN prior real edit).
+  // -> (Stage D2.1.1, Goal B) the Replace becomes a NORMAL, undo-able
+  // transaction in the active target editor: one Ctrl+Z undoes exactly the
+  // Replace (never skipping past it), redo restores it, and the resulting
+  // undo is a local, unsaved editor change (dirty), never an automatic
+  // persistence rollback.
   // ============================================================
   {
     const page=await freshPage();
@@ -106,17 +117,33 @@ try{
       if(!/не найдено/i.test(hint))throw new Error(`Expected a fresh "no matches" state after the replacement removed the only match, got: ${hint}`);
     }
 
-    // addToHistory:false proof: one Ctrl+Z must undo the ORIGINAL typed
-    // edit (jumping straight past the Replace's own synchronization, which
-    // must never have become its own undo step), landing on the PRE-EDIT
-    // text -- never on "Кот сидел. Ещё текст." (what a buggy
-    // addToHistory:true sync would incorrectly revert to first).
+    // Goal B (Stage D2.1.1): in the ACTIVE target editor, the Replace itself
+    // is now an ORDINARY, undo-able transaction -- one Ctrl+Z immediately
+    // after must undo exactly that Replace, leaving the EARLIER manual edit
+    // in place (never skipping past it the way D2.1's own addToHistory:false
+    // sync used to).
     await page.locator("#fullSceneTextEditor .ProseMirror").focus();
     await page.keyboard.press("Control+z");
     await page.waitForTimeout(60);
     const afterUndo=await editorText(page,"#fullSceneTextEditor");
-    if(afterUndo!=="Кот сидел.")
-      throw new Error(`Expected one Ctrl+Z to undo the ORIGINAL typed edit only (addToHistory:false on the Replace sync), got: ${JSON.stringify(afterUndo)}`);
+    if(afterUndo!=="Кот сидел. Ещё текст.")
+      throw new Error(`Expected one Ctrl+Z to undo the Replace itself, leaving the earlier manual edit in place, got: ${JSON.stringify(afterUndo)}`);
+
+    // Undo is a normal LOCAL editor change under the existing dirty/save
+    // model -- it must make the tracker dirty, and must NEVER auto-persist
+    // (no cloud rollback, no project-operation undo log): canonical state
+    // still shows the committed Replace until an explicit Save.
+    if(!await page.evaluate(()=>trackerFor("textModal").isDirty()))
+      throw new Error("Undoing the committed Replace must make the tracker dirty (an ordinary local edit)");
+    if((await sceneTextOf(page,"d21-history"))!=="Кот сидел. Ещё слово.")
+      throw new Error("Undo must be a LOCAL editor change only -- canonical persisted state must still show the committed Replace until an explicit Save");
+
+    // Redo restores the Replace, ordinary prosemirror-history behavior.
+    await page.keyboard.press("Control+y");
+    await page.waitForTimeout(60);
+    const afterRedo=await editorText(page,"#fullSceneTextEditor");
+    if(afterRedo!=="Кот сидел. Ещё слово.")
+      throw new Error(`Expected redo to restore the Replace, got: ${JSON.stringify(afterRedo)}`);
 
     await page.close();
   }
@@ -232,6 +259,191 @@ try{
     await page.waitForTimeout(30);
     if(await isSceneModalDirty())
       throw new Error("Reverting the title too must make the tracker fully clean again -- proving the earlier text-only rebase did not silently accept the title edit, and did not full-reset the baseline either");
+
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 5 (Stage D2.1.1, Goal A -- Test A "session preservation"): explicit
+  // project-result navigation from a scene where Find/Replace was opened to
+  // a DIFFERENT scene nowhere previously mounted (case B) must carry the
+  // whole project-wide Find/Replace session over: panel visible, scope
+  // still "Весь проект", query/replacement/case option preserved, a fresh
+  // global result list, the clicked result active or a fresh corresponding
+  // active result, its match highlighted, and Replace immediately usable.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d21-sess-1"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","кошка");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","собака");
+    await page.waitForTimeout(60);
+
+    const summaryBefore=await page.locator("#textModal .rte-project-results-summary").textContent();
+    if(!/3\s*совпадени/.test(summaryBefore)||!/3\s*сцен/.test(summaryBefore))
+      throw new Error(`Expected 3 matches across 3 scenes before navigating, got: ${summaryBefore}`);
+
+    // Click the result belonging to Сессия 2 -- a scene mounted nowhere yet
+    // (case B): this closes/replaces the standalone modal's own DOM, so the
+    // ORIGINAL #fullSceneTextFindReplace container is gone -- everything
+    // checked below is against whatever now exists at that same id (the
+    // NEW mount).
+    await page.locator("#textModal .rte-project-results .rte-project-result-group",{hasText:"Сессия 2"}).locator(".rte-project-result-row").first().click();
+    await page.waitForTimeout(150);
+
+    if(!await page.locator("#textModal").isVisible())throw new Error("Expected the standalone modal to still be showing (now for Сессия 2)");
+    if((await page.evaluate(()=>textEditingSceneId))!=="d21-sess-2")
+      throw new Error("Expected navigation to have actually landed on Сессия 2");
+    if(!await page.locator("#fullSceneTextFindReplace").isVisible())
+      throw new Error("The Find/Replace panel must remain visible on the destination -- not just passive highlights with the control surface gone");
+    const isProjectScope=await page.locator("#fullSceneTextFindReplace .rte-scope-project").getAttribute("aria-checked");
+    if(isProjectScope!=="true")throw new Error('Expected scope to remain "Весь проект" on the destination');
+    if((await page.locator("#fullSceneTextFindReplace .rte-find-input").inputValue())!=="кошка")
+      throw new Error("Expected the search query to survive the navigation");
+    if((await page.locator("#fullSceneTextFindReplace .rte-replace-input").inputValue())!=="собака")
+      throw new Error("Expected the replacement text to survive the navigation");
+
+    const summaryAfter=await page.locator("#textModal .rte-project-results-summary").textContent();
+    if(!/3\s*совпадени/.test(summaryAfter)||!/3\s*сцен/.test(summaryAfter))
+      throw new Error(`Expected the SAME global 3-matches-across-3-scenes summary on the destination, got: ${summaryAfter}`);
+
+    const activeRow=page.locator("#textModal .rte-project-result-row.active");
+    if(await activeRow.count()!==1)throw new Error("Expected exactly one active result row on the destination");
+    const activeGroupHeader=await activeRow.locator("xpath=preceding-sibling::div[contains(@class,'rte-project-result-scene-header')][1]").textContent().catch(()=>null);
+    // Fall back to a coarser check if the xpath sibling lookup isn't
+    // supported in this Playwright build -- the decisive assertion is the
+    // highlighted selection check right below anyway.
+    if(activeGroupHeader&&!activeGroupHeader.includes("Сессия 2"))
+      throw new Error(`Expected the active result to belong to Сессия 2, got group header: ${activeGroupHeader}`);
+
+    // The destination's matching text is actually selected/highlighted.
+    const selectionText=await page.evaluate(()=>{
+      const view=document.getElementById("fullSceneTextEditor").querySelector(".ProseMirror");
+      const sel=window.getSelection();
+      return sel&&sel.toString();
+    });
+    if(!/кошка/i.test(selectionText||""))
+      throw new Error(`Expected the destination's own match to be selected/highlighted, got selection: ${JSON.stringify(selectionText)}`);
+
+    if(await page.locator("#fullSceneTextFindReplace .rte-replace-one").isDisabled())
+      throw new Error("Заменить must be immediately usable for the active result on the destination");
+    if(!await page.locator("#fullSceneTextFindReplace .rte-replace-all").isDisabled())
+      throw new Error("Заменить все must remain disabled -- Replace All is still out of scope");
+
+    // Pressing Replace changes exactly that match, and a fresh global
+    // search follows.
+    await page.click("#fullSceneTextFindReplace .rte-replace-one");
+    await page.waitForTimeout(120);
+    if((await sceneTextOf(page,"d21-sess-2"))!=="собака спала на диване.")
+      throw new Error(`Expected Сессия 2's own match to be replaced, got: ${JSON.stringify(await sceneTextOf(page,"d21-sess-2"))}`);
+    const summaryAfterReplace=await page.locator("#textModal .rte-project-results-summary").textContent();
+    if(!/2\s*совпадени/.test(summaryAfterReplace))
+      throw new Error(`Expected a fresh global count of 2 remaining matches, got: ${summaryAfterReplace}`);
+
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 6 (Goal A -- Test B "multiple hops"): Сессия 1 -> Сессия 2 -> then
+  // a SECOND explicit case-B navigation to Сессия 3 -- the same logical
+  // session must continue (no duplicated panel/controller state, no stale
+  // Сессия-1-only session).
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d21-sess-1"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","кошка");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","собака");
+    await page.waitForTimeout(60);
+
+    await page.locator("#textModal .rte-project-results .rte-project-result-group",{hasText:"Сессия 2"}).locator(".rte-project-result-row").first().click();
+    await page.waitForTimeout(150);
+    if((await page.evaluate(()=>textEditingSceneId))!=="d21-sess-2")throw new Error("First hop did not land on Сессия 2");
+
+    // Second hop, FROM the destination of the first one.
+    await page.locator("#textModal .rte-project-results .rte-project-result-group",{hasText:"Сессия 3"}).locator(".rte-project-result-row").first().click();
+    await page.waitForTimeout(150);
+    if((await page.evaluate(()=>textEditingSceneId))!=="d21-sess-3")throw new Error("Second hop did not land on Сессия 3");
+
+    if((await page.locator("#fullSceneTextFindReplace .rte-find-input").inputValue())!=="кошка")
+      throw new Error("Query must still be preserved after the SECOND hop");
+    if((await page.locator("#fullSceneTextFindReplace .rte-replace-input").inputValue())!=="собака")
+      throw new Error("Replacement text must still be preserved after the SECOND hop");
+    if((await page.locator("#fullSceneTextFindReplace .rte-scope-project").getAttribute("aria-checked"))!=="true")
+      throw new Error('Scope must still be "Весь проект" after the SECOND hop');
+
+    // No duplicated/stale state: exactly one find-replace panel exists in
+    // the document, and it's the live one for Сессия 3.
+    if(await page.locator(".rte-find-replace:not([hidden])").count()!==1)
+      throw new Error("Expected exactly one visible Find/Replace panel after two hops -- no duplicated session state");
+
+    await page.click("#fullSceneTextFindReplace .rte-replace-one");
+    await page.waitForTimeout(120);
+    if((await sceneTextOf(page,"d21-sess-3"))!=="собака гуляла во дворе.")
+      throw new Error(`Expected Сессия 3's own match to be replaced after the multi-hop session handoff, got: ${JSON.stringify(await sceneTextOf(page,"d21-sess-3"))}`);
+
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 7 (Goal A -- Test C "dirty guard"): the existing unsaved-change
+  // protection must remain authoritative during project-result navigation.
+  // Cancelling it must leave the CURRENT scene and its Find/Replace session
+  // exactly as they were; proceeding (discard) must navigate normally and
+  // hand the session to the destination.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d21-sess-1"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","кошка");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","собака");
+    await page.waitForTimeout(60);
+
+    // An unrelated, unsaved edit to Сессия 1's OWN text -- makes textModal
+    // dirty without touching the search/replace fields themselves.
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Ещё немного.");
+    await page.waitForTimeout(30);
+    if(!await page.evaluate(()=>trackerFor("textModal").isDirty()))
+      throw new Error("Setup: the unrelated text edit must have made the modal dirty");
+
+    // Attempt to navigate to Сессия 2 -- the existing guard must appear.
+    await page.locator("#textModal .rte-project-results .rte-project-result-group",{hasText:"Сессия 2"}).locator(".rte-project-result-row").first().click();
+    await page.waitForSelector("#discardChangesModal",{state:"visible"});
+
+    // Cancellation: remain in Сессия 1, session untouched.
+    await page.click("#continueEditing");
+    await page.waitForTimeout(60);
+    if((await page.evaluate(()=>textEditingSceneId))!=="d21-sess-1")
+      throw new Error("Cancelling the dirty guard must NOT change which scene is being edited");
+    if((await editorText(page,"#fullSceneTextEditor"))!=="Кошка сидела на окне. Ещё немного.")
+      throw new Error("Cancelling the dirty guard must NOT discard the unsaved edit");
+    if((await page.locator("#fullSceneTextFindReplace .rte-find-input").inputValue())!=="кошка"||
+       (await page.locator("#fullSceneTextFindReplace .rte-replace-input").inputValue())!=="собака"||
+       (await page.locator("#fullSceneTextFindReplace .rte-scope-project").getAttribute("aria-checked"))!=="true")
+      throw new Error("Cancelling the dirty guard must leave the current Find/Replace session exactly as it was");
+
+    // Now proceed (discard) -- navigation succeeds normally and the session
+    // is handed to the destination, exactly like an undirtied navigation.
+    await page.locator("#textModal .rte-project-results .rte-project-result-group",{hasText:"Сессия 2"}).locator(".rte-project-result-row").first().click();
+    await page.waitForSelector("#discardChangesModal",{state:"visible"});
+    await page.click("#discardChanges");
+    await page.waitForTimeout(150);
+    if((await page.evaluate(()=>textEditingSceneId))!=="d21-sess-2")
+      throw new Error("Proceeding (discard) must navigate to Сессия 2 normally");
+    if((await page.locator("#fullSceneTextFindReplace .rte-find-input").inputValue())!=="кошка"||
+       (await page.locator("#fullSceneTextFindReplace .rte-replace-input").inputValue())!=="собака")
+      throw new Error("The destination must receive the session after a successful (discard-confirmed) navigation");
 
     await page.close();
   }

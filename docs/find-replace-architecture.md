@@ -3,14 +3,17 @@
 Status: **Stage A** (atomic cloud persistence foundation), **Stage B**
 (headless matching/replacement engine), **Stage C** (current-scene panel,
 shortcuts, highlighting, Replace/Replace All, across all three rich-text
-surfaces), **Stage D1** (project-wide search, results, navigation) and
-**Stage D2.1** (safe single Replace in project scope) are implemented.
-Project-wide **Replace All** is explicitly **not** implemented yet — the
-panel's "Заменить все" stays disabled in "Весь проект" scope with an
-explanatory title; `bulkUpdateSceneText` and its migration remain unwired/
-unapplied. This document records the decisions those later stages must
-follow; it is deliberately not a full UI spec — unfinished UI details are not
-documented here until they're built.
+surfaces), **Stage D1** (project-wide search, results, navigation),
+**Stage D2.1** (safe single Replace in project scope) and **Stage D2.1.1**
+(the project-wide Find/Replace session survives explicit cross-scene result
+navigation; a Single Replace is an ordinary, undo-able edit in the scene's
+active editor) are implemented. Project-wide **Replace All** is explicitly
+**not** implemented yet — the panel's "Заменить все" stays disabled in
+"Весь проект" scope with an explanatory title; `bulkUpdateSceneText` and its
+migration remain unwired/unapplied, and there is still no project-level/
+multi-scene Undo. This document records the decisions those later stages
+must follow; it is deliberately not a full UI spec — unfinished UI details
+are not documented here until they're built.
 
 ## Stage D1: project-wide search, results, navigation (this stage)
 
@@ -787,17 +790,201 @@ state.test.mjs` covers `rebaseExtra` directly for both the single-doc and
 docs-map tracker shapes.
 `tools/find-replace-project-replace-browser.test.mjs` (new) proves the same
 end to end against the real running app: a real click → real
-`commitDataChange` persistence → fresh search → a genuine `addToHistory:
-false` proof (one Ctrl+Z after a Replace undoes an EARLIER real typed edit,
-never the Replace itself) → a real mounted-state conflict (reproduced via
-this app's own existing "close via Escape/backdrop leaves a hidden, still-
-registered surface" pattern, the same one Stage D1's own hardening passes
-exercise) → `included:false` → dirty-baseline behavior in a real Scene-modal
-form (an unrelated pending title edit survives the text-only rebase).
+`commitDataChange` persistence → fresh search → a real mounted-state
+conflict (reproduced via this app's own existing "close via Escape/backdrop
+leaves a hidden, still-registered surface" pattern, the same one Stage D1's
+own hardening passes exercise) → `included:false` → dirty-baseline behavior
+in a real Scene-modal form (an unrelated pending title edit survives the
+text-only rebase).
 `tools/find-replace-project-search-browser.test.mjs`'s own Replace-lockout
 assertion was updated (not reverted) to match this stage's intentional
 behavior change — "Заменить" is now expected enabled once a project-scope
 query has an active match; "Заменить все" stays disabled.
+
+**Superseded by Stage D2.1.1 below:** this stage's own original undo
+behavior — "one Ctrl+Z after a Replace undoes an EARLIER real typed edit,
+never the Replace itself" (`syncMountedRegistrations` dispatching
+`addToHistory:false` into EVERY mounted registration, including the one the
+user was actively looking at) — was a deliberate D2.1 decision, but manual
+acceptance changed the product rule: see Stage D2.1.1 for the current,
+correct behavior (the active target editor's own Replace IS now a normal,
+undo-able edit). The mounted-state agreement gate, stale-match
+re-resolution, `included:false` handling, and cloud/local persistence paths
+described above are all unchanged by D2.1.1 and remain accurate as written.
+
+## Stage D2.1.1: UX/Undo follow-up for project-wide Single Replace (this stage)
+
+Manual acceptance of Stage D2.1 found two gaps before it could be considered
+complete — both fixed in place, same files, no new stage number beyond this
+one:
+
+**Finding 1 — the project-wide Find/Replace session was lost after
+navigating to another scene.** Clicking a project result for a scene mounted
+nowhere (`find-replace-navigation.js`'s case B) opened a brand-new
+`mountSceneEditor()` call, which created its own, independent, EMPTY
+`find-replace-controller.js` instance — the originating controller's own
+query/replacement/scope/results stayed behind, hidden, on the
+now-backgrounded surface. The destination showed passive highlights only,
+with no way to press "Заменить" for what the user had just clicked.
+
+**Finding 2 — project-wide Single Replace did not participate in the
+scene's normal Undo history.** `syncMountedRegistrations` dispatched
+`addToHistory:false` into EVERY mounted registration uniformly, including
+whichever one the user was actively looking at. Manual UX review changed
+the product decision: a project-wide Single Replace changes exactly one
+scene and should behave like an ordinary text edit THERE — Ctrl/Cmd+Z
+immediately after should undo it, like any other edit.
+
+### Fix 1: session handoff via the existing `openSceneForEditing` hook (Goal A)
+
+The smallest point where the current project-wide session could be handed to
+a freshly-created controller turned out to be the SAME hook case B already
+calls to open the destination (`openSceneForEditing`) — no new global state,
+no parallel copies, one explicit object passed through the existing call
+chain:
+
+- `find-replace-controller.js`'s `triggerProjectNavigation()` now passes
+  `replaceText` alongside the query/caseSensitive it already sent to
+  `navigateToSceneMatch`.
+- `find-replace-navigation.js`'s `navigateToSceneMatch` builds one small,
+  caller-owned object — `projectSession = {query, caseSensitive,
+  replaceText, target:{sceneId,from,to,text,occurrenceIndex}}` — and hands
+  it as a second argument to `openSceneForEditing(sceneId, {projectSession})`
+  whenever case B has to open a scene nowhere previously mounted. Case A
+  (already visibly mounted) needs no handoff at all — since this app only
+  ever shows one editing surface at a time, case A can only ever target a
+  scene already inside the SAME controller that's searching, so it already
+  preserves everything by construction (unchanged from Stage D1).
+- The hook's real implementations (`openSceneText`/`openSceneTextNow` in
+  `js/scenes.js`, and the `openSceneForEditing` bindings in
+  `js/scenes.js`/`js/import-export.js`) now accept and forward this second
+  `extra` argument unchanged — a caller that omits it (every pre-D2.1.1 call
+  site) behaves exactly as before. Existing unsaved-change protection is
+  untouched and runs FIRST: `openSceneText`'s own
+  `requestEditorTransition`/`confirmDiscardIfDirty` dirty guard still gates
+  the whole open — `projectSession` only ever reaches the destination mount
+  if the transition actually proceeds, so cancelling the guard neither
+  adopts a session anywhere nor perturbs the originating one.
+- `scene-editor-controller.js`'s `mountSceneEditor` gained an optional
+  `projectSession` parameter, forwarded straight from `openSceneTextNow`.
+  Right after creating the new controller (and BEFORE `attachView`, so the
+  first `recomputeAndReveal()` that `attachView` triggers already runs with
+  the adopted state), it calls the controller's new
+  `adoptProjectSession(session)`: sets `scope="project"`,
+  `query`/`replaceText`/`caseSensitive` from the session, `open_=true`, and
+  stashes `session.target` as `pendingActiveTarget` — deliberately NOT a
+  copy of the originating controller's `projectResult`/active index (a
+  fresh `searchProject()` runs instead, since canonical project data may
+  have moved on and Find/Replace never trusts a stale result snapshot for
+  anything beyond rendering/navigation).
+- `recomputeProject()`'s existing "genuinely fresh activation" branch
+  (`activeProjectMatchIndex` was `-1`) now prefers `pendingActiveTarget`
+  (resolved against the fresh `flat` list via
+  `find-replace-project-search.js`'s new `reresolveFlatMatchIndex` — the
+  same exact-match-then-occurrenceIndex-fallback policy `reresolveMatch`
+  already uses for a single doc, applied here to a flat project-match list)
+  over the existing caret-relative `pickInitialProjectMatchIndex` guess,
+  which stays the fallback for every other fresh-activation case (a plain
+  `open()`, or a target that can no longer be resolved at all).
+- `applyProjectDecorations()`/`applyProjectDecorations`-driven decorations
+  (unchanged) then correctly highlight the destination the same way they
+  already do for any project search result — `find-replace-navigation.js`'s
+  own `applyFallbackSceneDecorations` (built for the pre-D2.1.1 case where
+  the destination controller had no project state at all) is left in place,
+  unconditionally, as a harmless, idempotent defensive backstop — it
+  recomputes and dispatches the identical decoration set the destination
+  controller's own `recomputeProject()` already applied a moment earlier
+  (`handleTransaction`'s own `findReplacePluginKey` meta check already
+  ignores it as "our own dispatch", so it never triggers a redundant
+  recompute either).
+
+This is a one-shot handoff: the object exists only for the duration of one
+`navigateToSceneMatch` call, nothing retains a reference back to the
+originating controller, and a controller that's never handed a session
+(every non-case-B mount) behaves exactly as it did before D2.1.1.
+
+### Fix 2: the active target editor's Replace is a normal, undo-able edit (Goal B)
+
+`find-replace-project-replace.js`'s synchronization internals were split
+into a shared `buildSyncTransaction(view, committedDoc, {resolvedMatch,
+replacementText})` (unchanged logic: prefers the verified-safe localized
+`replaceOneMatch` replay, falls back to a whole-document replace only for a
+genuinely diverged view — see Stage D2.1's own history-preservation
+rationale, still fully in force) and two callers with different history
+semantics:
+
+- **`applyUndoableReplacement(view, committedDoc, {...})`** — for the ACTIVE
+  TARGET editor only. Dispatches the built transaction wrapped in
+  `prosemirror-history`'s own `closeHistory(tr)` (no `addToHistory:false`
+  at all) — a normal, undo-able transaction, deliberately forced into its
+  OWN undo group via `closeHistory` regardless of how little time elapsed
+  since the user's last real edit (`prosemirror-history`'s own time-based
+  grouping, `newGroupDelay` ≈500ms, would otherwise risk silently coalescing
+  a fast Find-panel interaction with whatever the author was just typing).
+  Returns `false` — doing nothing — when the replay can't be verified safe
+  against this exact view (a genuine divergence during the `saveSceneText`
+  await): the active editor's whole document is never replaced just to
+  manufacture an undo step, which could otherwise corrupt whatever's
+  already in its history.
+- **`syncMountedRegistrations(sceneId, committedDoc, {resolvedMatch,
+  replacementText, excludeView})`** — unchanged for every OTHER
+  ("secondary") registration: always `addToHistory:false`, never an undo
+  entry. `excludeView` skips whichever view `applyUndoableReplacement`
+  already handled, so it's never double-dispatched.
+- **Active-target identification** (`find-replace-controller.js`'s
+  `replaceProjectCurrent()`): `attachedSceneId === result.sceneId &&
+  isViewUsable(view)` — the controller's OWN existing attachment state,
+  never a heuristic. `attachedSceneId`/`view` are already set by whatever
+  navigation/activation brought the user to this exact scene (case-A
+  `activate()`, or this same controller's own `adoptProjectSession` +
+  `attachView` after a case-B open per Fix 1 above) — this is precisely
+  "the EditorView the user is currently looking at for this Replace", with
+  no new plumbing needed. If no mounted view is attached to this exact
+  scene at all (e.g. the active global match's own navigation had
+  previously failed/been declined), there is correctly no undo-able
+  target — the commit still succeeds, every existing mounted registration
+  (if any) is still synchronized (`addToHistory:false`), there is just no
+  editor-local undo entry for it, exactly as the product rule requires.
+
+**Persistence vs. undo, made explicit:** the Replace itself still persists
+immediately through the same D2.1 canonical write path
+(`updateSceneText`/`commitDataChange`, never `bulkUpdateSceneText`) —
+nothing about WHEN or WHETHER it's saved changes. Undo only ever changes the
+ACTIVE EDITOR's live, in-memory document locally; `js/dirty-state.js`'s
+existing pull-based `isDirty()` (comparing current `getState()` against the
+baseline `rebaseSceneDirtyBaseline` already rebased to the committed text)
+then naturally reports the editor as dirty again the instant the live doc no
+longer matches that baseline — no new dirty-tracking code was needed for
+this. Undo never issues a persistence rollback and never triggers an
+automatic re-save; the reverted text can be persisted again only through the
+existing, ordinary Save flow.
+
+Project-wide **Replace All still has no project-level Undo in D2** — this
+slice only makes a SINGLE scene's own Replace an ordinary local edit in
+whichever one editor represents it; nothing here introduces any
+multi-scene/project-wide undo concept.
+
+Regression coverage: `tools/find-replace-project-replace.test.mjs` gained
+`applyUndoableReplacement` unit coverage (using real `prosemirror-history`-
+enabled `EditorState`s, not just meta-flag inspection) — a verified-safe
+replay becomes exactly one isolated undo/redo step even with an unrelated
+prior edit already in the same view's history; an unverifiable replay is
+correctly refused rather than forced; and a controller-level test with TWO
+mounted registrations of one scene proves the active one alone gets the
+undo-able transaction while the secondary one only ever gets
+`addToHistory:false` updates. `tools/find-replace-project-replace-
+browser.test.mjs`'s own Part 1 was rewritten (superseding its D2.1-era
+"undo skips the Replace" assertion) to prove one Ctrl+Z now undoes exactly
+the Replace, redo restores it, the undo makes the scene dirty, and canonical
+persisted state is untouched by the undo. New Parts prove session
+preservation end to end: a single case-B hop, two consecutive hops with no
+duplicated/stale panel state, and the dirty guard — cancelling a guarded
+navigation leaves the current scene and its Find/Replace session completely
+intact, while proceeding (discard) hands the session to the destination
+normally. `tools/find-replace-project-search-browser.test.mjs`'s existing
+suite (Stage D1) was re-run unchanged and remains green — case-B
+navigation's core mount/registry/decoration behavior it already covers was
+not altered by this stage, only extended.
 
 ## Stage B: the matching/replacement engine (`js/editor/find-replace-model.js`, `js/editor/find-replace-text.js`)
 

@@ -101,10 +101,28 @@ function applyFallbackSceneDecorations(view,query,caseSensitive,resolvedMatch){
 // the user declined an unsaved-changes prompt or similar, and navigation
 // stops there without pretending to have navigated).
 //
+// Find/Replace Stage D2.1.1 (Goal A): options.replaceText, together with
+// query/caseSensitive, is bundled into a small `projectSession` object
+// (`{query,caseSensitive,replaceText,target}`) and handed to
+// `openSceneForEditing` as a second argument whenever case B has to open a
+// scene nowhere previously mounted -- the ONE existing hook this app already
+// has for "open this scene for editing" is also the smallest point where the
+// current project-wide Find/Replace session can be handed to whatever fresh
+// controller that open ends up creating (see
+// find-replace-controller.js's adoptProjectSession, and
+// scene-editor-controller.js's mountSceneEditor, which is the one place that
+// actually threads it through to that new controller before attaching the
+// view). This is a plain, caller-owned, one-shot object -- never a new
+// global/state-sharing mechanism, and callers that don't pass
+// `openSceneForEditing` a version that understands the second argument are
+// unaffected (existing callers elsewhere in the app -- e.g. opening a scene
+// from a plain scene card -- simply never construct a `projectSession` at
+// all, since only THIS function ever builds one).
+//
 // Returns {ok:true} on success, or {ok:false,reason} for every rejected case
 // -- callers decide how/whether to surface a reason; this function never
 // throws for an ordinary "can't navigate right now" outcome.
-export async function navigateToSceneMatch(sceneId,matchRange,{query,caseSensitive=false,openSceneForEditing}={}){
+export async function navigateToSceneMatch(sceneId,matchRange,{query,caseSensitive=false,replaceText="",openSceneForEditing}={}){
   let preferred=getPreferredLiveSceneView(sceneId);
   let mountedByFallback=false;
   // Modal-lifecycle regression fix: `preferred.status==="ok"` alone is NOT
@@ -132,9 +150,18 @@ export async function navigateToSceneMatch(sceneId,matchRange,{query,caseSensiti
   // treat it the same as "not mounted" and go through the real open flow
   // (case B), which correctly destroys the stale mount and runs the single-
   // surface transition before showing anything.
+  // Find/Replace Stage D2.1.1 (Goal A): built unconditionally -- this
+  // function is only ever reached from project-scope controller code
+  // (next()/previous()/activateProjectMatch(), all gated on scope==="project"
+  // -- see find-replace-controller.js), so a real project session always
+  // exists to hand off here. A caller/test that omits query entirely still
+  // produces a harmless, inert session object; adoptProjectSession treats an
+  // empty query the same as never having adopted one (recomputeProject's own
+  // existing `!query` guard already handles that).
+  const projectSession={query,caseSensitive,replaceText,target:{sceneId,from:matchRange.from,to:matchRange.to,text:matchRange.text,occurrenceIndex:matchRange.occurrenceIndex}};
   if(!preferred||preferred.status!=="ok"||!preferred.visible){
     if(typeof openSceneForEditing!=="function")return {ok:false,reason:"not-mounted"};
-    const opened=await openSceneForEditing(sceneId);
+    const opened=await openSceneForEditing(sceneId,{projectSession});
     if(!opened)return {ok:false,reason:"open-declined"};
     preferred=getPreferredLiveSceneView(sceneId);
     if(!preferred||preferred.status!=="ok")return {ok:false,reason:"open-failed"};

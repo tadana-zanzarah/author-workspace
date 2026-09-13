@@ -207,4 +207,30 @@ export function reresolveMatch(currentDoc,query,{caseSensitive=false}={},{from,t
   return null;
 }
 
+// Find/Replace Stage D2.1.1: the project-wide-flat-list counterpart of
+// reresolveMatch above -- same stale-safety policy (exact match, then
+// positional occurrenceIndex within the SAME scene, else give up), applied
+// to a `flattenProjectMatches` result instead of a single doc's own fresh
+// matches. Used when a project-wide Find/Replace session is handed off to a
+// brand-new controller instance (project-result navigation that mounts a
+// scene nowhere previously open -- see find-replace-navigation.js/
+// find-replace-controller.js's adoptProjectSession) and that controller's
+// own FIRST project search needs to land its active match back on the exact
+// result the user actually clicked/navigated to, never on whatever a plain
+// caret-relative guess would pick (the destination view has just been
+// freshly mounted, so its "caret" carries no meaningful signal here).
+// Returns -1 (never throws, never guesses further) when `target` can no
+// longer be resolved at all -- callers fall back to their own existing
+// "nothing to compare against" default.
+export function reresolveFlatMatchIndex(flat,{sceneId,from,to,text,occurrenceIndex}){
+  const exactIndex=flat.findIndex(match=>match.sceneId===sceneId&&match.from===from&&match.to===to&&match.text===text);
+  if(exactIndex>=0)return exactIndex;
+  if(Number.isInteger(occurrenceIndex)){
+    const sceneMatches=flat.filter(match=>match.sceneId===sceneId);
+    const byOccurrence=sceneMatches[occurrenceIndex];
+    if(byOccurrence)return flat.indexOf(byOccurrence);
+  }
+  return -1;
+}
+
 export {buildMatchSnippet};

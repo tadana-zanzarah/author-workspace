@@ -21,9 +21,9 @@
 // matching/replacement logic is duplicated or reimplemented here.
 import {findMatches,replaceOneMatch,replaceAllMatches} from "./find-replace-model.js";
 import {findReplacePluginKey,buildMatchDecorations} from "./find-replace-decorations.js";
-import {searchProject,flattenProjectMatches} from "./find-replace-project-search.js";
+import {searchProject,flattenProjectMatches,reresolveFlatMatchIndex} from "./find-replace-project-search.js";
 import {getMountedSceneRegistrations} from "./mounted-scene-registry.js";
-import {replaceProjectMatch,syncMountedRegistrations} from "./find-replace-project-replace.js";
+import {replaceProjectMatch,syncMountedRegistrations,applyUndoableReplacement} from "./find-replace-project-replace.js";
 import {TextSelection} from "prosemirror-state";
 
 function isViewUsable(view){
@@ -189,6 +189,17 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   let scope="scene";
   let projectResult=null; // last searchProject() result, or null
   let activeProjectMatchIndex=-1; // index into flattenProjectMatches(projectResult)
+  // Find/Replace Stage D2.1.1: set (only) by adoptProjectSession below, for
+  // exactly one upcoming recomputeProject() -- see that function's own
+  // "fresh activation" branch. Carries the {sceneId,from,to,text,
+  // occurrenceIndex} of the specific match a project-result navigation was
+  // headed for, so a BRAND-NEW controller (mounted fresh as the destination
+  // of a project-result click that had to open a scene nowhere previously
+  // open) can land its own active match on that exact result instead of a
+  // meaningless caret-relative guess against a just-mounted, empty-caret
+  // view. Cleared the instant it's consumed (or found unresolvable) so it
+  // can never leak into a later, unrelated recompute.
+  let pendingActiveTarget=null;
   // Every EditorView currently carrying a project-scope decoration set --
   // see applyProjectDecorations/clearAllProjectDecorations below. Tracked
   // explicitly (rather than re-deriving it) so a scene that drops OUT of the
@@ -468,9 +479,25 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // that never wired project search in) degrades to an inert empty result
   // rather than throwing, matching every other optional-dependency guard in
   // this file.
+  // Find/Replace Stage D2.1.1: which match should become active on a
+  // genuinely FRESH project-scope activation (activeProjectMatchIndex was
+  // -1). Prefers `pendingActiveTarget` (an exact result a project-session
+  // handoff is aiming for -- see adoptProjectSession) when it can still be
+  // resolved against the fresh `flat` list; falls back to the existing
+  // caret-relative pickInitialProjectMatchIndex policy otherwise (covers
+  // every pre-D2.1.1 fresh-activation case unchanged, and the case where
+  // the target itself can no longer be found).
+  function resolveFreshProjectActiveIndex(flat){
+    if(pendingActiveTarget){
+      const resolved=reresolveFlatMatchIndex(flat,pendingActiveTarget);
+      if(resolved>=0)return resolved;
+    }
+    return pickInitialProjectMatchIndex(flat);
+  }
+
   function recomputeProject(){
     if(!open_||!query||typeof getProjectData!=="function"){
-      projectResult=null;activeProjectMatchIndex=-1;
+      projectResult=null;activeProjectMatchIndex=-1;pendingActiveTarget=null;
       applyProjectDecorations();
       notify();
       return;
@@ -488,8 +515,19 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     // Always resetting to index 0 here would silently clobber
     // activateProjectMatch's own just-set activeProjectMatchIndex back to
     // the FIRST result every time the user clicked anything else.
-    if(!flat.length)activeProjectMatchIndex=-1;
-    else if(activeProjectMatchIndex<0)activeProjectMatchIndex=pickInitialProjectMatchIndex(flat);
+    //
+    // Find/Replace Stage D2.1.1: a genuinely fresh activation (activeIndex
+    // was -1) prefers `pendingActiveTarget` (set by adoptProjectSession)
+    // over the caret-relative pickInitialProjectMatchIndex guess -- see
+    // pendingActiveTarget's own declaration comment. This is exactly the
+    // "genuinely fresh activation" case a brand-new, just-mounted controller
+    // hits on its own first recompute, so it needs no special re-entrancy
+    // handling beyond what this branch already has.
+    if(!flat.length){activeProjectMatchIndex=-1;pendingActiveTarget=null}
+    else if(activeProjectMatchIndex<0){
+      activeProjectMatchIndex=resolveFreshProjectActiveIndex(flat);
+      pendingActiveTarget=null;
+    }
     else if(activeProjectMatchIndex>=flat.length)activeProjectMatchIndex=0;
     applyProjectDecorations();
     notify();
@@ -564,12 +602,19 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // declined) is reported via the adapter's own return value, never a
   // thrown/rejected promise, so nothing here needs to react to it; `.catch`
   // is only a defensive backstop against a genuinely unexpected rejection.
+  //
+  // Find/Replace Stage D2.1.1: also passes `replaceText` (alongside the
+  // already-existing `query`/`caseSensitive`) -- navigateToSceneMatch bundles
+  // these three into the project-session it hands to adoptProjectSession
+  // when navigation has to open a scene nowhere previously open (case B).
+  // This controller never reaches into the destination directly; it only
+  // ever hands the adapter what it needs, exactly as before.
   function triggerProjectNavigation(){
     if(typeof navigateToSceneMatch!=="function")return;
     const flat=projectResult?flattenProjectMatches(projectResult):[];
     const target=flat[activeProjectMatchIndex];
     if(!target)return;
-    navigateToSceneMatch(target.sceneId,{from:target.from,to:target.to,text:target.text,occurrenceIndex:target.occurrenceIndex},{query,caseSensitive})?.catch?.(()=>{});
+    navigateToSceneMatch(target.sceneId,{from:target.from,to:target.to,text:target.text,occurrenceIndex:target.occurrenceIndex},{query,caseSensitive,replaceText})?.catch?.(()=>{});
   }
 
   // recompute() is deliberately PASSIVE: it never moves the selection or
@@ -622,6 +667,50 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
       .setMeta("addToHistory",false);
     view.dispatch(tr);
     revealDocPosition(view,match.from);
+  }
+
+  // Find/Replace Stage D2.1.1 (Goal A -- preserve the project-wide session
+  // across explicit cross-scene result navigation): hydrates a BRAND-NEW
+  // controller instance (one just created for a scene that had to be opened
+  // fresh -- find-replace-navigation.js's case B, "not mounted anywhere") in
+  // "Весь проект" scope with the ORIGINATING controller's own current query/
+  // replaceText/caseSensitive/target -- called once, by the mount code
+  // (scene-editor-controller.js's mountSceneEditor), BEFORE attachView so
+  // the FIRST recomputeProject that attachView's own recomputeAndReveal
+  // triggers already runs with the adopted query/scope/options rather than
+  // this controller's own empty defaults.
+  //
+  // Deliberately does NOT copy `projectResult`/`activeProjectMatchIndex`
+  // across -- the destination's own upcoming recomputeProject() runs a
+  // FRESH searchProject() instead (canonical project data may have moved on
+  // since the originating controller's own last search, and Find/Replace
+  // never trusts a stale result snapshot for anything beyond
+  // rendering/navigation -- see docs/find-replace-architecture.md). `target`
+  // (optional) is the specific match this session-transfer is aiming for --
+  // stashed as `pendingActiveTarget` so that upcoming fresh search lands its
+  // own active match on exactly that result (see
+  // resolveFreshProjectActiveIndex above) instead of a meaningless caret-
+  // relative guess against a view that was just mounted with no real caret
+  // history.
+  //
+  // This is a one-shot handoff, not a new state-sharing mechanism: `session`
+  // is a small, plain, caller-owned object (built fresh by
+  // find-replace-navigation.js for this one call) -- nothing here retains a
+  // reference back to the originating controller, and nothing here is a
+  // permanent global. A caller that never adopts a session (every existing
+  // mount path, and case B navigation with no active project session on the
+  // originating controller) leaves this a complete no-op, matching every
+  // other optional-dependency guard in this file.
+  function adoptProjectSession(session){
+    if(!session)return;
+    scope="project";
+    query=session.query||"";
+    replaceText=session.replaceText||"";
+    caseSensitive=!!session.caseSensitive;
+    open_=true;
+    matches=[];activeIndex=-1;
+    projectResult=null;activeProjectMatchIndex=-1;
+    pendingActiveTarget=session.target||null;
   }
 
   // attachView is also how a fresh mount first hands the controller its
@@ -938,11 +1027,36 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     // fresh search would return the exact same result -- skip it rather than
     // do needless decoration/dispatch work (product brief item 5).
     if(!result.changed)return result;
+    // Find/Replace Stage D2.1.1 (Goal B -- Single Replace must be undoable
+    // in the scene): the ACTIVE TARGET editor -- the EditorView this VERY
+    // controller is currently attached to, reused identity, never a
+    // heuristic -- gets a NORMAL, undo-able transaction for this exact
+    // replacement when it's the scene that was just replaced in. Every
+    // OTHER mounted registration of the same scene (a hidden prior surface,
+    // another simultaneous mount) only ever gets a synchronization-only
+    // update (addToHistory:false) -- never its own undo entry. Identifying
+    // "the active target" via `attachedSceneId===result.sceneId` (rather
+    // than "the first registration" or any other guess) is safe by
+    // construction: `attachedSceneId`/`view` are this controller's OWN
+    // attachment state, already set by whatever navigation/activation
+    // brought the user to this exact scene (case-A activate(), or this same
+    // controller's own adoptProjectSession+attachView after a case-B open)
+    // -- see this file's own attachedSceneId doc comment.
+    //
+    // If the replayed transform can't be verified safe against this view's
+    // OWN current doc (a genuine divergence during the one async gap in the
+    // flow -- see applyUndoableReplacement's own doc comment), it is NOT
+    // forced into an undo-able edit -- that would risk corrupting whatever
+    // else is already in this view's history. It falls through to the same
+    // safe synchronization-only treatment every secondary registration
+    // gets, via `excludeView` staying null.
+    const isActiveTarget=attachedSceneId===result.sceneId&&isViewUsable(view);
+    const activeHandled=isActiveTarget&&applyUndoableReplacement(view,result.doc,{resolvedMatch:result.resolvedMatch,replacementText:result.replacementText});
     // Only AFTER a confirmed successful commit: push the committed doc into
-    // every mounted registration for this scene (never just the attached
-    // one), then recompute project search from fresh canonical state --
-    // reusing the EXACT same recomputation path every other project-scope
-    // trigger already uses, never a manual patch of counts/offsets/snippets.
+    // every OTHER mounted registration for this scene (never just one), then
+    // recompute project search from fresh canonical state -- reusing the
+    // EXACT same recomputation path every other project-scope trigger
+    // already uses, never a manual patch of counts/offsets/snippets.
     // recomputeProject()'s own existing "keep the same numeric flat index,
     // clamped into the new range, else -1" policy is what selects the next
     // logical match here for free: removing the replaced match shifts every
@@ -950,7 +1064,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     // activeProjectMatchIndex value now names whatever match took its place
     // -- the same trick scene-scope replaceCurrent() already relies on via
     // ordinary recompute() (see that function's own comment).
-    syncMountedRegistrations(result.sceneId,result.doc,{resolvedMatch:result.resolvedMatch,replacementText:result.replacementText});
+    syncMountedRegistrations(result.sceneId,result.doc,{resolvedMatch:result.resolvedMatch,replacementText:result.replacementText,excludeView:activeHandled?view:null});
     recomputeProject();
     return result;
   }
@@ -965,7 +1079,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     attachView,detachView,handleTransaction,
     setQuery,setReplaceText,setCaseSensitive,
     open,close,next,previous,replaceCurrent,replaceAll,replaceProjectCurrent,
-    setScope,activateProjectMatch,
+    setScope,activateProjectMatch,adoptProjectSession,
     subscribe,getSnapshot:snapshot,
     get view(){return view}
   };

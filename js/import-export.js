@@ -58,7 +58,7 @@ function openAllScenesNow(){
     // call would steal focus back from a just-selected project-search match
     // (openModal() always re-schedules its own default-initial-focus
     // microtask, even when reopening an already-open modal).
-    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:sceneId=>openSceneText(sceneId),saveSceneText:saveSceneTextCanonical,rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline});
+    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra),saveSceneText:saveSceneTextCanonical,rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline});
     items.forEach(scene=>allScenesEditorGroup.mountScene(scene.id,{editorContainer:document.getElementById(`allSceneEditor-${scene.id}`),scene}));
   }
   showModal("allScenesModal");

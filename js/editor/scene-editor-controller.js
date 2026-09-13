@@ -64,10 +64,23 @@ function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableScene
 // surface's modal/container to the front (e.g. `()=>showModal("textModal")`)
 // -- this module has no modal/route knowledge itself; the registration's own
 // `activate()` just calls it, then focuses this editor.
-export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,saveSceneText=null,rebaseSceneDirtyBaseline=null}){
+// Find/Replace Stage D2.1.1 (Goal A): `projectSession` is optional -- given
+// only when this mount is the DESTINATION of a project-result navigation
+// that had to open a scene nowhere previously mounted (find-replace-
+// navigation.js's case B). Every pre-D2.1.1 caller/test that omits it keeps
+// working unchanged: `adoptProjectSession(null)` is a no-op (see that
+// method's own doc comment), so the new controller starts exactly as before
+// -- empty, scope "scene". This is the smallest point where the existing
+// global Find/Replace session can be handed to a freshly-created controller:
+// AFTER it exists (it needs to, to receive the session) but BEFORE
+// attachView runs its own first recomputeAndReveal (so that first project
+// search already reflects the adopted query/scope/options rather than the
+// controller's own defaults).
+export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,saveSceneText=null,rebaseSceneDirtyBaseline=null,projectSession=null}){
   editorContainer.innerHTML="";
   const doc=loadSceneDocument(sceneDocSchema,scene);
   const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,saveSceneText,rebaseSceneDirtyBaseline})):null;
+  findReplace?.adoptProjectSession(projectSession);
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
   const editor=createSceneEditor({

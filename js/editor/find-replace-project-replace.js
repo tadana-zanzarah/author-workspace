@@ -28,6 +28,7 @@ import {reresolveMatch} from "./find-replace-project-search.js";
 import {replaceOneMatch} from "./find-replace-model.js";
 import {getMountedSceneRegistrations} from "./mounted-scene-registry.js";
 import {Selection} from "prosemirror-state";
+import {closeHistory} from "prosemirror-history";
 
 function isViewUsable(view){
   return !!view&&!view.isDestroyed;
@@ -143,62 +144,118 @@ export async function replaceProjectMatch({sceneId,matchRange,query,caseSensitiv
   return {ok:true,changed:true,sceneId,doc:transform.doc,sceneText,sceneTextDoc,resolvedMatch:resolved,replacementText:replacementText||""};
 }
 
-// Pushes a just-committed doc into EVERY currently mounted registration for
-// this scene (never only the visible/preferred one -- product brief item 7:
-// "hidden-but-mounted registrations must not remain stale"). A registration
-// whose view already shows the exact committed content is left untouched
-// (no unnecessary doc mutation/history disturbance). Every dispatch is
-// tagged `addToHistory:false` -- this is an externally committed project
-// operation, never a ProseMirror undo entry in any editor (Ctrl/Cmd+Z must
-// keep referring only to that editor's own ordinary history).
+// Shared computation for "bring `view` to `committedDoc`" -- used both by
+// the ACTIVE target editor (Stage D2.1.1: gets a normal, undo-able
+// transaction) and by every OTHER ("secondary") mounted registration of the
+// same scene (Stage D2.1: synchronization-only, addToHistory:false). Neither
+// history semantics nor dispatch happens here -- the caller decides both;
+// this function only ever builds a transaction or returns null.
 //
-// `resolvedMatch`/`replacementText` (both optional -- callers with neither,
-// e.g. tests exercising this function in isolation, get the wholesale
-// fallback below unconditionally) are the SAME values replaceProjectMatch
-// just committed with. When given, the PREFERRED path replays that exact
-// localized replacement (via replaceOneMatch, never re-implemented) as this
-// registration's OWN small transaction -- verified safe by checking the
-// replay's own resulting doc against `committedDoc` before using it. This
-// matters because a wholesale "replace the entire document content" edit
-// (the fallback) maps every OTHER pending change already in that view's own
-// undo history through a transform that deletes and reinserts everything --
-// prosemirror-history's own rebasing can no longer safely preserve an
-// unrelated in-progress edit's undo entry across a change that drastic, even
-// though the wholesale edit itself still correctly never becomes its OWN
-// undo step. A small, localized replay (the same shape an ordinary user
-// edit would produce) leaves the rest of that view's history exactly as
-// rebaseable as any other unrelated edit would. The wholesale fallback is
-// still what guarantees correctness for a registration that genuinely
-// diverged during the one async gap in the whole flow (the `await
-// saveSceneText(...)` call) -- replaying stale positions against a doc that
-// changed underneath them could land on the wrong content, so the replay is
-// only trusted when it verifiably reproduces the exact committed result.
-export function syncMountedRegistrations(sceneId,committedDoc,{resolvedMatch=null,replacementText=null}={}){
+// `resolvedMatch`/`replacementText` (both optional -- a caller with neither
+// gets the wholesale fallback below unconditionally) are the SAME values
+// replaceProjectMatch just committed with. When given, the PREFERRED result
+// replays that exact localized replacement (via replaceOneMatch, never
+// re-implemented) as this view's OWN small transaction -- verified safe by
+// checking the replay's own resulting doc against `committedDoc` before
+// using it. This matters because a wholesale "replace the entire document
+// content" edit (the fallback) maps every OTHER pending change already in
+// that view's own undo history through a transform that deletes and
+// reinserts everything -- prosemirror-history's own rebasing can no longer
+// safely preserve an unrelated in-progress edit's undo entry across a
+// change that drastic. A small, localized replay (the same shape an
+// ordinary user edit would produce) leaves the rest of that view's history
+// exactly as rebaseable as any other unrelated edit would. The wholesale
+// fallback is still what guarantees correctness for a registration that
+// genuinely diverged during the one async gap in the whole flow (the
+// `await saveSceneText(...)` call) -- replaying stale positions against a
+// doc that changed underneath them could land on the wrong content, so the
+// replay is only trusted when it verifiably reproduces the exact committed
+// result.
+//
+// Returns `null` when `view` already shows `committedDoc` (nothing to do),
+// otherwise `{tr,isReplay}` -- `isReplay:true` means `tr` is the
+// verified-safe localized replacement (safe to treat as a normal, undo-able
+// edit); `false` means it's the wholesale fallback (synchronization-only,
+// must never be presented as the user's own edit -- see
+// applyUndoableReplacement below).
+function buildSyncTransaction(view,committedDoc,{resolvedMatch=null,replacementText=null}={}){
+  if(view.state.doc.eq(committedDoc))return null;
+  if(resolvedMatch&&replacementText!=null){
+    try{
+      const localTransform=replaceOneMatch(view.state.doc,resolvedMatch,replacementText);
+      if(localTransform.doc.eq(committedDoc)){
+        const tr=view.state.tr;
+        localTransform.steps.forEach(step=>tr.step(step));
+        return {tr,isReplay:true};
+      }
+    }catch{
+      // resolvedMatch's positions don't apply to this view's own current doc
+      // -- fall through to the wholesale fallback below.
+    }
+  }
+  const tr=view.state.tr.replaceWith(0,view.state.doc.content.size,committedDoc.content);
+  const oldHead=view.state.selection?.head??0;
+  const clampedHead=Math.max(0,Math.min(oldHead,tr.doc.content.size));
+  tr.setSelection(Selection.near(tr.doc.resolve(clampedHead)));
+  return {tr,isReplay:false};
+}
+
+// Stage D2.1.1: gives the ACTIVE TARGET editor (the EditorView the user is
+// actually looking at/interacting with for this Replace -- identified by
+// the controller's own attachedSceneId/view, never a heuristic; see
+// find-replace-controller.js's replaceProjectCurrent) a NORMAL, undo-able
+// transaction for this exact replacement, so Ctrl/Cmd+Z immediately after a
+// project-wide Single Replace undoes precisely that Replace, and redo
+// restores it -- ordinary prosemirror-history behavior, never a new undo
+// framework. Deliberately does NOT set `addToHistory:false`.
+//
+// Returns `true` when the active view has been correctly handled (either
+// just given the undo-able transaction, or it already showed the committed
+// doc already -- nothing left to do). Returns `false` when the localized
+// replay could not be verified safe (the view diverged during the async
+// save gap) -- the caller must NOT force a whole-document replace onto the
+// active editor merely to manufacture an undo step (that would risk
+// corrupting whatever else is already in its history); instead it falls
+// back to treating this view like any other secondary registration via
+// syncMountedRegistrations (addToHistory:false, no undo entry for this
+// Replace -- safe, just not undo-able in this rare edge case).
+export function applyUndoableReplacement(view,committedDoc,{resolvedMatch=null,replacementText=null}={}){
+  if(!isViewUsable(view))return false;
+  const built=buildSyncTransaction(view,committedDoc,{resolvedMatch,replacementText});
+  if(!built)return true; // already showing the committed doc
+  if(!built.isReplay)return false; // not verifiably safe as a normal edit
+  // closeHistory (prosemirror-history) guarantees this Replace starts its
+  // OWN undo group regardless of how little time elapsed since the user's
+  // last real edit -- without it, prosemirror-history's own time-based
+  // grouping (newGroupDelay, ~500ms) could silently coalesce a fast Find-
+  // panel interaction with whatever the author was just typing, so one
+  // Ctrl+Z would undo BOTH at once. Product rule (Stage D2.1.1, Goal B) is
+  // "Ctrl/Cmd+Z immediately after Replace undoes exactly that Replace" --
+  // this makes that deterministic, never timing-dependent. No addToHistory
+  // meta here -- this is a normal, undo-able transaction.
+  view.dispatch(closeHistory(built.tr));
+  return true;
+}
+
+// Pushes a just-committed doc into every OTHER currently mounted
+// registration for this scene (never only the visible/preferred one --
+// product brief item 7: "hidden-but-mounted registrations must not remain
+// stale"), as synchronization-only updates -- every dispatch here is tagged
+// `addToHistory:false`. `excludeView` (optional) is the ACTIVE target
+// editor already handled separately by applyUndoableReplacement above (or
+// `null` when there was no active target, or the active target's own replay
+// could not be verified safe -- in which case it is NOT excluded and is
+// synchronized here like any other registration, with no undo entry).
+export function syncMountedRegistrations(sceneId,committedDoc,{resolvedMatch=null,replacementText=null,excludeView=null}={}){
   const syncedRegistrationIds=[];
   for(const registration of getMountedSceneRegistrations(sceneId)){
     const view=registration.view;
     if(!isViewUsable(view))continue;
-    if(view.state.doc.eq(committedDoc))continue;
-    let tr=null;
-    if(resolvedMatch&&replacementText!=null){
-      try{
-        const localTransform=replaceOneMatch(view.state.doc,resolvedMatch,replacementText);
-        if(localTransform.doc.eq(committedDoc)){
-          tr=view.state.tr;
-          localTransform.steps.forEach(step=>tr.step(step));
-        }
-      }catch{
-        tr=null; // resolvedMatch's positions don't apply to this view's own current doc -- fall through
-      }
-    }
-    if(!tr){
-      tr=view.state.tr.replaceWith(0,view.state.doc.content.size,committedDoc.content);
-      const oldHead=view.state.selection?.head??0;
-      const clampedHead=Math.max(0,Math.min(oldHead,tr.doc.content.size));
-      tr.setSelection(Selection.near(tr.doc.resolve(clampedHead)));
-    }
-    tr.setMeta("addToHistory",false);
-    view.dispatch(tr);
+    if(view===excludeView)continue;
+    const built=buildSyncTransaction(view,committedDoc,{resolvedMatch,replacementText});
+    if(!built)continue;
+    built.tr.setMeta("addToHistory",false);
+    view.dispatch(built.tr);
     syncedRegistrationIds.push(registration.registrationId);
   }
   return syncedRegistrationIds;
