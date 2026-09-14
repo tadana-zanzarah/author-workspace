@@ -1287,7 +1287,25 @@ project-search-browser.test.mjs` (Stage D1) and `tools/find-replace-
 current-scene-browser.test.mjs` (Stage C) were re-run unchanged and remain
 green.
 
-## Stage D2.1.5: preserve editor position across the Scene Editor ⇄ Text Scene handoff (this stage)
+## Stage D2.1.6: center the restored position in the handoff viewport
+
+D2.1.5's restoration landed the target right at the nearest viewport edge
+(`revealDocPosition`'s existing make-visible semantics: nudge the minimum
+amount needed, never re-center) -- technically visible, but with no reading
+context on that side for a freshly-mounted destination with no scroll
+history of its own. `revealDocPosition` gained an optional `align` parameter
+("nearest", the unchanged default every ordinary Find/Replace reveal still
+uses; "center", used ONLY by the same-scene Scene Editor ⇄ Text Scene
+handoff in `scene-editor-controller.js`'s `applyHandoff`) that scrolls by
+the delta between the target's own vertical center and the visible band's
+center, on the SAME sticky-aware ancestor walk as before. `scrollTop`'s own
+browser clamping to `[0, scrollHeight-clientHeight]` gives correct
+boundary behavior near the document's start/end for free, with no separate
+case needed. Which logical position is restored (D2.1.5's own Find-target →
+selection → viewport-anchor priority) is unchanged; only its final on-screen
+alignment improved.
+
+## Stage D2.1.5: preserve editor position across the Scene Editor ⇄ Text Scene handoff
 
 Small, final D2.1 correction: manual acceptance of D2.1.4's live-doc handoff
 found the destination editor always scrolled to the end of the document,

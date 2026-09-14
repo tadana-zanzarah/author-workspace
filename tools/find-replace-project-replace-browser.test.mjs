@@ -61,7 +61,11 @@ const project={
     // Editor-handoff Stage D2.1.5: long scenes with a findable/clickable
     // marker paragraph roughly in the middle, for position/viewport tests.
     scene("d215-long","ДлиннаяСцена","chapter-1",`${filler(40)}\nСРЕДИНА ТЕКСТА ТУТ.\n${filler(40)}`),
-    scene("d215-multi","МногоКотов","chapter-1",`Кот наверху.\n${filler(30)}\nКот в середине.\n${filler(30)}\nКот внизу.`)
+    scene("d215-multi","МногоКотов","chapter-1",`Кот наверху.\n${filler(30)}\nКот в середине.\n${filler(30)}\nКот внизу.`),
+    // Editor-handoff Stage D2.1.6: boundary fixtures for the centering
+    // policy's own "near start/end must not manufacture blank space" rule.
+    scene("d216-start","НачалоСцена","chapter-1",`НАЧАЛО ТУТ.\n${filler(80)}`),
+    scene("d216-end","КонецСцена","chapter-1",`${filler(80)}\nКОНЕЦ ТУТ.`)
   ]
 };
 
@@ -1358,6 +1362,168 @@ try{
     sel=await page.evaluate(()=>{const s=window.getSelection();return {isCollapsed:s.isCollapsed,text:s.toString()}});
     if(sel.isCollapsed||sel.text!==beforeText)
       throw new Error(`Test Contract 6: a real user selection must survive the handoff, expected "${beforeText}" got ${JSON.stringify(sel)}`);
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 25 (Editor-handoff Stage D2.1.6, Test Contract 1/2/3/4): the
+  // restored working position lands roughly CENTERED in the destination
+  // viewport (not merely visible at an edge) for a mid-document target, in
+  // both directions and both Find scopes, while a target near the document
+  // start/end still lands sensibly at that boundary with no manufactured
+  // blank space.
+  // ============================================================
+  {
+    const page=await freshPage();
+    const centerFraction=(e,m)=>((m.top+m.bottom)/2-e.top)/e.height;
+
+    // Test Contract 1: mid-document caret, both directions.
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"СРЕДИНА ТЕКСТА ТУТ."}).click();
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    let geo=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("СРЕДИНА"));
+      return {e:JSON.parse(JSON.stringify(editor.getBoundingClientRect())),m:JSON.parse(JSON.stringify(marker.getBoundingClientRect()))};
+    });
+    let fraction=centerFraction(geo.e,geo.m);
+    if(fraction<0.4||fraction>0.6)
+      throw new Error(`Test Contract 1 (Scene Editor -> Text Scene): expected the mid-document target within the central 40-60% band, got ${fraction.toFixed(3)}`);
+
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    geo=await page.evaluate(()=>{
+      const editor=document.getElementById("sceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("СРЕДИНА"));
+      return {e:JSON.parse(JSON.stringify(editor.getBoundingClientRect())),m:JSON.parse(JSON.stringify(marker.getBoundingClientRect()))};
+    });
+    fraction=centerFraction(geo.e,geo.m);
+    if(fraction<0.4||fraction>0.6)
+      throw new Error(`Test Contract 1 (Text Scene -> Scene Editor): expected the mid-document target within the central 40-60% band, got ${fraction.toFixed(3)}`);
+    await page.evaluate(()=>{destroySceneModalTextEditor();forceHideModal("sceneModal")});
+
+    // Test Contract 2: active Find target, current-scene scope.
+    await page.evaluate(()=>editScene("d215-multi"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.click("#sceneTextToolbar .rte-btn-find");
+    await page.fill("#sceneTextFindReplace .rte-find-input","Кот");
+    await page.waitForTimeout(80);
+    await page.click("#sceneTextFindReplace .rte-find-next"); // 2 of 3
+    await page.waitForTimeout(80);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    let t=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const active=editor.querySelector(".rte-find-match-active");
+      return {e:JSON.parse(JSON.stringify(editor.getBoundingClientRect())),m:active?JSON.parse(JSON.stringify(active.getBoundingClientRect())):null,count:document.querySelector("#fullSceneTextFindReplace .rte-find-count")?.textContent};
+    });
+    if(t.count!=="2 из 3")throw new Error(`Test Contract 2 (current-scene): the same logical occurrence must remain active, got "${t.count}"`);
+    if(!t.m)throw new Error("Test Contract 2 (current-scene): the active match must be revealed");
+    fraction=centerFraction(t.e,t.m);
+    if(fraction<0.4||fraction>0.6)
+      throw new Error(`Test Contract 2 (current-scene): expected the active match roughly centered, got ${fraction.toFixed(3)}`);
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 2: active Find target, project scope.
+    await page.evaluate(()=>editScene("d215-multi"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.click("#sceneTextToolbar .rte-btn-find");
+    await page.click("#sceneTextFindReplace .rte-scope-project");
+    await page.fill("#sceneTextFindReplace .rte-find-input","Кот");
+    await page.waitForTimeout(80);
+    await page.click("#sceneTextFindReplace .rte-find-next");
+    await page.waitForTimeout(80);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    t=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const active=editor.querySelector(".rte-find-match-active");
+      return {e:JSON.parse(JSON.stringify(editor.getBoundingClientRect())),m:active?JSON.parse(JSON.stringify(active.getBoundingClientRect())):null,activeText:active?.textContent,scopeIsProject:document.querySelector("#fullSceneTextFindReplace .rte-scope-project")?.classList.contains("active")};
+    });
+    if(!t.scopeIsProject||t.activeText!=="Кот")throw new Error("Test Contract 2 (project scope): the active project target must be preserved");
+    if(!t.m)throw new Error("Test Contract 2 (project scope): the active match must be revealed");
+    fraction=centerFraction(t.e,t.m);
+    if(fraction<0.4||fraction>0.6)
+      throw new Error(`Test Contract 2 (project scope): expected the active match roughly centered, got ${fraction.toFixed(3)}`);
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 3: boundaries -- near start, no manufactured blank space.
+    await page.evaluate(()=>editScene("d216-start"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"НАЧАЛО ТУТ."}).click();
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    const startGeo=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("НАЧАЛО"));
+      const e=editor.getBoundingClientRect(),m=marker.getBoundingClientRect();
+      return {scrollTop:editor.scrollTop,visible:(m.top>=e.top-2&&m.bottom<=e.bottom+2)};
+    });
+    if(startGeo.scrollTop!==0)throw new Error(`Test Contract 3 (near start): must not manufacture blank space above, expected scrollTop 0, got ${startGeo.scrollTop}`);
+    if(!startGeo.visible)throw new Error("Test Contract 3 (near start): the target must remain visible");
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 3: boundaries -- near end, no requirement to center.
+    await page.evaluate(()=>editScene("d216-end"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"КОНЕЦ ТУТ."}).click();
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    const endGeo=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("КОНЕЦ"));
+      const e=editor.getBoundingClientRect(),m=marker.getBoundingClientRect();
+      return {atMax:editor.scrollTop>=editor.scrollHeight-editor.clientHeight-2,visible:(m.top>=e.top-2&&m.bottom<=e.bottom+2)};
+    });
+    if(!endGeo.atMax)throw new Error("Test Contract 3 (near end): must not manufacture blank space below (expected scrollTop clamped to its max)");
+    if(!endGeo.visible)throw new Error("Test Contract 3 (near end): the target must remain visible");
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 26 (Editor-handoff Stage D2.1.6, Test Contract 4): centering
+  // resolves against the HANDED-OFF live doc, not stale canonical data --
+  // reuses D2.1.5's own unsaved-doc scenario with a position assertion.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"СРЕДИНА ТЕКСТА ТУТ."}).click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" ВСТАВКА.");
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    const geo=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("ВСТАВКА"));
+      return {e:JSON.parse(JSON.stringify(editor.getBoundingClientRect())),m:marker?JSON.parse(JSON.stringify(marker.getBoundingClientRect())):null,dirty:trackerFor("textModal").isDirty()};
+    });
+    if(!geo.m)throw new Error("Test Contract 4: the unsaved insertion must be found in the destination");
+    const fraction=((geo.m.top+geo.m.bottom)/2-geo.e.top)/geo.e.height;
+    if(fraction<0.4||fraction>0.6)
+      throw new Error(`Test Contract 4: centering must resolve against the handed-off live doc, got ${fraction.toFixed(3)}`);
+    if(!geo.dirty)throw new Error("Test Contract 4: the destination must still be dirty");
+    if((await sceneTextOf(page,"d215-long")).includes("ВСТАВКА"))
+      throw new Error("Test Contract 4: persistence must still be the original, unmodified text");
     await page.close();
   }
 

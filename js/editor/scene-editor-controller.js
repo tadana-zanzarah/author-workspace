@@ -208,7 +208,16 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
       // sticky-aware, multi-ancestor revealDocPosition() every other Find/
       // Replace reveal already goes through -- never a second, competing
       // scroll mechanism -- makes this deterministic on every surface.
-      revealDocPosition(editor.view,restoreAt.anchor);
+      //
+      // Editor-handoff Stage D2.1.6: `{align:"center"}` -- a freshly-
+      // mounted destination has no scroll history of its own, so the
+      // default "nudge to nearest edge" reveal always lands the restored
+      // position right at whichever boundary it scrolled from, with no
+      // reading context on that side. This is the ONLY call site in the
+      // whole app that passes `align` at all; every ordinary Find/Replace
+      // navigation and Replace reveal keeps using revealDocPosition's
+      // default ("nearest") behavior, completely unchanged.
+      revealDocPosition(editor.view,restoreAt.anchor,{align:"center"});
     },
     destroy(){
       editorContainer.removeEventListener("focusin",markActiveOnFocus);

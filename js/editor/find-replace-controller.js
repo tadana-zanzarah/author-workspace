@@ -133,7 +133,23 @@ function collapseSelectionIfRange(targetView){
   targetView.dispatch(targetView.state.tr.setSelection(TextSelection.create(targetView.state.doc,pos)).setMeta("addToHistory",false));
 }
 
-function revealDocPosition(view,pos){
+// Editor-handoff Stage D2.1.6: `align` ("nearest", the default, or
+// "center") is the only behavior change here -- "nearest" is byte-for-byte
+// the original make-visible logic every existing caller (ordinary Find
+// arrow navigation, Replace reveal) keeps using unchanged: nudge the
+// MINIMUM amount needed to bring `pos` inside the visible band, never
+// re-centering. "center" is used ONLY by the Scene Editor <-> Text Scene
+// same-scene surface handoff (scene-editor-controller.js's applyHandoff):
+// a freshly-mounted destination has no scroll history of its own, so the
+// existing nearest-edge nudge always lands the restored position right at
+// whichever boundary it had to scroll from -- technically visible, but with
+// no reading context on that side. Centering computes how far the target's
+// own vertical center sits from the visible band's center and scrolls by
+// exactly that delta; `node.scrollTop` clamps to [0, scrollHeight-
+// clientHeight] on its own, so a target near the very start or end
+// naturally lands near that boundary instead of manufacturing blank space
+// -- no extra boundary-case branching needed.
+function revealDocPosition(view,pos,{align="nearest"}={}){
   if(!isViewUsable(view))return;
   // Find/Replace Stage D2.1.3 (Finding 4): replaceCurrent/replaceProjectCurrent
   // now call this from headless unit tests (find-replace-project-replace.
@@ -158,7 +174,11 @@ function revealDocPosition(view,pos){
       const rect=node.getBoundingClientRect();
       const topBound=rect.top+stickyTopObstruction(node)+margin;
       const bottomBound=rect.bottom-margin;
-      if(coords.top<topBound)node.scrollTop-=(topBound-coords.top);
+      if(align==="center"){
+        const visibleCenter=(topBound+bottomBound)/2;
+        const targetCenter=(coords.top+coords.bottom)/2;
+        node.scrollTop+=(targetCenter-visibleCenter);
+      }else if(coords.top<topBound)node.scrollTop-=(topBound-coords.top);
       else if(coords.bottom>bottomBound)node.scrollTop+=(coords.bottom-bottomBound);
     }
     node=node.parentElement;
