@@ -1287,6 +1287,18 @@ project-search-browser.test.mjs` (Stage D1) and `tools/find-replace-
 current-scene-browser.test.mjs` (Stage C) were re-run unchanged and remain
 green.
 
+## Stage D2.1.7: preserve text-editor focus on Text Scene → Scene Editor handoff
+
+Same-scene surface handoff now preserves TEXT-EDITOR keyboard focus when the
+source editing context was the text editor itself (captured as a `focusTarget`
+flag on the same handoff object D2.1.4-D2.1.6 already carry, via a
+`mousedown`-time snapshot -- a click on the switch-surface button itself
+already moves focus to that button before its own click handler runs, so
+reading focus state fresh inside the handler would always see the button,
+never the editor); normal Scene Editor opens, and a handoff whose source
+focus was elsewhere (e.g. the Find input), keep their ordinary default
+autofocus (the title field) unchanged.
+
 ## Stage D2.1.6: center the restored position in the handoff viewport
 
 D2.1.5's restoration landed the target right at the nearest viewport edge

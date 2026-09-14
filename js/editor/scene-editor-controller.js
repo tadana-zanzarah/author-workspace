@@ -99,11 +99,24 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
     // always already assigned, same pattern already used elsewhere in this
     // codebase for a just-mounted editor reference captured by an
     // earlier-declared closure.
+    // Editor-handoff Stage D2.1.7: also captures `focusTarget` -- "editor"
+    // when this mount's own text editor was the last thing to actually hold
+    // keyboard focus (tracked via `hasEditorFocus` below, updated by the
+    // SAME focusin/focusout listeners already used for the mounted-scene
+    // registry's own "which registration is active" tracking -- never a
+    // second focus-tracking mechanism), "other" otherwise (e.g. focus was in
+    // the Find input, or nowhere in particular). Checking `document.
+    // activeElement` HERE, inside the click handler, would not work: a
+    // mouse click on this toolbar button itself already moves focus to the
+    // button before this handler runs, in every browser this app targets --
+    // so "was the editor focused" has to be remembered from the LAST real
+    // focus change, not read fresh at click time.
     onSwitchSurface:onSwitchSurface?()=>onSwitchSurface({
       session:findReplace?.exportProjectSession?.()??null,
       liveDoc:editor.getDocJSON(),
       selection:{anchor:editor.view.state.selection.anchor,head:editor.view.state.selection.head},
-      viewportAnchor:captureViewportAnchor(editor.view)
+      viewportAnchor:captureViewportAnchor(editor.view),
+      focusTarget:focusAtMousedown?"editor":"other"
     }):undefined,
     switchSurfaceLabel
   });
@@ -138,8 +151,33 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
     view:editor.view,surfaceId,
     activate(){revealSurface?.();editor.focus();if(scene?.id)markMountedSceneActive(scene.id,registrationId)}
   }):null;
-  const markActiveOnFocus=()=>{if(scene?.id&&registrationId)markMountedSceneActive(scene.id,registrationId)};
+  // Editor-handoff Stage D2.1.7: `hasEditorFocus` tracks whether THIS text
+  // editor is the thing that currently holds keyboard focus -- read by the
+  // onSwitchSurface capture above. `editorContainer` holds nothing but the
+  // ProseMirror instance (the toolbar/Find-Replace panel are separate
+  // sibling containers), so bubbling focusin/focusout on it is exactly
+  // "focus entered/left this editor," reusing the SAME container the
+  // pre-existing focusin listener below already uses for a different
+  // purpose (marking this registration active in "Весь текст").
+  let hasEditorFocus=false;
+  const markActiveOnFocus=()=>{if(scene?.id&&registrationId)markMountedSceneActive(scene.id,registrationId);hasEditorFocus=true};
+  const markInactiveOnBlur=()=>{hasEditorFocus=false};
   editorContainer.addEventListener("focusin",markActiveOnFocus);
+  editorContainer.addEventListener("focusout",markInactiveOnBlur);
+  // Editor-handoff Stage D2.1.7: a click on the switch-surface button
+  // itself already moves focus to that button (and so fires `focusout`
+  // above, flipping `hasEditorFocus` to false) BEFORE the button's own
+  // `click` handler runs -- reading `hasEditorFocus` directly inside the
+  // onSwitchSurface wrapper below would therefore always see it as false,
+  // even when the editor genuinely had focus a moment ago. `mousedown`
+  // fires strictly before that focus-shift; a capture-phase document
+  // listener snapshots `hasEditorFocus` there, into `focusAtMousedown`,
+  // which onSwitchSurface reads instead. Standard technique for "what had
+  // focus right before this click", not a global focus-management system --
+  // `focusAtMousedown` is this ONE mount's own private closure variable.
+  let focusAtMousedown=false;
+  const captureFocusAtMousedown=()=>{focusAtMousedown=hasEditorFocus};
+  document.addEventListener("mousedown",captureFocusAtMousedown,true);
   return {
     view:editor.view,
     focus(){editor.focus()},
@@ -221,6 +259,8 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
     },
     destroy(){
       editorContainer.removeEventListener("focusin",markActiveOnFocus);
+      editorContainer.removeEventListener("focusout",markInactiveOnBlur);
+      document.removeEventListener("mousedown",captureFocusAtMousedown,true);
       if(scene?.id&&registrationId)unregisterMountedScene(scene.id,registrationId);
       findReplace?.detachView(editor.view);
       findReplacePanel?.destroy();

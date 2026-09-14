@@ -1527,6 +1527,116 @@ try{
     await page.close();
   }
 
+  // ============================================================
+  // PART 27 (Editor-handoff Stage D2.1.7): Text Scene -> Scene Editor
+  // handoff preserves TEXT EDITOR keyboard focus when the source's own text
+  // editor was what held focus, without stealing focus from a source that
+  // was elsewhere (e.g. the Find input), and without changing a normal
+  // (non-handoff) Scene Editor open's existing default autofocus.
+  // ============================================================
+  {
+    const page=await freshPage();
+    const focusInfo=()=>page.evaluate(()=>{
+      const active=document.activeElement;
+      return {isEditorFocused:!!active?.closest?.("#sceneTextEditor"),isTitleFocused:active?.id==="sceneTitle"};
+    });
+
+    // Test Contract 1: mid-document caret, editor held focus at switch time.
+    await page.evaluate(()=>openSceneText("d215-long"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.locator("#fullSceneTextEditor .ProseMirror p",{hasText:"СРЕДИНА ТЕКСТА ТУТ."}).click();
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    let state=await page.evaluate(()=>{
+      const active=document.activeElement;
+      const editor=document.getElementById("sceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("СРЕДИНА"));
+      const e=editor.getBoundingClientRect(),m=marker.getBoundingClientRect();
+      return {
+        isEditorFocused:!!active?.closest?.("#sceneTextEditor"),
+        isTitleFocused:active?.id==="sceneTitle",
+        centerFraction:((m.top+m.bottom)/2-e.top)/e.height
+      };
+    });
+    if(!state.isEditorFocused)throw new Error("Test Contract 1: the destination text editor must receive keyboard focus");
+    if(state.isTitleFocused)throw new Error("Test Contract 1: focus must not land on the scene title field");
+    if(state.centerFraction<0.4||state.centerFraction>0.6)
+      throw new Error(`Test Contract 1: D2.1.6's centered viewport must not be disturbed by focusing, got ${state.centerFraction.toFixed(3)}`);
+    await page.evaluate(()=>{destroySceneModalTextEditor();forceHideModal("sceneModal")});
+
+    // Test Contract 2: active Find target (current-scene scope), editor held focus.
+    await page.evaluate(()=>openSceneText("d215-multi"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","Кот");
+    await page.waitForTimeout(80);
+    await page.click("#fullSceneTextFindReplace .rte-find-next"); // 2 of 3
+    await page.waitForTimeout(80);
+    await page.click("#fullSceneTextEditor .ProseMirror"); // return focus to the editor itself
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    state=await page.evaluate(()=>{
+      const active=document.activeElement;
+      return {
+        isEditorFocused:!!active?.closest?.("#sceneTextEditor"),
+        isTitleFocused:active?.id==="sceneTitle",
+        count:document.querySelector("#sceneTextFindReplace .rte-find-count")?.textContent,
+        hasActiveMatch:!!document.querySelector("#sceneTextEditor .rte-find-match-active"),
+        realSelText:window.getSelection().toString()
+      };
+    });
+    if(!state.isEditorFocused)throw new Error("Test Contract 2: the destination text editor must receive keyboard focus");
+    if(state.count!=="2 из 3")throw new Error(`Test Contract 2: the same logical match must remain active, got "${state.count}"`);
+    if(!state.hasActiveMatch)throw new Error("Test Contract 2: the Find decoration must remain correct");
+    if(state.realSelText!=="")throw new Error("Test Contract 2: focusing must not introduce an accidental real text selection");
+    await page.evaluate(()=>{destroySceneModalTextEditor();forceHideModal("sceneModal")});
+
+    // Source focus elsewhere (the Find input, not the editor) -- must NOT
+    // forcibly steal focus into the editor; falls back to the ordinary
+    // default (the title field), same as any other open.
+    await page.evaluate(()=>openSceneText("d215-long"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-find-input");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","Кот");
+    await page.waitForTimeout(80);
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    state=await focusInfo();
+    if(state.isEditorFocused)throw new Error("Test Contract: source focus was in the Find input, not the editor -- must not forcibly steal focus into the editor");
+    await page.evaluate(()=>{destroySceneModalTextEditor();forceHideModal("sceneModal")});
+
+    // Test Contract 3: a NORMAL Scene Editor open (no surface-handoff at
+    // all) keeps its existing default autofocus (the title field), unchanged.
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    state=await focusInfo();
+    if(!state.isTitleFocused)throw new Error("Test Contract 3: a normal Scene Editor open must keep its existing default autofocus (title field)");
+    if(state.isEditorFocused)throw new Error("Test Contract 3: a normal open must not focus the text editor");
+    await page.evaluate(()=>{destroySceneModalTextEditor();forceHideModal("sceneModal")});
+
+    // Test Contract 4: reverse direction (Scene Editor -> Text Scene) is
+    // unaffected -- it already always focuses the text editor (Text Scene
+    // has no other field to focus instead), unconditionally.
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.click("#sceneTextEditor .ProseMirror");
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    const reverseFocused=await page.evaluate(()=>!!document.activeElement?.closest?.("#fullSceneTextEditor"));
+    if(!reverseFocused)throw new Error("Test Contract 4: Scene Editor -> Text Scene must keep focusing the text editor, unchanged");
+    await page.close();
+  }
+
   console.log("find-replace-project-replace-browser.test.mjs: all assertions passed");
 }finally{
   await browser.close();

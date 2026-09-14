@@ -212,7 +212,22 @@ function editSceneNow(sceneId,extra){
   sceneNewTagDraft={};
   renderSceneTagDraft();
   buildPeopleForm(s.people||{},index);
-  showModal("sceneModal");
+  // Editor-handoff Stage D2.1.7: a normal Scene Editor open keeps its
+  // existing default autofocus (modal-manager.js's initialFocus() falls
+  // back to the first focusable form control -- the title field -- exactly
+  // as before). Only the Text Scene -> Scene Editor surface-switch handoff,
+  // and ONLY when the source's own text editor was the thing that actually
+  // held keyboard focus there (see scene-editor-controller.js's own
+  // `hasEditorFocus` capture -- not merely "a handoff happened", e.g. the
+  // author's focus could have been in the Find input instead), asks
+  // showModal to focus the JUST-MOUNTED text editor's own DOM instead. This
+  // reuses the existing initialFocus mechanism (queued on a microtask,
+  // AFTER this synchronous function finishes -- including the
+  // applyHandoff() call below that installs the restored selection/
+  // viewport), never a second focus-management system; initialFocus's own
+  // `.focus({preventScroll:true})` call is what keeps D2.1.6's centered
+  // viewport from being disturbed by the focus itself.
+  showModal("sceneModal",extra?.handoff?.focusTarget==="editor"?{initialFocus:sceneModalTextEditor.view.dom}:undefined);
   resetSceneModalScroll();
   trackerFor("sceneModal").captureInitialState();
   // Editor-handoff Stage D2.1.4 (Finding 2) / D2.1.5 (position handoff):
