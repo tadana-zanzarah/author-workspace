@@ -33,6 +33,24 @@ function createDirtyTracker(id,getState){
     id,getState,
     captureInitialState(){baseline=normalizeSnapshot(getState());active=true;syncBeforeUnload();return baseline},
     isDirty(){return active&&!normalizedEqual(baseline,getState())},
+    // Find/Replace/Editor-handoff Stage D2.1.4: "is this tracker dirty for a
+    // reason OTHER than the given `extra` keys" -- e.g. sceneModal's own
+    // Scene Editor <-> Text Scene surface-switch guard needs to tell "only
+    // the scene's own text (extra.doc) changed" (safe to switch surfaces
+    // without prompting -- the destination can carry that) apart from "a
+    // real form field changed too" (title/tags/metadata -- the existing
+    // Save-or-discard guard must still fire, since Text Scene has no such
+    // fields to carry it to). Reuses this tracker's own baseline/getState
+    // unchanged -- never a second/parallel dirty computation, and never
+    // exposes `baseline` itself outside this module.
+    isDirtyIgnoringExtraKeys(keys){
+      if(!active)return false;
+      const current=normalizeSnapshot(getState());
+      if(!normalizedEqual(current.controls,baseline.controls))return true;
+      const currentExtra={...current.extra},baselineExtra={...baseline.extra};
+      for(const key of keys){delete currentExtra[key];delete baselineExtra[key]}
+      return !normalizedEqual(currentExtra,baselineExtra);
+    },
     resetDirty(){baseline=normalizeSnapshot(getState());active=false;syncBeforeUnload()},
     deactivate(){active=false;syncBeforeUnload()},
     // Find/Replace D2.1: rebase ONLY the `extra` portion of this tracker's

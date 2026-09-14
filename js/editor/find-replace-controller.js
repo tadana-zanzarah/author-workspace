@@ -300,7 +300,13 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
       query,replaceText,caseSensitive,open:open_,matchCount:matches.length,activeIndex,openSequence,focusTarget,
       scope,projectResult,activeProjectMatchIndex,activeProjectMatchId:activeProjectMatch?.matchId??null,
       navigableMatchCount:domainMatches.length,
-      activeNavigableMatchIndex
+      activeNavigableMatchIndex,
+      // Find/Replace Stage D2.1.4 (Finding 1): whether replaceProjectCurrent()
+      // would actually be allowed to run right now -- see
+      // resolveProjectReplaceTarget/canReplaceProjectCurrent above. The panel
+      // uses this (never the weaker "an active result id exists" check) to
+      // decide the Replace button's disabled state.
+      projectReplaceEligible:canReplaceProjectCurrent()
     };
   }
   function notify(){
@@ -1179,13 +1185,50 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // under scope "project"; this is the mirror guard -- it refuses to run
   // under scope "scene", so the two can never be invoked against the wrong
   // mode even if a caller bypasses the panel's own disabled-button gating.
-  function replaceProjectCurrent(){
+  // Find/Replace Stage D2.1.4 (Finding 1): the SINGLE source of truth for
+  // whether replaceProjectCurrent() may run right now -- shared by the
+  // runtime guard below (which stays the real defense-in-depth: nothing here
+  // removes it) and the panel's own Replace-button eligibility (see
+  // canReplaceProjectCurrent below), so the UI's disabled state and the
+  // actual mutation guard can never drift apart. Manual acceptance found
+  // that "there is an active global result" alone (the old gate) was not
+  // enough -- exhausting the current scene's matches can leave the active
+  // global result pointing at a scene nothing has navigated to (often an
+  // `included:false` one, surfaced first purely by canonical order), and the
+  // button stayed clickable only to be silently refused on click. Eligibility
+  // is stricter: an active match must exist, it must belong to the scene
+  // currently ATTACHED (open for editing) on this surface, and that view
+  // must be usable. Returns {ok:true,target} or {ok:false,reason}.
+  function resolveProjectReplaceTarget(){
     if(scope!=="project")return {ok:false,reason:"wrong-scope"};
     if(!projectResult)return {ok:false,reason:"no-active-match"};
     const flat=flattenProjectMatches(projectResult);
     const target=flat[activeProjectMatchIndex];
     if(!target)return {ok:false,reason:"no-active-match"};
     if(attachedSceneId!==target.sceneId||!isViewUsable(view))return {ok:false,reason:"no-active-editor"};
+    return {ok:true,target};
+  }
+
+  // Deliberately does NOT independently re-verify "is this match still
+  // re-resolvable against the live doc" (buildProjectReplacement's own
+  // reresolveMatch stale-check, below) on every render -- `projectResult`
+  // is always a FRESH search re-run synchronously after every doc-changing
+  // transaction (recomputeProject, via handleTransaction), so whenever the
+  // active match's scene IS the attached, usable view, that match is
+  // already known-current against the live doc at render time. Duplicating
+  // a full re-search here on every keystroke/render for a race window that
+  // buildProjectReplacement already closes at actual Replace time would be
+  // redundant work for no real safety gain -- the runtime guard in
+  // replaceProjectCurrent (via resolveProjectReplaceTarget/
+  // buildProjectReplacement) remains the authoritative check either way.
+  function canReplaceProjectCurrent(){
+    return resolveProjectReplaceTarget().ok;
+  }
+
+  function replaceProjectCurrent(){
+    const resolved=resolveProjectReplaceTarget();
+    if(!resolved.ok)return resolved;
+    const target=resolved.target;
     const outcome=buildProjectReplacement(view.state.doc,{from:target.from,to:target.to,text:target.text,occurrenceIndex:target.occurrenceIndex},{query,caseSensitive,replacementText:replaceText});
     // Failure (stale) or a no-op (changed:false): zero mutation, so nothing
     // here may dispatch into the view, touch dirty state, or re-search --

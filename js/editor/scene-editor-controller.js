@@ -85,7 +85,16 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{
     characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined,
-    onSwitchSurface:onSwitchSurface?()=>onSwitchSurface(findReplace?.exportProjectSession?.()??null):undefined,
+    // Editor-handoff Stage D2.1.4 (Finding 2): also passes this mount's own
+    // CURRENT live doc (editor.getDocJSON()) alongside the existing project
+    // session -- captured at click time, i.e. before the caller (js/scenes.js)
+    // does anything that could destroy this view, so the unsaved content is
+    // never at risk of being lost mid-switch. `editor` is assigned below,
+    // after this closure is created, but only ever CALLED later (on an
+    // actual click) -- by then it is always already assigned, same pattern
+    // already used elsewhere in this codebase for a just-mounted editor
+    // reference captured by an earlier-declared closure.
+    onSwitchSurface:onSwitchSurface?()=>onSwitchSurface(findReplace?.exportProjectSession?.()??null,editor.getDocJSON()):undefined,
     switchSurfaceLabel
   });
   const editor=createSceneEditor({
@@ -128,6 +137,10 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
     serialize(){return serializeSceneDocument(editor.getDoc())},
     openFind(){findReplace?.open("find")},
     openReplace(){findReplace?.open("replace")},
+    // Editor-handoff Stage D2.1.4: forwards to the underlying editor's own
+    // replaceDocJSON (scene-editor-view.js) -- see that method's own doc
+    // comment for the full reasoning (real transaction, addToHistory:false).
+    replaceDocJSON(json){editor.replaceDocJSON(json)},
     destroy(){
       editorContainer.removeEventListener("focusin",markActiveOnFocus);
       if(scene?.id&&registrationId)unregisterMountedScene(scene.id,registrationId);

@@ -43,7 +43,17 @@ const project={
     scene("d212-excluded","Скрытая","chapter-unassigned","Выдра плыла.",{included:false}),
     scene("d212-save-full","СохранениеПолный","chapter-1","Ёж бежал."),
     scene("d212-save-text","СохранениеТекст","chapter-1","Барсук ходил."),
-    scene("d213-dirty-cycle","ДиртиЦикл","chapter-1","Кот сидит.")
+    scene("d213-dirty-cycle","ДиртиЦикл","chapter-1","Кот сидит."),
+    // Find/Replace Stage D2.1.4: canonical order current -> hidden -> included,
+    // for the automatic post-Replace fallback-ordering tests (Test Contract 2).
+    scene("d214-current","ДТекущая","chapter-1","Гусь тут один."),
+    scene("d214-hidden","ДСкрытая","chapter-1","Гусь в скрытой.",{included:false}),
+    scene("d214-included","ДВидимая","chapter-1","Гусь в видимой."),
+    // A second, independent trio with the included scene BEFORE current, so
+    // the "prefer a previous included scene" branch is exercised too.
+    scene("d214b-included","ДВидимая2","chapter-1","Утка в видимой."),
+    scene("d214b-current","ДТекущая2","chapter-1","Утка тут одна."),
+    scene("d214b-hidden","ДСкрытая2","chapter-1","Утка в скрытой.",{included:false})
   ]
 };
 
@@ -460,11 +470,37 @@ try{
     if((await page.locator("#sceneTextFindReplace .rte-find-input").inputValue())!=="кошка")
       throw new Error("Expected the project session to survive the text-only->full switch");
 
-    // Dirty guard respected: an unsaved edit must trigger the existing
-    // discard confirmation before switching.
+    // Find/Replace Stage D2.1.4 (Finding 2): a surface switch is a LIVE
+    // EDITOR STATE HANDOFF, not a Save -- an unsaved SCENE-TEXT-only edit
+    // must switch seamlessly (no discard prompt, no persistence), handing
+    // the unsaved live doc to the destination surface. This supersedes
+    // D2.1.2's own "any dirty edit triggers the guard" expectation for text
+    // edits specifically -- see docs/find-replace-architecture.md.
     await page.click("#sceneTextEditor .ProseMirror");
     await page.keyboard.press("End");
     await page.keyboard.type(" Правка.");
+    await page.waitForTimeout(30);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForTimeout(150);
+    if(await page.evaluate(()=>document.getElementById("discardChangesModal").style.display==="flex"))
+      throw new Error("A text-only edit must switch surfaces seamlessly, without the discard guard");
+    if(!await page.locator("#textModal").isVisible())
+      throw new Error("Expected the seamless switch to open the text-only editor");
+    if((await editorText(page,"#fullSceneTextEditor"))!=="Кошка гуляла во дворе. Правка.")
+      throw new Error("Expected the unsaved live text to be handed off to the text-only surface");
+    if(!await page.evaluate(()=>trackerFor("textModal").isDirty()))
+      throw new Error("The handed-off text must still read as dirty (relative to the persisted baseline)");
+    if((await sceneTextOf(page,"d212-switch"))!=="Кошка гуляла во дворе.")
+      throw new Error("The handoff itself must never persist anything");
+
+    // Find/Replace Stage D2.1.4 (Finding 2): the REVERSE case -- a NON-TEXT
+    // edit (title) in the Scene modal must still trigger the existing
+    // discard guard, since Text Scene has no field to carry it to. Switch
+    // back to the Scene modal first (still carrying the unsaved text).
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(100);
+    await page.fill("#sceneTitle","Переключение (правка)");
     await page.waitForTimeout(30);
     await page.click("#sceneTextToolbar .rte-btn-switch-surface");
     await page.waitForSelector("#discardChangesModal",{state:"visible"});
@@ -472,6 +508,10 @@ try{
     await page.waitForTimeout(60);
     if(!await page.locator("#sceneModal").isVisible())
       throw new Error("Cancelling the dirty guard during a surface switch must NOT switch surfaces");
+    if((await page.locator("#sceneTitle").inputValue())!=="Переключение (правка)")
+      throw new Error("Cancelling the guard must leave the non-text edit intact");
+    if((await editorText(page,"#sceneTextEditor"))!=="Кошка гуляла во дворе. Правка.")
+      throw new Error("Cancelling the guard must leave the text edit intact too");
     await page.close();
   }
 
@@ -772,6 +812,285 @@ try{
     const activeAfterArrow=await page.evaluate(()=>document.querySelector("#fullSceneTextEditor .rte-find-match-active")?.textContent);
     if(!activeAfterArrow)
       throw new Error("Finding 10: Next must still produce a real active-match decoration after the scope-toggle matrix");
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 16 (Find/Replace Stage D2.1.4, Finding 1 -- Test Contract 1/2/3):
+  // Replace eligibility must already be disabled once the active global
+  // result no longer belongs to the ATTACHED editor, never enabled-then-
+  // silently-refused; automatic post-Replace fallback must prefer an
+  // author-visible (included) scene over a hidden one, in both canonical
+  // orderings; and an included:false scene must remain fully explicitly
+  // navigable/replaceable via a direct result-row click regardless.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d214-current"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","Гусь");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","Индюк");
+    await page.waitForTimeout(80);
+    if(await page.evaluate(()=>document.querySelector("#fullSceneTextFindReplace .rte-replace-one")?.disabled))
+      throw new Error("Test Contract 1: Replace must be enabled while the active result is in the attached scene");
+
+    const textsBefore=await rawProject(page);
+    await page.click("#fullSceneTextFindReplace .rte-replace-one"); // exhausts d214-current's only match
+    await page.waitForTimeout(150);
+
+    const state=await page.evaluate(()=>({
+      count:document.querySelector("#fullSceneTextFindReplace .rte-find-count")?.textContent,
+      replaceDisabled:document.querySelector("#fullSceneTextFindReplace .rte-replace-one")?.disabled,
+      activeSceneHeader:document.querySelector(".rte-project-result-row.active")?.closest(".rte-project-result-group")?.querySelector(".rte-project-result-scene-header")?.textContent
+    }));
+    // Test Contract 1: eligibility.
+    if(!state.replaceDisabled)
+      throw new Error("Test Contract 1: Replace must be DISABLED once the active result belongs to another (unattached) scene");
+    // Test Contract 2: automatic fallback prefers the included scene (ДВидимая), not the hidden one (ДСкрытая).
+    if(!state.activeSceneHeader?.includes("ДВидимая")||state.activeSceneHeader?.includes("ДСкрытая"))
+      throw new Error(`Test Contract 2: automatic fallback must prefer the included scene, got "${state.activeSceneHeader}"`);
+
+    // The disabled control cannot mutate anything -- also confirms the
+    // runtime guard (defense in depth) independently refuses.
+    await page.click("#fullSceneTextFindReplace .rte-replace-one",{force:true}).catch(()=>{});
+    await page.waitForTimeout(100);
+    const textsAfter=await rawProject(page);
+    if(JSON.stringify(textsBefore.scenes.filter(s=>s.id!=="d214-current"))!==JSON.stringify(textsAfter.scenes.filter(s=>s.id!=="d214-current")))
+      throw new Error("Test Contract 1: no scene other than the one just replaced may have been mutated");
+    if((await sceneTextOf(page,"d214-hidden"))!=="Гусь в скрытой."||(await sceneTextOf(page,"d214-included"))!=="Гусь в видимой.")
+      throw new Error("Test Contract 1: the disabled Replace control must not have mutated the fallback target");
+
+    // Save first -- "Текст сцены" is a single-editor surface, so opening a
+    // DIFFERENT (unmounted) scene from a result-row click transitions away
+    // from d214-current, which would otherwise still be dirty from the
+    // Replace above and trigger the UNRELATED, pre-existing discard guard
+    // this part isn't testing.
+    await page.click("#saveText");
+    await page.waitForTimeout(80);
+
+    // Test Contract 3: the hidden scene stays fully explicitly navigable/replaceable.
+    const rows=await page.$$(".rte-project-result-row");
+    let hiddenRow=null;
+    for(const row of rows){
+      const header=await row.evaluateHandle(el=>el.closest(".rte-project-result-group")?.querySelector(".rte-project-result-scene-header")?.textContent);
+      if((await header.jsonValue())?.includes("ДСкрытая")){hiddenRow=row;break}
+    }
+    if(!hiddenRow)throw new Error("Test Contract 3: the excluded scene's result must still be listed");
+    await hiddenRow.click();
+    await page.waitForTimeout(150);
+    if(await page.evaluate(()=>document.querySelector("#fullSceneTextFindReplace .rte-replace-one")?.disabled))
+      throw new Error("Test Contract 3: Replace must become enabled once the excluded scene is explicitly opened");
+    await page.click("#fullSceneTextFindReplace .rte-replace-one");
+    await page.waitForTimeout(120);
+    // Local/unsaved, per the established D2.1.2 contract: the live editor
+    // shows the replacement, canonical/persisted data is untouched until Save.
+    if((await editorText(page,"#fullSceneTextEditor"))!=="Индюк в скрытой.")
+      throw new Error("Test Contract 3: explicit Replace in the excluded scene must apply locally/unsaved");
+    if((await sceneTextOf(page,"d214-hidden"))!=="Гусь в скрытой.")
+      throw new Error("Test Contract 3: explicit Replace must not persist by itself");
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 17 (Find/Replace Stage D2.1.4, Finding 1 -- Test Contract 2, second
+  // ordering): the included scene sits BEFORE the current scene in canonical
+  // order, and the hidden scene sits after -- automatic fallback must prefer
+  // the PREVIOUS included scene over the hidden one.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d214b-current"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","Утка");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","Цапля");
+    await page.waitForTimeout(80);
+    await page.click("#fullSceneTextFindReplace .rte-replace-one");
+    await page.waitForTimeout(150);
+    const header=await page.evaluate(()=>document.querySelector(".rte-project-result-row.active")?.closest(".rte-project-result-group")?.querySelector(".rte-project-result-scene-header")?.textContent);
+    if(!header?.includes("ДВидимая2")||header?.includes("ДСкрытая2"))
+      throw new Error(`Test Contract 2 (previous-included ordering): fallback must prefer the previous included scene, got "${header}"`);
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 18 (Find/Replace Stage D2.1.4, Finding 2 -- Test Contract 4/5/6/7):
+  // live-doc handoff, Text Scene -> Scene Editor: no Save prompt, no
+  // persistence call, destination shows the unsaved text and is dirty, round
+  // trip without Save, Save-after-handoff, and discard-after-handoff.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d213-dirty-cycle"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Правка Б.");
+    await page.waitForTimeout(60);
+
+    // Test Contract 4: no Save prompt, no persistence, destination dirty.
+    const promptAppeared=await page.evaluate(async()=>{
+      document.querySelector("#fullSceneTextToolbar .rte-btn-switch-surface")?.click();
+      await new Promise(r=>setTimeout(r,150));
+      return document.getElementById("discardChangesModal").style.display==="flex";
+    });
+    if(promptAppeared)throw new Error("Test Contract 4: switching with an unsaved text-only edit must not prompt to Save");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(100);
+    if((await editorText(page,"#sceneTextEditor"))!=="Кот сидит. Правка Б.")
+      throw new Error("Test Contract 4: the destination must show the exact unsaved text");
+    if(!await page.evaluate(()=>trackerFor("sceneModal").isDirty()))
+      throw new Error("Test Contract 4: the destination must be dirty relative to the persisted baseline");
+    if(await page.evaluate(()=>document.getElementById("saveScene").disabled))
+      throw new Error("Test Contract 4: Save must be enabled after a dirty handoff");
+    if((await sceneTextOf(page,"d213-dirty-cycle"))!=="Кот сидит.")
+      throw new Error("Test Contract 4: the handoff itself must never persist");
+
+    // Test Contract 5: round trip without Save.
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(100);
+    if((await editorText(page,"#fullSceneTextEditor"))!=="Кот сидит. Правка Б.")
+      throw new Error("Test Contract 5: the unsaved text must survive a round trip through both surfaces");
+    if(!await page.evaluate(()=>trackerFor("textModal").isDirty()))
+      throw new Error("Test Contract 5: must still read as dirty after the round trip");
+    if((await sceneTextOf(page,"d213-dirty-cycle"))!=="Кот сидит.")
+      throw new Error("Test Contract 5: no persistence must have occurred across either switch");
+
+    // Test Contract 6: Save after handoff.
+    await page.click("#saveText");
+    await page.waitForTimeout(100);
+    if((await sceneTextOf(page,"d213-dirty-cycle"))!=="Кот сидит. Правка Б.")
+      throw new Error("Test Contract 6: Save after the handoff must persist the handed-off text");
+    if(!await page.locator("#textModal").isVisible())
+      throw new Error("Test Contract 6: the surface must remain open after Save");
+    if(await page.evaluate(()=>trackerFor("textModal").isDirty()))
+      throw new Error("Test Contract 6: must be clean after Save");
+    if(!await page.evaluate(()=>document.getElementById("saveText").disabled))
+      throw new Error("Test Contract 6: Save must be disabled again once clean");
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 7: discard after handoff, then reopen restores the
+    // persisted baseline (a SEPARATE scene, never saved this time).
+    await page.evaluate(()=>openSceneText("d213-dirty-cycle"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" В.");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(100);
+    await page.click("#cancelScene");
+    await page.waitForSelector("#discardChangesModal",{state:"visible"});
+    await page.click("#discardChanges");
+    await page.waitForTimeout(150);
+    await page.evaluate(()=>editScene("d213-dirty-cycle"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    if((await editorText(page,"#sceneTextEditor"))!=="Кот сидит. Правка Б.")
+      throw new Error(`Test Contract 7: reopening after discard must restore the last PERSISTED text (from Test 6's own Save), got "${await editorText(page,"#sceneTextEditor")}"`);
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 19 (Find/Replace Stage D2.1.4, Finding 2 -- Test Contract 8/9/10):
+  // Scene Editor -> Text Scene for text-only dirty (seamless) vs non-text
+  // dirty (existing guard preserved), and Find session sees the handed-off
+  // live doc's own content.
+  // ============================================================
+  {
+    const page=await freshPage();
+
+    // Test Contract 8: Scene Editor text-only dirty -> Text Scene, seamless.
+    await page.evaluate(()=>editScene("d212-locality-2"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.click("#sceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Правка.");
+    await page.waitForTimeout(60);
+    const promptAppeared8=await page.evaluate(async()=>{
+      document.querySelector("#sceneTextToolbar .rte-btn-switch-surface")?.click();
+      await new Promise(r=>setTimeout(r,150));
+      return document.getElementById("discardChangesModal").style.display==="flex";
+    });
+    if(promptAppeared8)throw new Error("Test Contract 8: a text-only Scene-Editor edit must switch to Text Scene seamlessly");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(100);
+    if((await editorText(page,"#fullSceneTextEditor"))!=="И кот здесь. Правка.")
+      throw new Error("Test Contract 8: the unsaved text must be handed off");
+    if(!await page.evaluate(()=>trackerFor("textModal").isDirty()))
+      throw new Error("Test Contract 8: must read as dirty");
+    if((await sceneTextOf(page,"d212-locality-2"))!=="И кот здесь.")
+      throw new Error("Test Contract 8: no persistence must have occurred");
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 9: Scene Editor NON-text dirty -> guard still fires.
+    await page.evaluate(()=>editScene("d212-surface-b"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.fill("#sceneTitle","ПоверхностьБ (изм.)");
+    await page.waitForTimeout(60);
+    const promptAppeared9=await page.evaluate(async()=>{
+      document.querySelector("#sceneTextToolbar .rte-btn-switch-surface")?.click();
+      await new Promise(r=>setTimeout(r,150));
+      return document.getElementById("discardChangesModal").style.display==="flex";
+    });
+    if(!promptAppeared9)throw new Error("Test Contract 9: a non-text edit must still trigger the existing discard guard");
+    if(!await page.locator("#sceneModal").isVisible())
+      throw new Error("Test Contract 9: the guard must keep the Scene modal open, not switch");
+    await page.click("#continueEditing");
+    await page.waitForTimeout(60);
+    if((await page.locator("#sceneTitle").inputValue())!=="ПоверхностьБ (изм.)")
+      throw new Error("Test Contract 9: cancelling the guard must leave the edit intact");
+    await page.evaluate(()=>{destroySceneModalTextEditor();forceHideModal("sceneModal")});
+
+    // Test Contract 10: Find session sees the handed-off live doc's own term.
+    await page.evaluate(()=>openSceneText("d212-persist"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Жираф.");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","жираф");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    const found=await page.evaluate(()=>document.querySelector("#sceneTextFindReplace .rte-find-count")?.textContent);
+    if(found==="0 из 0"||!found)
+      throw new Error(`Test Contract 10: destination search must see the term from the handed-off live doc, got "${found}"`);
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 20 (Find/Replace Stage D2.1.4, Finding 2 -- Test Contract 11): rich
+  // text survives an unsaved live-doc handoff -- the mechanism hands off the
+  // exact ProseMirror JSON (sceneTextDoc model), never a plain-text round
+  // trip, so a bold mark must still be there on the destination surface.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("d212-empty-full"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Жирный");
+    await page.keyboard.down("Shift");
+    for(let i=0;i<6;i++)await page.keyboard.press("Shift+ArrowLeft");
+    await page.keyboard.up("Shift");
+    await page.click("#fullSceneTextToolbar .rte-btn-bold");
+    await page.waitForTimeout(60);
+    const beforeHtml=await page.evaluate(()=>document.querySelector("#fullSceneTextEditor .ProseMirror").innerHTML);
+    if(!beforeHtml.includes("<strong>"))throw new Error("Test Contract 11: setup expected a bold mark before switching");
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    const afterHtml=await page.evaluate(()=>document.querySelector("#sceneTextEditor .ProseMirror").innerHTML);
+    if(!afterHtml.includes("<strong>"))
+      throw new Error(`Test Contract 11: the bold mark must survive the handoff, got "${afterHtml}"`);
     await page.close();
   }
 

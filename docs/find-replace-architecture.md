@@ -1287,7 +1287,136 @@ project-search-browser.test.mjs` (Stage D1) and `tools/find-replace-
 current-scene-browser.test.mjs` (Stage C) were re-run unchanged and remain
 green.
 
-## Stage D2.1.3: interaction-state hardening (this stage)
+## Stage D2.1.4: Replace eligibility + surface-handoff UX fix (this stage)
+
+Small, final D2.1 correction: two more manual-acceptance findings on
+D2.1.3's already-accepted work. No scope change.
+
+### Finding 1: Replace eligibility is stricter than "an active global result exists"
+
+`replaceProjectCurrent()`'s existing runtime guard (`attachedSceneId!==
+target.sceneId` → refuse) was always correct -- the bug was purely that the
+Replace BUTTON stayed enabled right up until that guard refused it, so
+exhausting the current scene's matches (leaving the active global result in
+some other scene, often an `included:false` one surfaced first by canonical
+order) produced a clickable button that only ever produced
+`"Эта сцена сейчас не открыта для редактирования — замена отменена."`
+`js/editor/find-replace-controller.js`'s `resolveProjectReplaceTarget()` is
+now the single source of truth for "may replaceProjectCurrent() run right
+now" (an active match must exist, belong to the currently ATTACHED/usable
+editor) -- both the runtime guard itself and the panel's new
+`canReplaceProjectCurrent()`/`snapshot().projectReplaceEligible` read off it,
+so the two can never drift apart. The panel's Replace button is now disabled
+whenever this is false, with its `title` explaining why (reusing the exact
+existing refusal message). The 4th condition in the approved rule --
+"the match is currently re-resolvable" -- is deliberately NOT independently
+re-verified on every render: `projectResult` is always a fresh search re-run
+synchronously after every doc-changing transaction, so it's already
+guaranteed true whenever the first three conditions hold; `buildProject
+Replacement`'s own `reresolveMatch` stale-check remains the real defense-in-
+depth for the rare remaining race.
+
+### Automatic post-Replace fallback now prefers included scenes
+
+Root cause: `pickPostReplaceActiveIndex`'s (find-replace-project-search.js)
+final fallback branch, reached when the just-exhausted scene has no matches
+left, picked the next match in plain canonical order with no regard for
+`scene.included` -- an `included:false` scene sitting earlier in canonical
+order than a still-matching included one could become the automatic active
+result purely by chance of position. Fixed by extending `flattenProjectMatches`
+to carry `included` through to each flat match entry, and reordering the
+fallback: (1) the next canonical INCLUDED scene with matches, searching
+forward; (2) if none, the nearest PREVIOUS canonical included scene with
+matches; (3) only when no included scene has matches anywhere, the old
+plain-canonical-order fallback (which may land on an `included:false` scene).
+This changes ONLY the automatic fallback target -- `included:false` scenes
+remain fully present in search/results/the global summary, directly
+navigable by an explicit result-row click, and replaceable (locally/unsaved,
+same as any other scene) once explicitly opened; arrows stay restricted to
+the existing navigation-domain semantics, unchanged.
+
+### Finding 2: Scene Editor ⇄ Text Scene is a live editing-surface handoff, not a Save
+
+Root cause of the unnecessary Save prompt: both surfaces' `onSwitchSurface`
+handlers called the generic `openSceneText`/`editScene`, which always go
+through `requestEditorTransition` -- the SAME dirty-guard used for
+navigating away to a genuinely different scene, with no special case for "the
+user is switching editing surfaces for the SAME scene, not leaving it."
+
+**Text Scene → Scene Editor is always seamless.** Text Scene has no
+non-text dirty state at all (its modal has no other form field -- confirmed
+by inspecting `index.html`'s `#textModal`, and by extension `trackerFor(
+"textModal").isDirty()` is driven purely by `extra.doc`). `js/scenes.js`'s
+new `switchToSceneEditorSeamless(sceneId,session,liveDocJSON)` bypasses
+`requestEditorTransition` entirely: it destroys/unregisters the source view,
+hides the source modal, then calls `editSceneNow` directly with the captured
+live doc.
+
+**Scene Editor → Text Scene distinguishes text-only from non-text dirty.**
+`js/dirty-state.js` gained one small, local addition to `createDirtyTracker`:
+`isDirtyIgnoringExtraKeys(keys)`, which reuses the tracker's own existing
+baseline/getState (never a second dirty system) to answer "is this dirty for
+a reason OTHER than these `extra` keys". `switchToTextSceneSeamless` calls
+`trackerFor("sceneModal").isDirtyIgnoringExtraKeys(["doc"])`: if true (a real
+title/tags/metadata edit is unsaved), it falls through to the EXISTING
+`openSceneText`/`requestEditorTransition` guard, completely unchanged; if
+false (clean, or dirty only because the scene's own text changed), it
+switches seamlessly with the live doc handed off, same as the other
+direction.
+
+**The live-doc handoff mechanism.** The source's own live doc JSON is
+captured by `scene-editor-controller.js`'s toolbar wiring at the moment of
+the click (`editor.getDocJSON()`, a deep-cloned plain value, decoupled from
+the view before anything is destroyed) and threaded through as a second
+argument to `onSwitchSurface`. The destination mounts NORMALLY from the
+scene's own canonical/persisted data first (`editSceneNow`/`openSceneTextNow`,
+unchanged) -- populating every form field and letting `trackerFor(id).
+captureInitialState()` run exactly as before, so the dirty baseline is
+the scene's own PERSISTED state, matching what was just mounted/captured.
+Only THEN, if a live doc was handed off, is it applied via a new
+`replaceDocJSON(json)` method (`js/editor/scene-editor-view.js`, forwarded
+through `mountSceneEditor`'s own return value) -- `docFromJSON`/`docToJSON`
+throughout, never a plain-text round-trip, so rich-text marks/structure
+survive exactly. This is a REAL transaction (`view.dispatch`, `addToHistory:
+false`), never `view.updateState` directly, so it flows through the normal
+`dispatchTransaction`/`onUpdate` pipeline: the toolbar, the Save button's
+dirty refresh, AND Find/Replace's own `recompute()` (so a fresh search runs
+against the HANDED-OFF content, not the stale persisted one, satisfying
+D2.1.3's Find-session-preservation contract for the live doc too) all react
+to it for free. `addToHistory:false` keeps the momentarily-mounted-but-
+never-shown canonical doc out of the undo stack -- it was never visible to
+the user (this all happens synchronously, before any repaint), so Undo must
+never be able to revert back to it.
+
+Because the swap happens strictly AFTER `captureInitialState()`, the
+tracker's baseline never rebases to the handed-off content -- `isDirty()`
+correctly reads dirty (current live doc B vs. persisted baseline A) with no
+special-cased comparison logic anywhere. Save, discard, and a manual edit
+back to A all resolve dirty state exactly as they would for any ordinary
+edit, because none of this introduces a second dirty-tracking mechanism --
+it only ever changes WHEN a real transaction is dispatched, never anything
+about how dirty is computed.
+
+No persistence call (`updateSceneText`/`commitDataChange`) is ever made
+merely by switching surfaces -- confirmed by browser test assertions
+checking the canonical/localStorage-backed project data stays untouched
+across every switch until an explicit Save.
+
+### Test coverage added this stage
+
+`tools/find-replace-project-replace-browser.test.mjs` gained Parts 16-20:
+Replace-eligibility + both fallback-ordering directions + explicit-hidden-
+scene-click (Finding 1); the full live-doc-handoff round trip in both
+directions including Save-after-handoff, discard-after-handoff, the text-
+only-vs-non-text-dirty distinction, Find-session-sees-live-doc, and a rich-
+text (bold mark) handoff check (Finding 2). Part 11's own "dirty guard
+respected" sub-test (from D2.1.2) was corrected: a text-only edit now
+switches seamlessly by design, so that assertion was replaced with a check
+for the NEW seamless behavior plus a new non-text-dirty sub-case verifying
+the guard still fires there. The full unit suite and the other two existing
+D1/D2/D2.1.3 browser suites were re-run unchanged and remain green.
+
+## Stage D2.1.3: interaction-state hardening
 
 Manual acceptance of D2.1.2 raised twelve findings covering selection
 artifacts, Save-button staleness, reveal/scroll correctness, and terminology.

@@ -215,6 +215,14 @@ function editSceneNow(sceneId,extra){
   showModal("sceneModal");
   resetSceneModalScroll();
   trackerFor("sceneModal").captureInitialState();
+  // Editor-handoff Stage D2.1.4 (Finding 2): `extra.liveDoc`, when given, is
+  // an unsaved ProseMirror-JSON doc handed off from the SAME scene's Text
+  // Scene surface (see switchToSceneEditorSeamless below) -- applied AFTER
+  // captureInitialState() above so the tracker's baseline stays the scene's
+  // own PERSISTED text (matching what was just mounted/captured), while the
+  // live editor itself now shows the handed-off unsaved content: exactly the
+  // "destination is dirty relative to the last persisted state" contract.
+  if(extra?.liveDoc)sceneModalTextEditor.replaceDocJSON(extra.liveDoc);
 }
 
 function populateSceneSelectors(){
@@ -448,6 +456,41 @@ function destroySceneModalTextEditor(){
   if(sceneModalTextEditor){sceneModalTextEditor.destroy();sceneModalTextEditor=null}
 }
 
+// Editor-handoff Stage D2.1.4 (Finding 2): Scene Editor -> Text Scene is
+// seamless (no Save prompt, no persistence) ONLY while the Scene modal's own
+// dirty state -- if any -- is entirely accounted for by the scene's own text
+// (extra.doc). Text Scene has no title/tags/metadata fields to carry a
+// NON-text change to, so a real non-text edit still goes through the
+// existing Save-or-discard guard (openSceneText -> requestEditorTransition),
+// completely unchanged. `isDirtyIgnoringExtraKeys(["doc"])` (js/dirty-
+// state.js) reuses the sceneModal tracker's own existing baseline/getState --
+// never a second dirty system -- to tell the two cases apart.
+function switchToTextSceneSeamless(sceneId,session,liveDocJSON){
+  if(trackerFor("sceneModal").isDirtyIgnoringExtraKeys(["doc"])){
+    openSceneText(sceneId,{projectSession:session});
+    return;
+  }
+  destroySceneModalTextEditor();
+  forceHideModal("sceneModal");
+  openSceneTextNow(sceneId,{projectSession:session,liveDoc:liveDocJSON});
+}
+
+// Editor-handoff Stage D2.1.4 (Finding 2): Text Scene -> Scene Editor is
+// ALWAYS seamless -- Text Scene has no non-text dirty state at all (no other
+// form field exists on that surface; see docs/find-replace-architecture.md).
+// Bypasses requestEditorTransition's generic "ask to Save first" guard
+// entirely (it would otherwise prompt to Save a scene the user isn't
+// actually leaving) and hands the live unsaved doc straight to the
+// freshly-mounted Scene Editor instead. `liveDocJSON` was already captured
+// (by mountSceneEditor's own toolbar wiring, at the moment of the click --
+// see scene-editor-controller.js) BEFORE this runs, so destroying the source
+// view below never risks losing it.
+function switchToSceneEditorSeamless(sceneId,session,liveDocJSON){
+  destroySceneTextEditor();
+  forceHideModal("textModal");
+  editSceneNow(sceneId,{projectSession:session,liveDoc:liveDocJSON});
+}
+
 // Find/Replace Stage D2.1.2 (Goal H/I): `extra` (optional) is
 // `{projectSession}` -- forwarded straight into mountSceneEditor, which
 // hands it to the new controller via adoptProjectSession before attaching
@@ -486,11 +529,12 @@ function mountSceneModalTextEditor(scene,extra){
     // `extra` (projectSession/pendingTarget) is forwarded unchanged, exactly
     // like openSceneText's own case-B fallback already does.
     openSceneForEditing:(sceneId,nextExtra)=>editScene(sceneId,nextExtra),
-    // Find/Replace Stage D2.1.2 (Goal I): switches THIS SAME scene to its
-    // text-only representation, carrying the current project session (if
-    // any) across -- openSceneText's own existing dirty guard
-    // (requestEditorTransition) still runs first, unchanged.
-    onSwitchSurface:session=>openSceneText(scene.id,{projectSession:session}),
+    // Find/Replace Stage D2.1.2 (Goal I) / Editor-handoff Stage D2.1.4
+    // (Finding 2): switches THIS SAME scene to its text-only representation,
+    // carrying the current project session (if any) AND the live unsaved doc
+    // across -- see switchToTextSceneSeamless above for exactly when this
+    // bypasses the generic Save-or-discard guard vs. still uses it.
+    onSwitchSurface:(session,liveDocJSON)=>switchToTextSceneSeamless(scene.id,session,liveDocJSON),
     switchSurfaceLabel:"Текст сцены",
     projectSession:extra?.projectSession
   });
@@ -524,10 +568,11 @@ function openSceneTextNow(sceneId,extra){
     // Find/Replace Stage D2.1.2 (Goal H): a project result opened from the
     // TEXT-ONLY surface stays text-only for the destination too.
     openSceneForEditing:(sceneIdToOpen,nextExtra)=>openSceneText(sceneIdToOpen,nextExtra),
-    // Find/Replace Stage D2.1.2 (Goal I): switches THIS SAME scene to its
-    // full-editor representation, carrying the current project session (if
-    // any) across.
-    onSwitchSurface:session=>editScene(sceneId,{projectSession:session}),
+    // Find/Replace Stage D2.1.2 (Goal I) / Editor-handoff Stage D2.1.4
+    // (Finding 2): switches THIS SAME scene to its full-editor
+    // representation, carrying the current project session (if any) AND the
+    // live unsaved doc across -- see switchToSceneEditorSeamless above.
+    onSwitchSurface:(session,liveDocJSON)=>switchToSceneEditorSeamless(sceneId,session,liveDocJSON),
     switchSurfaceLabel:"Редактор сцены",
     // Find/Replace Stage D2.1.1 (Goal A): hands the project-wide session
     // (if any) straight to the new controller mountSceneEditor is about to
@@ -536,6 +581,11 @@ function openSceneTextNow(sceneId,extra){
   });
   showModal("textModal",{initialFocus:sceneTextEditor.view.dom});
   trackerFor("textModal").captureInitialState();
+  // Editor-handoff Stage D2.1.4 (Finding 2): see editSceneNow's identical
+  // comment above -- `extra.liveDoc` (handed off from the Scene Editor, see
+  // switchToTextSceneSeamless below) is applied AFTER captureInitialState()
+  // so the baseline stays the scene's own persisted text.
+  if(extra?.liveDoc)sceneTextEditor.replaceDocJSON(extra.liveDoc);
 }
 
 async function toggleIncluded(sceneId,checked){

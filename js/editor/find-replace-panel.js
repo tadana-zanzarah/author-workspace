@@ -501,9 +501,22 @@ export function createFindReplacePanel(container,controller){
       // click on this button must be able to replace THAT one). "Заменить
       // все" (Replace All) stays out of scope for this stage -- see
       // docs/find-replace-architecture.md.
-      replaceOneButton.disabled=snapshot.activeProjectMatchId==null;
+      //
+      // Find/Replace Stage D2.1.4 (Finding 1): "an active global result
+      // exists" is NOT enough to enable this button -- manual acceptance
+      // found that exhausting the current scene's matches can leave the
+      // active global result pointing at a scene nothing has navigated to,
+      // and clicking Replace then only produced a silent, confusing refusal
+      // (REPLACE_FAILURE_MESSAGES["no-active-editor"] below). The button
+      // must already be disabled in that case; the user has to explicitly
+      // navigate/open that result first (arrow, or a result-row click) --
+      // see controller.js's resolveProjectReplaceTarget/
+      // canReplaceProjectCurrent, the single source of truth this reads.
+      replaceOneButton.disabled=!snapshot.projectReplaceEligible;
       replaceAllButton.disabled=true;
-      replaceOneButton.title="Заменить текущее совпадение по всему проекту";
+      replaceOneButton.title=snapshot.activeProjectMatchId!=null&&!snapshot.projectReplaceEligible
+        ?REPLACE_FAILURE_MESSAGES["no-active-editor"]
+        :"Заменить текущее совпадение по всему проекту";
       replaceAllButton.title=PROJECT_SCOPE_REPLACE_TITLE;
     } else {
       countEl.textContent=snapshot.matchCount?`${snapshot.activeIndex+1} из ${snapshot.matchCount}`:"0 из 0";

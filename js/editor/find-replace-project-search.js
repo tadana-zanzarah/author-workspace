@@ -174,6 +174,10 @@ export function flattenProjectMatches(result){
         sceneId:sceneResult.sceneId,sceneTitle:sceneResult.sceneTitle,
         chapterId:sceneResult.chapterId,chapterTitle:sceneResult.chapterTitle,
         sceneOrder:sceneResult.sceneOrder,source:sceneResult.source,
+        // Find/Replace Stage D2.1.4: carried through so pickPostReplaceActiveIndex
+        // below can prefer an author-visible (included) scene as the automatic
+        // post-Replace fallback -- see that function's own doc comment.
+        included:sceneResult.included,
         doc:sceneResult.doc,...match
       });
     }
@@ -255,11 +259,28 @@ export function reresolveFlatMatchIndex(flat,{sceneId,from,to,text,occurrenceInd
 //   2. Otherwise the nearest remaining match in the SAME scene BEFORE
 //      `position` (the last one, since `flat` preserves in-scene document
 //      order).
-//   3. Only when the scene has NO remaining matches at all: fall through to
-//      normal project ordering -- the first match at/after this scene's own
-//      former canonical position, wrapping to the very first overall result
-//      if this was the last scene with matches. Never an arbitrary jump to
-//      index 0 as a mere byproduct of index shifting.
+//   3. Only when the scene has NO remaining matches at all: prefer an
+//      author-visible scene (`included!==false`) as the automatic fallback --
+//      Find/Replace Stage D2.1.4 (Finding "automatic fallback prefers
+//      included scenes"), manual acceptance found the OLD policy here (plain
+//      canonical order, ignoring `included`) could silently land the active
+//      result on a hidden/excluded scene purely because it happened to sit
+//      earlier in canonical order than a still-matching included one. This
+//      changes ONLY which scene an exhausted-current-scene Replace
+//      automatically advances to -- it never removes `included:false` scenes
+//      from search/results/explicit navigation/explicit Replace (see
+//      docs/find-replace-architecture.md): they stay fully present and
+//      directly clickable, this is purely an unattended-fallback preference.
+//        3a. The NEXT canonical included scene with matches (searching
+//            forward from this scene's own former position, matching the
+//            pre-existing "next" directionality).
+//        3b. If none after it, the NEAREST PREVIOUS canonical included scene
+//            with matches.
+//        3c. Only when no included scene has matches anywhere does an
+//            included:false scene become the fallback -- the OLD plain
+//            canonical-order policy, wrapping to the very first overall
+//            result if this was the last scene with matches. Never an
+//            arbitrary jump to index 0 as a mere byproduct of index shifting.
 // Returns -1 only when `flat` itself is empty (no matches remain anywhere).
 export function pickPostReplaceActiveIndex(flat,{sceneId,position,sceneOrder}){
   if(!flat.length)return -1;
@@ -269,6 +290,11 @@ export function pickPostReplaceActiveIndex(flat,{sceneId,position,sceneOrder}){
     const after=sceneIndices.find(index=>flat[index].from>=position);
     if(after!==undefined)return after;
     return sceneIndices[sceneIndices.length-1];
+  }
+  const forwardIncluded=flat.findIndex(match=>match.sceneOrder>=sceneOrder&&match.included!==false);
+  if(forwardIncluded>=0)return forwardIncluded;
+  for(let index=flat.length-1;index>=0;index--){
+    if(flat[index].sceneOrder<sceneOrder&&flat[index].included!==false)return index;
   }
   const nextScene=flat.findIndex(match=>match.sceneOrder>=sceneOrder);
   return nextScene>=0?nextScene:0;
