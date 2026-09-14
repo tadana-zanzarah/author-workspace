@@ -2,7 +2,7 @@ import {sceneDocSchema} from "./scene-doc-schema.js";
 import {loadSceneDocument,serializeSceneDocument} from "./scene-doc-convert.js";
 import {createSceneEditor} from "./scene-editor-view.js";
 import {createSceneEditorToolbar} from "./scene-editor-toolbar.js";
-import {createFindReplaceController} from "./find-replace-controller.js";
+import {createFindReplaceController,captureViewportAnchor,revealDocPosition} from "./find-replace-controller.js";
 import {createFindReplacePanel} from "./find-replace-panel.js";
 import {registerMountedScene,unregisterMountedScene,markMountedSceneActive} from "./mounted-scene-registry.js";
 import {navigateToSceneMatch} from "./find-replace-navigation.js";
@@ -85,16 +85,26 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{
     characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined,
-    // Editor-handoff Stage D2.1.4 (Finding 2): also passes this mount's own
-    // CURRENT live doc (editor.getDocJSON()) alongside the existing project
-    // session -- captured at click time, i.e. before the caller (js/scenes.js)
-    // does anything that could destroy this view, so the unsaved content is
-    // never at risk of being lost mid-switch. `editor` is assigned below,
-    // after this closure is created, but only ever CALLED later (on an
-    // actual click) -- by then it is always already assigned, same pattern
-    // already used elsewhere in this codebase for a just-mounted editor
-    // reference captured by an earlier-declared closure.
-    onSwitchSurface:onSwitchSurface?()=>onSwitchSurface(findReplace?.exportProjectSession?.()??null,editor.getDocJSON()):undefined,
+    // Editor-handoff Stage D2.1.4 (Finding 2) / D2.1.5 (position handoff):
+    // passes ONE handoff object -- this mount's own CURRENT live doc, Find/
+    // Replace session (now possibly carrying a same-scene active target, see
+    // find-replace-controller.js's exportProjectSession), the real
+    // ProseMirror selection/caret, and a viewport-position fallback anchor
+    // (find-replace-controller.js's captureViewportAnchor, for a scrolled-
+    // but-never-clicked viewport -- Priority 3) -- all captured HERE, at
+    // click time, before the caller (js/scenes.js) does anything that could
+    // destroy this view, so none of it is ever at risk of being lost
+    // mid-switch. `editor` is assigned below, after this closure is created,
+    // but only ever CALLED later (on an actual click) -- by then it is
+    // always already assigned, same pattern already used elsewhere in this
+    // codebase for a just-mounted editor reference captured by an
+    // earlier-declared closure.
+    onSwitchSurface:onSwitchSurface?()=>onSwitchSurface({
+      session:findReplace?.exportProjectSession?.()??null,
+      liveDoc:editor.getDocJSON(),
+      selection:{anchor:editor.view.state.selection.anchor,head:editor.view.state.selection.head},
+      viewportAnchor:captureViewportAnchor(editor.view)
+    }):undefined,
     switchSurfaceLabel
   });
   const editor=createSceneEditor({
@@ -137,10 +147,69 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
     serialize(){return serializeSceneDocument(editor.getDoc())},
     openFind(){findReplace?.open("find")},
     openReplace(){findReplace?.open("replace")},
-    // Editor-handoff Stage D2.1.4: forwards to the underlying editor's own
-    // replaceDocJSON (scene-editor-view.js) -- see that method's own doc
-    // comment for the full reasoning (real transaction, addToHistory:false).
-    replaceDocJSON(json){editor.replaceDocJSON(json)},
+    // Editor-handoff Stage D2.1.4/D2.1.5: applies a handoff object captured
+    // by ANOTHER mount's own onSwitchSurface closure above -- `liveDoc`
+    // (required; a no-op without it), `session` (the Find/Replace session,
+    // possibly carrying a same-scene active `target` -- see find-replace-
+    // controller.js's exportProjectSession), `selection`
+    // ({anchor,head}, ProseMirror positions valid against `liveDoc`'s own
+    // structure since it's the exact doc those positions were captured
+    // against), and `viewportAnchor` (a single doc-position fallback, used
+    // only when `selection` sits at the trivial just-mounted default AND a
+    // meaningful viewport anchor was captured -- Priority 3, "scrolled but
+    // never clicked").
+    //
+    // Restore order (deliberately NOT arbitrary -- see D2.1.5's own
+    // completion report for why): the doc must already be live before any
+    // Find-target re-resolution is attempted, so `findReplace.
+    // adoptProjectSession(session)` -- which resets activeIndex/
+    // activeProjectMatchIndex/pendingActiveTarget for BOTH scopes, forcing a
+    // genuinely FRESH caret-relative (scene) or pendingActiveTarget-based
+    // (project) pick on the NEXT recompute rather than "clamping" whatever
+    // the INITIAL mount's own attachView already computed against the
+    // transient canonical doc -- runs FIRST, then `editor.replaceDocJSON`
+    // installs the live doc AND the resolved restore selection in the SAME
+    // transaction. That one transaction's own docChanged dispatch is what
+    // triggers the actual fresh recompute (via handleTransaction), so
+    // exactly one reveal/scroll action happens, never a competing second one.
+    //
+    // Priority, matching the approved UX rule: (1) `session.target` (an
+    // active Find/Replace match belonging to THIS scene -- its own `from`/
+    // `to` range becomes the restore selection, so the post-swap recompute's
+    // caret-relative pick lands back on that exact match); (2) `selection`,
+    // when it isn't sitting at the trivial just-mounted default (a real
+    // caret/range the user actually placed); (3) `viewportAnchor` (a
+    // collapsed caret there); (4) whatever `selection` was captured, even if
+    // trivial, as the final fallback -- never throws, never invents an
+    // arbitrary paragraph/range selection.
+    applyHandoff({session=null,liveDoc,selection,viewportAnchor}={}){
+      if(!liveDoc)return;
+      findReplace?.adoptProjectSession(session);
+      const target=session?.target;
+      const trivialCaret=selection&&selection.anchor===selection.head&&selection.anchor<=1;
+      const restoreAt=target
+        ?{anchor:target.from,head:target.to}
+        :(trivialCaret&&viewportAnchor!=null&&viewportAnchor>1)
+          ?{anchor:viewportAnchor,head:viewportAnchor}
+          :(selection||{anchor:0,head:0});
+      editor.replaceDocJSON(liveDoc,{selection:restoreAt});
+      // Editor-handoff Stage D2.1.5: the swap transaction's own resulting
+      // recompute (handleTransaction, triggered by its docChanged) never
+      // itself scrolls -- it only calls recompute(), never
+      // recomputeAndReveal() (that distinction is deliberate everywhere else
+      // in find-replace-controller.js too: recompute must never fight a
+      // user's own typing cursor elsewhere in the doc). A destination with a
+      // SINGLE scrollable ancestor could appear to reveal correctly anyway,
+      // as an unreliable side effect of the browser's own native "scroll a
+      // newly-focused/selected range into view" behavior -- but the Scene
+      // modal has a nested pair (the outer .modal AND the inner
+      // #sceneTextEditor's own bounded scroll region), where that implicit
+      // behavior does not reliably reach both levels. Reusing the SAME
+      // sticky-aware, multi-ancestor revealDocPosition() every other Find/
+      // Replace reveal already goes through -- never a second, competing
+      // scroll mechanism -- makes this deterministic on every surface.
+      revealDocPosition(editor.view,restoreAt.anchor);
+    },
     destroy(){
       editorContainer.removeEventListener("focusin",markActiveOnFocus);
       if(scene?.id&&registrationId)unregisterMountedScene(scene.id,registrationId);

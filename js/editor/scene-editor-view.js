@@ -1,4 +1,4 @@
-import {EditorState} from "prosemirror-state";
+import {EditorState,TextSelection} from "prosemirror-state";
 import {EditorView} from "prosemirror-view";
 import {history} from "prosemirror-history";
 import {keymap} from "prosemirror-keymap";
@@ -61,9 +61,38 @@ export function createSceneEditor({mount,schema,doc,onUpdate}){
     // and was never actually shown to the user (this runs synchronously,
     // before any repaint), so it must never become something Undo can revert
     // back to.
-    replaceDocJSON(json){
+    //
+    // Editor-handoff Stage D2.1.5 (jump-to-end root cause): a full-document
+    // `replaceWith(0,size,...)` with no explicit `setSelection` left the
+    // transaction's own selection to ProseMirror's DEFAULT position-mapping
+    // of whatever selection was live before the swap (the canonical mount's
+    // own initial selection, near the very start) through a step that
+    // replaces the ENTIRE document. Mapping a position that sits inside a
+    // wholesale-replaced range resolves it against the mapping's bias
+    // (Mapping's own default rounds towards the LATER side of the replaced
+    // content) -- for a full-doc replace that is, in effect, the very end of
+    // the newly inserted content. That is the actual mechanism behind
+    // "destination jumps to the end of the document", not focus() or
+    // scrollIntoView() (neither is called here) and not EditorState's own
+    // default selection (a fresh EditorState.create with no selection
+    // defaults to the START, never the end -- this method never rebuilds
+    // state that way in the first place). The fix is to never depend on
+    // default mapping: `selection` (optional `{anchor,head}`, ProseMirror
+    // position numbers valid against `json`'s own structure -- the caller is
+    // responsible for resolving WHICH position that should be: an active
+    // Find/Replace target's range, a captured caret/selection, or a
+    // viewport-anchor fallback, in that priority order) is always resolved
+    // to a deliberate, explicit selection on the SAME transaction that
+    // installs the new doc -- one transaction, one selection decision, never
+    // a separate follow-up dispatch competing with this one.
+    replaceDocJSON(json,{selection}={}){
       const newDoc=docFromJSON(schema,json);
-      const tr=view.state.tr.replaceWith(0,view.state.doc.content.size,newDoc.content).setMeta("addToHistory",false);
+      let tr=view.state.tr.replaceWith(0,view.state.doc.content.size,newDoc.content);
+      const size=tr.doc.content.size;
+      const clamp=pos=>Math.max(0,Math.min(pos,size));
+      const anchor=selection?clamp(selection.anchor):0;
+      const head=selection?clamp(selection.head??selection.anchor):anchor;
+      tr=tr.setSelection(TextSelection.create(tr.doc,anchor,head)).setMeta("addToHistory",false);
       view.dispatch(tr);
     }
   };

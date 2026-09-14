@@ -165,6 +165,37 @@ function revealDocPosition(view,pos){
   }
 }
 
+// Editor-handoff Stage D2.1.5: the counterpart of revealDocPosition above --
+// instead of scrolling TO a doc position, finds the doc position CURRENTLY
+// at the top of the visible viewport, for surfaces that scrolled without
+// ever moving the selection there (Priority 3's "viewport fallback": the
+// author scrolled to review a passage but never clicked/placed a caret in
+// it). Walks the exact same scrollable-ancestor chain as revealDocPosition
+// (first ancestor with a real vertical scrollbar), accounts for the same
+// sticky-header obstruction, then asks ProseMirror's own view.posAtCoords
+// (the inverse of coordsAtPos) what doc position renders just below that
+// visible top edge. Returns null when nothing can be determined (no
+// scrollable ancestor, or posAtCoords can't resolve a position there) --
+// callers must fall back to the captured selection in that case, never
+// throw or invent a position.
+function captureViewportAnchor(view){
+  if(!isViewUsable(view)||!view.dom)return null;
+  const margin=16;
+  let node=view.dom.parentElement;
+  while(node&&node!==document.body&&node!==document.documentElement){
+    const style=getComputedStyle(node);
+    const scrollableY=/(auto|scroll)/.test(style.overflowY)&&node.scrollHeight>node.clientHeight+1;
+    if(scrollableY){
+      const rect=node.getBoundingClientRect();
+      const topBound=rect.top+stickyTopObstruction(node)+margin;
+      const coords=view.posAtCoords({left:rect.left+rect.width/2,top:topBound+2});
+      return coords?coords.pos:null;
+    }
+    node=node.parentElement;
+  }
+  return null;
+}
+
 // Find/Replace Stage D1: `getProjectData`/`navigateToSceneMatch` are optional
 // dependency-injection hooks for the new "Весь проект" scope -- every Stage C
 // caller/test that omits them keeps working exactly as before
@@ -796,11 +827,13 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // project-result click -- that path already builds its own session
   // inline in find-replace-navigation.js). Returns `null` outside project
   // scope -- there is nothing project-specific to preserve when scope is
-  // "scene". Deliberately carries no `target`: a surface switch isn't aimed
-  // at any one particular match, so the destination's own fresh search
-  // just uses its existing caret-relative pickInitialProjectMatchIndex
-  // default (see resolveFreshProjectActiveIndex) -- exactly right for "keep
-  // searching the same thing", not "jump to this exact result".
+  // "scene". Originally carried no `target` at all: a surface switch wasn't
+  // considered "aimed at" any one particular match, so the destination's
+  // fresh search just used its existing caret-relative
+  // pickInitialProjectMatchIndex default (see resolveFreshProjectActiveIndex).
+  // Editor-handoff Stage D2.1.5 revisited this: see this function's own
+  // updated doc comment below for why a same-scene `target` is now included
+  // when one applies.
   // Find/Replace Stage D2.1.3 (Finding 8): originally project-scope-only (a
   // scene-scope session was simply never exported, so a same-scene surface
   // switch while scope was "Эта сцена" silently dropped query/replaceText/
@@ -812,8 +845,25 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // destination panel open regardless of whether the SOURCE panel was
   // actually open, which is its own smaller instance of the same bug this
   // finding is about.
+  // Editor-handoff Stage D2.1.5 (Priority 1 -- active Find target survives a
+  // surface switch): `target` now carries the CURRENT active project match,
+  // but ONLY when it belongs to the scene actually being handed off
+  // (attachedSceneId) -- exactly the existing `adoptProjectSession(session)`
+  // shape D2.1.1/D2.1.2 already built for cross-scene project-result
+  // navigation, reused here rather than inventing a second "aim at this
+  // match" mechanism. An active match in some OTHER scene (see D2.1.4
+  // Finding 1 -- this can legitimately happen once the current scene's own
+  // matches are exhausted) is deliberately left out: a same-scene surface
+  // switch has nothing to do with THAT match, and forcing it into
+  // `pendingActiveTarget` would incorrectly try to resolve an unrelated
+  // scene's occurrence against the doc about to be installed here.
   function exportProjectSession(){
-    return {scope,query,replaceText,caseSensitive,open:open_};
+    const flat=projectResult?flattenProjectMatches(projectResult):[];
+    const activeMatch=activeProjectMatchIndex>=0?flat[activeProjectMatchIndex]:null;
+    const target=scope==="project"&&activeMatch&&activeMatch.sceneId===attachedSceneId
+      ?{sceneId:activeMatch.sceneId,from:activeMatch.from,to:activeMatch.to,text:activeMatch.text,occurrenceIndex:activeMatch.occurrenceIndex}
+      :null;
+    return {scope,query,replaceText,caseSensitive,open:open_,target};
   }
 
   function adoptProjectSession(session){
@@ -1293,4 +1343,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
 // hiding it" logic instead of re-implementing the sticky-header-aware
 // geometry walk this file already carefully tuned across several corrective
 // passes. No behavior here changed for Stage C's own current-scene callers.
-export {isViewUsable,revealDocPosition};
+// Editor-handoff Stage D2.1.5: captureViewportAnchor is exported for the
+// same reason -- scene-editor-controller.js's own surface-handoff capture
+// reuses this exact geometry rather than re-implementing it.
+export {isViewUsable,revealDocPosition,captureViewportAnchor};

@@ -21,6 +21,10 @@ function scene(id,title,chapterId,text,{included=true}={}){
   return {id,title,date:"",time:"",dateReview:false,chapterId,locationId:"",tags:[],
     writingStatus:"idea",sceneText:text,included,status:"floating",people:{}};
 }
+// Editor-handoff Stage D2.1.5: long-scene filler for position/viewport tests
+// -- enough lines that the editor genuinely scrolls on both surfaces
+// (the Scene modal's own bounded #sceneTextEditor{height:320px} included).
+function filler(n){return Array.from({length:n},(_,i)=>`Просто строка номер ${i}.`).join("\n")}
 
 const project={
   version:11,
@@ -53,7 +57,11 @@ const project={
     // the "prefer a previous included scene" branch is exercised too.
     scene("d214b-included","ДВидимая2","chapter-1","Утка в видимой."),
     scene("d214b-current","ДТекущая2","chapter-1","Утка тут одна."),
-    scene("d214b-hidden","ДСкрытая2","chapter-1","Утка в скрытой.",{included:false})
+    scene("d214b-hidden","ДСкрытая2","chapter-1","Утка в скрытой.",{included:false}),
+    // Editor-handoff Stage D2.1.5: long scenes with a findable/clickable
+    // marker paragraph roughly in the middle, for position/viewport tests.
+    scene("d215-long","ДлиннаяСцена","chapter-1",`${filler(40)}\nСРЕДИНА ТЕКСТА ТУТ.\n${filler(40)}`),
+    scene("d215-multi","МногоКотов","chapter-1",`Кот наверху.\n${filler(30)}\nКот в середине.\n${filler(30)}\nКот внизу.`)
   ]
 };
 
@@ -1091,6 +1099,265 @@ try{
     const afterHtml=await page.evaluate(()=>document.querySelector("#sceneTextEditor .ProseMirror").innerHTML);
     if(!afterHtml.includes("<strong>"))
       throw new Error(`Test Contract 11: the bold mark must survive the handoff, got "${afterHtml}"`);
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 21 (Editor-handoff Stage D2.1.5, Test Contract 1): a caret placed
+  // in the MIDDLE of a long scene must land the destination surface's
+  // viewport on that same logical location -- never jump to the document's
+  // end (the reported bug) or its start -- in BOTH switch directions.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"СРЕДИНА ТЕКСТА ТУТ."}).click();
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    let geo=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("СРЕДИНА"));
+      const e=editor.getBoundingClientRect(),m=marker?.getBoundingClientRect();
+      return {
+        visible:m?(m.top>=e.top-2&&m.bottom<=e.bottom+2):false,
+        atEnd:editor.scrollTop+editor.clientHeight>=editor.scrollHeight-2,
+        atStart:editor.scrollTop<=2
+      };
+    });
+    if(!geo.visible)throw new Error(`Test Contract 1 (Scene Editor -> Text Scene): the middle marker must be revealed, got ${JSON.stringify(geo)}`);
+    if(geo.atEnd)throw new Error("Test Contract 1 (Scene Editor -> Text Scene): must not jump to the document's end");
+    if(geo.atStart)throw new Error("Test Contract 1 (Scene Editor -> Text Scene): must not jump to the document's start");
+
+    // Reverse direction.
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    geo=await page.evaluate(()=>{
+      const editor=document.getElementById("sceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("СРЕДИНА"));
+      const e=editor.getBoundingClientRect(),m=marker?.getBoundingClientRect();
+      return {
+        visible:m?(m.top>=e.top-2&&m.bottom<=e.bottom+2):false,
+        atEnd:editor.scrollTop+editor.clientHeight>=editor.scrollHeight-2,
+        atStart:editor.scrollTop<=2
+      };
+    });
+    if(!geo.visible)throw new Error(`Test Contract 1 (Text Scene -> Scene Editor): the middle marker must be revealed, got ${JSON.stringify(geo)}`);
+    if(geo.atEnd)throw new Error("Test Contract 1 (Text Scene -> Scene Editor): must not jump to the document's end");
+    if(geo.atStart)throw new Error("Test Contract 1 (Text Scene -> Scene Editor): must not jump to the document's start");
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 22 (Editor-handoff Stage D2.1.5, Test Contract 2/3): an active
+  // Find/Replace match (current-scene scope AND project scope) survives the
+  // switch as the SAME logical occurrence, revealed via the existing reveal
+  // pipeline, with the panel/session state intact.
+  // ============================================================
+  {
+    const page=await freshPage();
+    // Test Contract 2: current-scene scope, middle occurrence active.
+    await page.evaluate(()=>editScene("d215-multi"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.click("#sceneTextToolbar .rte-btn-find");
+    await page.fill("#sceneTextFindReplace .rte-find-input","Кот");
+    await page.waitForTimeout(80);
+    await page.click("#sceneTextFindReplace .rte-find-next"); // 2 of 3
+    await page.waitForTimeout(80);
+    if((await page.locator("#sceneTextFindReplace .rte-find-count").textContent())!=="2 из 3")
+      throw new Error("Test Contract 2: setup expected the middle occurrence to be active before switching");
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    let state=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const active=editor.querySelector(".rte-find-match-active");
+      const e=editor.getBoundingClientRect(),a=active?.getBoundingClientRect();
+      return {
+        count:document.querySelector("#fullSceneTextFindReplace .rte-find-count")?.textContent,
+        visible:a?(a.top>=e.top-2&&a.bottom<=e.bottom+2):false,
+        panelOpen:getComputedStyle(document.getElementById("fullSceneTextFindReplace")).display!=="none"
+      };
+    });
+    if(state.count!=="2 из 3")throw new Error(`Test Contract 2: the SAME logical occurrence must stay active, got "${state.count}"`);
+    if(!state.visible)throw new Error("Test Contract 2: the destination must reveal the active match");
+    if(!state.panelOpen)throw new Error("Test Contract 2: the panel/session must stay open");
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 3: project scope, same-scene active match.
+    await page.evaluate(()=>editScene("d215-multi"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.click("#sceneTextToolbar .rte-btn-find");
+    await page.click("#sceneTextFindReplace .rte-scope-project");
+    await page.fill("#sceneTextFindReplace .rte-find-input","Кот");
+    await page.waitForTimeout(80);
+    await page.click("#sceneTextFindReplace .rte-find-next");
+    await page.waitForTimeout(80);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    state=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const active=editor.querySelector(".rte-find-match-active");
+      const e=editor.getBoundingClientRect(),a=active?.getBoundingClientRect();
+      return {
+        visible:a?(a.top>=e.top-2&&a.bottom<=e.bottom+2):false,
+        activeText:active?.textContent,
+        scopeIsProject:document.querySelector("#fullSceneTextFindReplace .rte-scope-project")?.classList.contains("active")
+      };
+    });
+    if(!state.scopeIsProject)throw new Error("Test Contract 3: project scope must be preserved");
+    if(state.activeText!=="Кот")throw new Error("Test Contract 3: the active project target must be preserved");
+    if(!state.visible)throw new Error("Test Contract 3: the destination must reveal the active project match, not jump to the end");
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 23 (Editor-handoff Stage D2.1.5, Test Contract 4/7): unsaved live
+  // doc B with a restored position, and history/undo sanity across a
+  // NORMAL edit made before the switch.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"СРЕДИНА ТЕКСТА ТУТ."}).click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" ВСТАВКА.");
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    const test4=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const pm=editor.querySelector(".ProseMirror");
+      const marker=[...pm.querySelectorAll("p")].find(p=>p.textContent.includes("ВСТАВКА"));
+      const e=editor.getBoundingClientRect(),m=marker?.getBoundingClientRect();
+      return {
+        visible:m?(m.top>=e.top-2&&m.bottom<=e.bottom+2):false,
+        dirty:trackerFor("textModal").isDirty()
+      };
+    });
+    if(!test4.visible)throw new Error("Test Contract 4: the unsaved insertion's position must be revealed in the destination");
+    if(!test4.dirty)throw new Error("Test Contract 4: the destination must be dirty");
+    if((await sceneTextOf(page,"d215-long")).includes("ВСТАВКА"))
+      throw new Error("Test Contract 4: persistence must still be the original A");
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 7: history/undo remains coherent across the switch.
+    // Each surface owns its OWN independent EditorView/prosemirror-history
+    // instance (established architecture, unrelated to this stage -- see
+    // scene-editor-view.js's own doc comment: "nothing here is shared across
+    // instances, so undo/redo can never bleed across Scenes"). The handoff
+    // never attempts to transfer an undo STACK, only the doc's own current
+    // CONTENT -- so the destination's history starts genuinely empty. The
+    // real invariant this finding cares about is narrower: the swap itself
+    // must never have become a phantom step in ANY surface's history (so
+    // Ctrl+Z in a freshly-handed-off destination is a safe no-op, not an
+    // accidental revert to the transient canonical doc), and the SOURCE
+    // surface's own real edit must remain normally undoable there, exactly
+    // as any ordinary edit would be.
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"СРЕДИНА"}).click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" РЕАЛЬНАЯПРАВКА.");
+    await page.waitForTimeout(60);
+    // Confirm the edit is a normal, working undo step IN ITS OWN SOURCE
+    // editor first (before switching away at all) -- this is what "the
+    // source surface's own real edit remains normally undoable" actually
+    // means; testing it after switching back would mount a THIRD,
+    // independent EditorView with its own fresh (empty) history, which
+    // would prove nothing about this one.
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(60);
+    if((await editorText(page,"#sceneTextEditor")).includes("РЕАЛЬНАЯПРАВКА"))
+      throw new Error("Test Contract 7: setup expected the typed edit to be a normal, undoable step in its own source editor");
+    await page.keyboard.press("Control+y");
+    await page.waitForTimeout(60);
+    if(!(await editorText(page,"#sceneTextEditor")).includes("РЕАЛЬНАЯПРАВКА"))
+      throw new Error("Test Contract 7: setup expected Redo to restore the edit");
+
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    const handedOffText=await editorText(page,"#fullSceneTextEditor");
+    if(!handedOffText.includes("РЕАЛЬНАЯПРАВКА"))
+      throw new Error("Test Contract 7: the edit must have been handed off to the destination");
+    // Ctrl+Z in the fresh destination must be a safe no-op -- nothing has
+    // been typed there yet, and the swap itself must not have been recorded
+    // as an undo step (never a phantom revert toward the transient
+    // canonical doc that destination was briefly mounted from internally).
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(80);
+    if((await editorText(page,"#fullSceneTextEditor"))!==handedOffText)
+      throw new Error("Test Contract 7: Undo in a freshly-handed-off destination (nothing typed there yet) must be a no-op");
+    await page.close();
+  }
+
+  // ============================================================
+  // PART 24 (Editor-handoff Stage D2.1.5, Test Contract 5/6): viewport-only
+  // fallback (scrolled but never clicked, no active Find target) lands
+  // somewhere in the middle of the document, never start/end; and selection
+  // sanity -- a collapsed caret stays collapsed, a real user range survives.
+  // ============================================================
+  {
+    const page=await freshPage();
+    // Test Contract 5.
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.evaluate(()=>{
+      const editor=document.getElementById("sceneTextEditor");
+      const marker=[...editor.querySelectorAll("p")].find(p=>p.textContent.includes("СРЕДИНА"));
+      marker.scrollIntoView({block:"center"});
+    });
+    await page.waitForTimeout(100);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    const geo=await page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      return {scrollTop:editor.scrollTop,scrollHeight:editor.scrollHeight,clientHeight:editor.clientHeight};
+    });
+    const fraction=geo.scrollTop/Math.max(1,geo.scrollHeight-geo.clientHeight);
+    if(fraction<0.1||fraction>0.9)
+      throw new Error(`Test Contract 5: a scrolled-but-not-clicked viewport must land the destination roughly mid-document (not start/end), got fraction=${fraction.toFixed(2)} (${JSON.stringify(geo)})`);
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 6a: collapsed source caret -> collapsed destination caret.
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"СРЕДИНА"}).click();
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    let sel=await page.evaluate(()=>{const s=window.getSelection();return {isCollapsed:s.isCollapsed,text:s.toString()}});
+    if(!sel.isCollapsed||sel.text!=="")
+      throw new Error(`Test Contract 6: a collapsed source caret must produce a collapsed destination caret, got ${JSON.stringify(sel)}`);
+    await page.evaluate(()=>{destroySceneTextEditor();forceHideModal("textModal")});
+
+    // Test Contract 6b: a real, non-collapsed user selection survives.
+    await page.evaluate(()=>editScene("d215-long"));
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.locator("#sceneTextEditor .ProseMirror p",{hasText:"СРЕДИНА"}).click();
+    await page.keyboard.down("Shift");
+    for(let i=0;i<8;i++)await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.up("Shift");
+    await page.waitForTimeout(60);
+    const beforeText=await page.evaluate(()=>window.getSelection().toString());
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#textModal",{state:"visible"});
+    await page.waitForTimeout(150);
+    sel=await page.evaluate(()=>{const s=window.getSelection();return {isCollapsed:s.isCollapsed,text:s.toString()}});
+    if(sel.isCollapsed||sel.text!==beforeText)
+      throw new Error(`Test Contract 6: a real user selection must survive the handoff, expected "${beforeText}" got ${JSON.stringify(sel)}`);
     await page.close();
   }
 

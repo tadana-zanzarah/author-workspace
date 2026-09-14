@@ -1287,7 +1287,108 @@ project-search-browser.test.mjs` (Stage D1) and `tools/find-replace-
 current-scene-browser.test.mjs` (Stage C) were re-run unchanged and remain
 green.
 
-## Stage D2.1.4: Replace eligibility + surface-handoff UX fix (this stage)
+## Stage D2.1.5: preserve editor position across the Scene Editor ⇄ Text Scene handoff (this stage)
+
+Small, final D2.1 correction: manual acceptance of D2.1.4's live-doc handoff
+found the destination editor always scrolled to the end of the document,
+regardless of the source's caret/viewport/active Find match. Scene Editor
+⇄ Text Scene now preserves the author's working location in the text, in
+addition to the unsaved live doc and the Find/Replace session D2.1.3/D2.1.4
+already preserved.
+
+### Root cause of the jump-to-end
+
+`replaceDocJSON`'s full-document `replaceWith(0,size,newContent)`
+(`js/editor/scene-editor-view.js`) never called `setSelection` explicitly.
+ProseMirror's default behavior -- mapping the transaction's PRE-existing
+selection through its own steps when nothing calls `setSelection` -- resolves
+a position that sat inside a wholesale-replaced range according to the
+mapping's own bias, which for a full-document replace lands at the very end
+of the newly inserted content. Neither `focus()` nor `scrollIntoView()` nor
+EditorState's own default selection was the cause (none of the first two are
+called there; the third only ever applies to a brand-new `EditorState.create`
+with no doc, which this method never does). The fix: `replaceDocJSON` now
+always takes an explicit `{anchor,head}` and sets a deliberate selection on
+the SAME transaction that installs the new doc -- never left to default
+mapping.
+
+### Restoration priority (documented per the approved UX rule)
+
+1. **Active Find/Replace target.** If Find/Replace has an active match that
+   belongs to the scene being handed off, its own `{from,to}` range becomes
+   the restore selection. `find-replace-controller.js`'s `exportProjectSession`
+   now includes this `target` (reusing the exact `{sceneId,from,to,text,
+   occurrenceIndex}` shape D2.1.1 already built for cross-scene project-
+   result navigation) -- but ONLY when the active match's `sceneId` equals
+   `attachedSceneId` (the scene actually being handed off); an active match
+   belonging to some OTHER scene (D2.1.4 Finding 1's own "exhausted scene"
+   scenario) is deliberately left out.
+2. **Caret / selection.** Otherwise, the captured ProseMirror `{anchor,head}`
+   (from the source view's own `state.selection`) is restored, preserving
+   directionality and collapsed-vs-range exactly -- never turning a caret
+   into an arbitrary non-collapsed selection.
+3. **Viewport fallback.** If the caret sits at the trivial just-mounted
+   default (position ≤1) AND a viewport anchor was captured, that anchor
+   becomes a collapsed restore position instead -- covers "scrolled to
+   review a passage but never clicked there." The anchor is captured by a
+   new `captureViewportAnchor(view)` (`find-replace-controller.js`), the
+   geometric inverse of the existing `revealDocPosition`: it walks the same
+   scrollable-ancestor chain (sticky-header-aware), then asks ProseMirror's
+   own `view.posAtCoords` what doc position renders at the top of the
+   visible area right now.
+4. Whatever `selection` was captured, even if trivial, as the final
+   fallback -- restoration never throws and never invents an arbitrary
+   paragraph/range selection.
+
+### Restore order and the reveal pipeline
+
+`mountSceneEditor`'s returned wrapper gained `applyHandoff({session,liveDoc,
+selection,viewportAnchor})`, replacing D2.1.4's bare `replaceDocJSON` call.
+Order matters: `findReplace.adoptProjectSession(session)` runs FIRST --
+resetting `activeIndex`/`activeProjectMatchIndex`/`pendingActiveTarget` for
+BOTH scopes -- so the doc-swap transaction's own resulting recompute (fired
+via `handleTransaction`) does a genuinely FRESH pick against the doc about to
+be installed, rather than "clamping" whatever the initial mount's own
+`attachView` already computed against the transient canonical doc that was
+never shown to the user. Then `editor.replaceDocJSON(liveDoc,{selection})`
+installs the live doc and the resolved restore selection in ONE transaction.
+Finally, `revealDocPosition(view,pos)` -- the SAME sticky-aware, multi-
+ancestor reveal every other Find/Replace navigation already uses, never a
+second/competing scroll mechanism -- is called explicitly: the swap's own
+triggered recompute never scrolls anything itself (`handleTransaction` only
+ever calls `recompute()`, deliberately never `recomputeAndReveal()`, so as
+not to fight a user's own typing cursor elsewhere in the doc on unrelated
+edits), and relying on the browser's own implicit "scroll a focused
+selection into view" behavior proved unreliable for the Scene modal's nested
+scroll containers (the outer `.modal` and the inner bounded
+`#sceneTextEditor`) -- only a single explicit call reveals correctly on
+every surface.
+
+### History
+
+`replaceDocJSON`'s selection-setting transaction stays `addToHistory:false`,
+unchanged from D2.1.4. Each surface owns its own independent EditorView/
+`prosemirror-history` instance (pre-existing architecture -- "undo/redo can
+never bleed across Scenes"); the handoff was never a transfer of an undo
+STACK, only of the doc's current content, so a freshly-handed-off
+destination's own history starts empty and Ctrl+Z there is correctly a
+no-op until something is typed there.
+
+### Test coverage added this stage
+
+`tools/find-replace-project-replace-browser.test.mjs` gained Parts 21-24:
+mid-document caret preserved in both directions (the reported bug, directly);
+an active current-scene AND an active same-scene project Find match surviving
+as the same logical occurrence, revealed via the existing pipeline; an
+unsaved live doc's position restored correctly, plus the history-coherence
+invariant (a real pre-switch edit stays normally undoable in ITS OWN source
+editor; Undo in a fresh destination with nothing yet typed there is a safe
+no-op); and a scrolled-but-never-clicked viewport landing roughly mid-
+document (never start/end) plus selection sanity (collapsed stays collapsed,
+a real range survives). The full unit suite and the other two D1/D2/D2.1.x
+browser suites were re-run unchanged and remain green.
+
+## Stage D2.1.4: Replace eligibility + surface-handoff UX fix
 
 Small, final D2.1 correction: two more manual-acceptance findings on
 D2.1.3's already-accepted work. No scope change.
