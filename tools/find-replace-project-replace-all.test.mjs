@@ -93,6 +93,68 @@ _resetMountedSceneRegistryForTests();
   unregisterMountedScene("conflict",regA);unregisterMountedScene("conflict",regB);
 }
 
+// D2.2.1 corrective pass (manual acceptance): a stale-but-still-registered
+// registration whose own surface is NOT currently open/visible (this app's
+// existing, accepted "closing just hides the modal, the mount is destroyed
+// only on that surface's own NEXT open" pattern -- see mounted-scene-
+// registry.js's own doc comment) must never, on its own, produce a false
+// conflict against a genuinely visible, freshly-mounted registration for the
+// same scene -- even though their document content genuinely differs.
+// `view.dom={offsetParent:null}` simulates a closed modal's editor,
+// `{offsetParent:{}}` a currently-open one -- same technique tools/mounted-
+// scene-registry.test.mjs already established for isViewVisible.
+_resetMountedSceneRegistryForTests();
+{
+  const s=scene("orphan","Осиротевшая","chapter-1","Кот сидел.");
+  const staleHidden=fakeView(plainTextToDoc(schema,"Кот сидел и играл всё утро."));
+  staleHidden.dom={offsetParent:null}; // e.g. "Текст сцены", closed via discard/Escape/backdrop -- never destroyed
+  const freshVisible=fakeView(plainTextToDoc(schema,"Кот сидел."));
+  freshVisible.dom={offsetParent:{}}; // e.g. the Scene modal, just opened
+  const regStale=registerMountedScene("orphan",{view:staleHidden,surfaceId:"textModal",activate(){}});
+  const regFresh=registerMountedScene("orphan",{view:freshVisible,surfaceId:"sceneModal",activate(){}});
+  const result=resolveSceneReplacementSource(s);
+  assert.equal(result.status,"agree","an invisible orphan must never block the plan on its own");
+  assert.equal(result.doc.textContent,"Кот сидел.","the visible, currently-open registration is authoritative, never the hidden orphan");
+  unregisterMountedScene("orphan",regStale);unregisterMountedScene("orphan",regFresh);
+}
+
+// D2.2.1 corrective pass: TWO simultaneously VISIBLE registrations that
+// genuinely disagree must still conflict -- the visibility narrowing above
+// must never weaken this. Both here are visible (e.g. "Текст сцены" and
+// "Весь текст" both genuinely open at once, per this app's own supported
+// architecture -- see mounted-scene-registry.js's module doc comment).
+_resetMountedSceneRegistryForTests();
+{
+  const s=scene("real-conflict","РеальныйКонфликт","chapter-1","Кот сидел.");
+  const viewA=fakeView(plainTextToDoc(schema,"Кот сидел тихо."));
+  viewA.dom={offsetParent:{}};
+  const viewB=fakeView(plainTextToDoc(schema,"Кот бежал быстро."));
+  viewB.dom={offsetParent:{}};
+  const regA=registerMountedScene("real-conflict",{view:viewA,surfaceId:"textModal",activate(){}});
+  const regB=registerMountedScene("real-conflict",{view:viewB,surfaceId:"allScenesModal",activate(){}});
+  const result=resolveSceneReplacementSource(s);
+  assert.equal(result.status,"conflict","two SIMULTANEOUSLY VISIBLE, genuinely disagreeing registrations must still abort");
+  unregisterMountedScene("real-conflict",regA);unregisterMountedScene("real-conflict",regB);
+}
+
+// D2.2.1 corrective pass: when EVERY registration for a scene is invisible
+// (e.g. two abandoned, never-destroyed hidden mounts, no surface for this
+// scene currently open at all) and they genuinely disagree, this must still
+// conflict -- the fallback-to-full-set branch must never silently pick one.
+_resetMountedSceneRegistryForTests();
+{
+  const s=scene("all-hidden-conflict","ВсеСкрыты","chapter-1","Кот сидел.");
+  const viewA=fakeView(plainTextToDoc(schema,"Кот сидел тихо."));
+  viewA.dom={offsetParent:null};
+  const viewB=fakeView(plainTextToDoc(schema,"Кот бежал быстро."));
+  viewB.dom={offsetParent:null};
+  const regA=registerMountedScene("all-hidden-conflict",{view:viewA,surfaceId:"textModal",activate(){}});
+  const regB=registerMountedScene("all-hidden-conflict",{view:viewB,surfaceId:"sceneModal",activate(){}});
+  const result=resolveSceneReplacementSource(s);
+  assert.equal(result.status,"conflict","when NO registration is visible, disagreement among the full set must still abort -- never an arbitrary pick");
+  unregisterMountedScene("all-hidden-conflict",regA);unregisterMountedScene("all-hidden-conflict",regB);
+}
+
 // ================================================================
 // 2. planProjectReplaceAll -- pure planning, no I/O.
 // ================================================================

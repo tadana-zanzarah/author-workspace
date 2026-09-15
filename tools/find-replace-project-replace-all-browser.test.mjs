@@ -39,7 +39,10 @@ const project={
     scene("all-2","Все2","chapter-1","И кот здесь тоже."),
     scene("all-hidden","ВсеСкрытая","chapter-unassigned","Кот в скрытой сцене.",{included:false}),
     scene("all-unrelated","ВсеНеСвязана","chapter-1","Собака лает."),
-    scene("all-live","ВсеЖивая","chapter-1","Кот в живой сцене.")
+    scene("all-live","ВсеЖивая","chapter-1","Кот в живой сцене."),
+    scene("hbug-discard","БагОбнаружен","chapter-1","Кот сидел."),
+    scene("hbug-switch","БагПереключение","chapter-1","Кот в переключении."),
+    scene("hbug-after-replace","БагПослеЗамены","chapter-1","Кот после замены.")
   ]
 };
 
@@ -133,6 +136,135 @@ try{
     // Replace All is still whole-project, not scoped to the mounted one.
     if((await sceneTextOf(page,"all-1"))!=="пёс один.")
       throw new Error("Expected all-1 to be replaced in the same batch");
+  }
+
+  // ============================================================
+  // PART 3 (D2.2.1 corrective pass -- manual acceptance regression): the
+  // exact reported bug. An unsaved edit in "Текст сцены", then the ORDINARY
+  // "discard unsaved changes and open elsewhere" confirmation (NOT the
+  // same-scene seamless switch button) to open the SAME scene in the Scene
+  // modal -- this app's existing, accepted "closing just hides the modal"
+  // pattern leaves the old textModal mount registered, genuinely disagreeing
+  // in content with the fresh sceneModal one. Project Replace All must NOT
+  // report a false conflict for this, and must succeed correctly using the
+  // fresh, visible content.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("hbug-discard"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Незаписанный текст.");
+
+    // Generic dirty-guard navigation to the Scene modal for the SAME scene
+    // -- fire-and-forget (the awaited promise only resolves after the
+    // discard confirmation is answered).
+    await page.evaluate(()=>{window.__editScenePromise=editScene("hbug-discard")});
+    await page.waitForSelector("#discardChangesModal",{state:"visible"});
+    await page.click("#discardChanges");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+
+    await page.click("#sceneTextToolbar .rte-btn-find");
+    await page.click("#sceneTextFindReplace .rte-scope-project");
+    await page.fill("#sceneTextFindReplace .rte-find-input","кот");
+    await page.fill("#sceneTextFindReplace .rte-replace-input","пёс");
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextFindReplace .rte-replace-all");
+    await page.waitForTimeout(150);
+
+    const statusText=await page.evaluate(()=>{
+      const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
+      return el?{hidden:el.hidden,text:el.textContent}:null;
+    });
+    if(statusText&&!statusText.hidden)
+      throw new Error(`Expected NO false conflict from the orphaned, closed textModal registration; got status: ${JSON.stringify(statusText)}`);
+    if((await sceneTextOf(page,"hbug-discard"))!=="пёс сидел.")
+      throw new Error(`Expected Replace All to succeed using the fresh, visible content; got: ${await sceneTextOf(page,"hbug-discard")}`);
+  }
+
+  // ============================================================
+  // PART 4: the SAME-scene seamless surface switch (Текст сцены <-> Редактор
+  // сцены), in both directions, must never itself leave a stale/conflicting
+  // registration -- confirming the switch button's own destroy-then-create
+  // ordering stays correct, and that Project Replace All works cleanly
+  // immediately afterward on both surfaces.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("hbug-switch"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    await page.click("#sceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+
+    await page.click("#sceneTextToolbar .rte-btn-find");
+    await page.click("#sceneTextFindReplace .rte-scope-project");
+    await page.fill("#sceneTextFindReplace .rte-find-input","кот");
+    await page.fill("#sceneTextFindReplace .rte-replace-input","пёс");
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextFindReplace .rte-replace-all");
+    await page.waitForTimeout(150);
+
+    const statusText=await page.evaluate(()=>{
+      const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
+      return el?{hidden:el.hidden,text:el.textContent}:null;
+    });
+    if(statusText&&!statusText.hidden)
+      throw new Error(`Repeated same-scene seamless switching must never leave a false conflict; got status: ${JSON.stringify(statusText)}`);
+    if((await sceneTextOf(page,"hbug-switch"))!=="пёс в переключении.")
+      throw new Error(`Expected Replace All to succeed after repeated switching; got: ${await sceneTextOf(page,"hbug-switch")}`);
+  }
+
+  // ============================================================
+  // PART 5: a successful Project Replace All, followed immediately by the
+  // same-scene seamless switch, must remain safe -- the post-commit mounted-
+  // view synchronization must not itself leave a stray registration, and a
+  // SECOND Replace All attempt right after switching must still work cleanly
+  // (no false conflict from the just-completed commit's own bookkeeping).
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("hbug-after-replace"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","кот");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","пёс");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextFindReplace .rte-replace-all");
+    await page.waitForTimeout(150);
+    if((await sceneTextOf(page,"hbug-after-replace"))!=="пёс после замены.")
+      throw new Error("Setup: expected the first Replace All to succeed");
+
+    await page.click("#fullSceneTextToolbar .rte-btn-switch-surface");
+    await page.waitForSelector("#sceneModal .ProseMirror",{state:"visible"});
+    await page.waitForTimeout(150);
+    if((await editorText(page,"#sceneTextEditor"))!=="пёс после замены.")
+      throw new Error("Handoff after a successful Replace All must carry the committed content, not stale pre-commit text");
+
+    await page.click("#sceneTextToolbar .rte-btn-find");
+    await page.click("#sceneTextFindReplace .rte-scope-project");
+    await page.fill("#sceneTextFindReplace .rte-find-input","пёс");
+    await page.fill("#sceneTextFindReplace .rte-replace-input","волк");
+    await page.waitForTimeout(60);
+    await page.click("#sceneTextFindReplace .rte-replace-all");
+    await page.waitForTimeout(150);
+    const statusText=await page.evaluate(()=>{
+      const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
+      return el?{hidden:el.hidden,text:el.textContent}:null;
+    });
+    if(statusText&&!statusText.hidden)
+      throw new Error(`A second Replace All right after a post-commit handoff must not false-conflict; got: ${JSON.stringify(statusText)}`);
+    if((await sceneTextOf(page,"hbug-after-replace"))!=="волк после замены.")
+      throw new Error(`Expected the second Replace All to succeed; got: ${await sceneTextOf(page,"hbug-after-replace")}`);
   }
 
   console.log("find-replace project-replace-all browser tests: OK");

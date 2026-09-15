@@ -2073,6 +2073,46 @@ The panel surfaces this as a plain factual status message (see "Failure
 semantics" below); the user resolves it by saving/closing the extra open copy
 and retrying.
 
+**D2.2.1 corrective pass (manual acceptance): false conflict from a stale,
+closed-but-not-destroyed surface.** Manual acceptance reproduced a false
+conflict from a completely normal, supported action: an unsaved edit in
+"Текст сцены", then the ORDINARY "discard unsaved changes and open
+elsewhere" confirmation (not the same-scene seamless switch button) to open
+the same scene in the Scene modal. Root cause: this app's existing, accepted
+"defensive destroy-before-create" pattern (mounted-scene-registry.js's own
+module doc comment) means closing a single-editor surface via anything other
+than that exact surface's own next open — Cancel, Escape, backdrop, or the
+generic dirty-guard discard-and-navigate flow every ordinary scene
+navigation already uses — only **hides** the modal; it never destroys that
+surface's ProseMirror mount or unregisters it from the mounted-scene
+registry. The old, now-hidden registration stayed alive and registered,
+genuinely disagreeing in content with the freshly-mounted destination — a
+real `Node#eq` mismatch, so `resolveSceneReplacementSource` correctly, but
+unhelpfully, reported a conflict between two registrations the user could
+not simultaneously see or edit. A full page reload "fixed" it only because
+reloading resets every module-level JS variable and the whole mounted-scene-
+registry `Map`, discarding the orphan along with everything else — not
+because anything about the underlying state was actually resolved.
+
+**Fix**: `resolveSceneReplacementSource` narrows to **visible** registrations
+first — reusing `mounted-scene-registry.js`'s own `isViewVisible` (now
+exported for this reason; the exact same check `getPreferredLiveSceneView`
+already applies for search/navigation reads) — falling back to the full
+usable set only if none are visible. A registration whose own surface isn't
+open cannot represent "someone is concurrently editing this," so it is never
+a legitimate conflict participant on its own. This does **not** weaken
+genuine-conflict detection: two or more *simultaneously visible*
+registrations that disagree (e.g. "Текст сцены" and "Весь текст" both
+genuinely open at once, showing different content for the same scene) still
+conflict exactly as before, and when *every* registration for a scene is
+invisible, the full agreement check still runs against that full set — never
+an unconditional "pick the first one." Unlike `getPreferredLiveSceneView`,
+this still never breaks a genuine disagreement by most-recent-activation —
+that tie-break is deliberately not reused here, since resolving to *some*
+answer among genuinely live, currently-visible candidates that disagree is
+exactly the "arbitrary winner" this module's own conflict policy must never
+produce for a write.
+
 ### No-op behavior
 
 An empty query, a query that matches nothing anywhere, or a batch whose every

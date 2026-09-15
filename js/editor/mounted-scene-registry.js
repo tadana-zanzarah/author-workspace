@@ -140,7 +140,15 @@ export function hasMountedScene(sceneId){
 //      practice -- registerMountedScene marks its own registration active
 //      immediately -- but defended anyway), this returns an explicit
 //      conflict rather than guessing from iteration order.
-function isViewVisible(view){
+// Find/Replace D2.2.1 corrective pass: exported so find-replace-project-
+// replace-all.js's own conflict-detection (resolveSceneReplacementSource)
+// can apply the SAME "a registration whose own surface isn't even open
+// cannot represent a live view someone might be concurrently editing" test
+// this file already established for getPreferredLiveSceneView below -- never
+// a second, independently-maintained visibility check that could drift from
+// this one. See that module's own doc comment for exactly why a WRITE-time
+// conflict check needs this too.
+export function isViewVisible(view){
   const dom=view?.dom;
   if(!dom||typeof dom.offsetParent==="undefined")return true; // nothing to check (e.g. a test double) -- assume visible
   return dom.offsetParent!==null;

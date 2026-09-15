@@ -24,15 +24,18 @@
 //      silently clobbered by a replacement computed against stale canonical
 //      text.
 //   4. CONFLICTING REGISTRATIONS ABORT THE WHOLE OPERATION, BEFORE ANY WRITE:
-//      if ANY scene in the project has two or more live registrations that
-//      disagree on content, planning stops and reports {ok:false,
-//      reason:"conflict",conflictedSceneIds} -- zero scenes are ever
-//      written, even ones that would have been unaffected by the conflict.
-//      This mirrors mounted-scene-registry.js's own refusal to silently pick
-//      a winner (see that file's getPreferredLiveSceneView doc comment for
-//      why that function's own tie-break is deliberately NOT reused here --
-//      it always resolves to SOME answer, which is exactly wrong for a
-//      write).
+//      if ANY scene in the project has two or more VISIBLE (see the D2.2.1
+//      corrective-pass note on resolveSceneReplacementSource below -- an
+//      invisible, stale-but-still-registered surface is never on its own a
+//      conflict participant) live registrations that disagree on content,
+//      planning stops and reports {ok:false,reason:"conflict",
+//      conflictedSceneIds} -- zero scenes are ever written, even ones that
+//      would have been unaffected by the conflict. This mirrors mounted-
+//      scene-registry.js's own refusal to silently pick a winner AMONG
+//      genuinely live candidates (see that file's getPreferredLiveSceneView
+//      doc comment for why that function's own further ACTIVATION tie-break
+//      is deliberately NOT reused here -- it always resolves to SOME answer,
+//      which is exactly wrong for a write).
 //   5. NO-OP IS A DEFINED, SAFE OUTCOME: an empty query, a query with no
 //      matches anywhere, or a batch whose every computed replacement is a
 //      pure no-op (replacement text identical to every matched occurrence)
@@ -52,7 +55,7 @@ import {sceneDocSchema} from "./scene-doc-schema.js";
 import {loadSceneDocument,serializeSceneDocument} from "./scene-doc-convert.js";
 import {canonicalProjectScenes} from "./find-replace-project-search.js";
 import {findMatches,replaceAllMatches} from "./find-replace-model.js";
-import {getMountedSceneRegistrations} from "./mounted-scene-registry.js";
+import {getMountedSceneRegistrations,isViewVisible} from "./mounted-scene-registry.js";
 import {Selection} from "prosemirror-state";
 
 function isViewUsable(view){
@@ -61,21 +64,67 @@ function isViewUsable(view){
 
 // Resolves the authoritative doc for ONE scene, per the live-doc policy
 // above. Never uses mounted-scene-registry.js's own getPreferredLiveSceneView
-// (built to always resolve to a single best-effort answer for
-// search/navigation, which is exactly wrong for a WRITE decision -- see the
-// module doc comment). Returns:
+// wholesale (that function additionally breaks a genuine disagreement by
+// most-recent-activation, which is exactly the "arbitrarily prefer a winner"
+// this module's own conflict policy must never do for a WRITE) -- but it DOES
+// reuse that same file's `isViewVisible` visibility narrowing, for a
+// corrective reason found during D2.2.1 manual acceptance (see below).
+//
+// D2.2.1 corrective pass -- false conflict from a stale-but-still-registered
+// surface: this app's existing, accepted "defensive destroy-before-create"
+// pattern (mounted-scene-registry.js's own doc comment; also
+// scene-editor-view.js/js/scenes.js) means closing a single-editor surface
+// (standalone "Текст сцены", the Scene modal) via anything OTHER than that
+// exact surface's own next open -- Cancel, Escape, backdrop, OR the generic
+// dirty-guard "discard and open the scene elsewhere" flow every ordinary
+// scene-list navigation already uses -- only HIDES the modal
+// (`style.display="none"`); it does not destroy that surface's ProseMirror
+// mount or unregister it. Manual acceptance reproduced exactly this: Текст
+// сцены held an unsaved edit; navigating to the Scene modal for the SAME
+// scene through the ordinary "discard unsaved changes" confirmation (a
+// completely normal, supported action, not the same-scene seamless
+// Редактор сцены <-> Текст сцены switch button) left the OLD textModal
+// registration alive and registered, now genuinely disagreeing in content
+// with the freshly-mounted sceneModal one -- a real Node#eq mismatch, so the
+// PREVIOUS version of this function correctly, but unhelpfully, reported a
+// conflict for two registrations the user could not simultaneously see or
+// edit (one belongs to a modal that is not even open). Reload "fixed" it only
+// because reloading resets every module-level JS variable AND the whole
+// mounted-scene-registry Map, discarding the orphan along with everything
+// else -- not because anything about the underlying state was actually
+// resolved by the user.
+//
+// Fix: narrow to VISIBLE registrations first (the exact same
+// `isViewVisible`/candidate-narrowing step getPreferredLiveSceneView already
+// uses, reused verbatim rather than reimplemented), falling back to the full
+// usable set only if NONE of them are currently visible. A registration
+// whose own surface isn't open cannot represent "someone is concurrently
+// editing this" at all, so it is never a legitimate conflict participant on
+// its own -- this does NOT weaken genuine-conflict detection: two (or more)
+// SIMULTANEOUSLY VISIBLE registrations that disagree (e.g. "Текст сцены" and
+// "Весь текст" both open at once, showing different unsaved content for the
+// same scene) still fail the agreement check below exactly as before, and a
+// scene whose ONLY registrations are all invisible still runs the full
+// agreement check against that full set (never an unconditional "pick the
+// first one") -- so an invisible orphan disagreeing with ANOTHER invisible
+// orphan is still correctly reported as a conflict, just never blamed on a
+// registration nothing in the running app can currently show the user.
+//
+// Returns:
 //   {status:"none",doc}      -- no live registration; `doc` is the persisted
 //                                one, loaded fresh from `scene`.
-//   {status:"agree",doc}     -- one live registration, or several that agree
-//                                on content (ProseMirror Node#eq) -- `doc` is
-//                                that agreed live content.
-//   {status:"conflict"}      -- two or more live registrations disagree.
+//   {status:"agree",doc}     -- one candidate, or several that agree on
+//                                content (ProseMirror Node#eq) -- `doc` is
+//                                that agreed content.
+//   {status:"conflict"}      -- two or more candidates disagree.
 export function resolveSceneReplacementSource(scene){
   const persistedDoc=loadSceneDocument(sceneDocSchema,scene);
   const usable=getMountedSceneRegistrations(scene.id).filter(registration=>isViewUsable(registration.view));
   if(!usable.length)return {status:"none",doc:persistedDoc};
-  const firstDoc=usable[0].view.state.doc;
-  const allAgree=usable.every(registration=>registration.view.state.doc.eq(firstDoc));
+  const visibleOnes=usable.filter(registration=>isViewVisible(registration.view));
+  const candidates=visibleOnes.length?visibleOnes:usable;
+  const firstDoc=candidates[0].view.state.doc;
+  const allAgree=candidates.every(registration=>registration.view.state.doc.eq(firstDoc));
   if(!allAgree)return {status:"conflict"};
   return {status:"agree",doc:firstDoc};
 }
