@@ -563,7 +563,12 @@ function mountSceneModalTextEditor(scene,extra){
     // bypasses the generic Save-or-discard guard vs. still uses it.
     onSwitchSurface:handoff=>switchToTextSceneSeamless(scene.id,handoff),
     switchSurfaceLabel:"Текст сцены",
-    projectSession:extra?.projectSession
+    projectSession:extra?.projectSession,
+    // Find/Replace Stage D2.2.1: wires project-wide Replace All's atomic
+    // commit + dirty-baseline rebase (js/import-export.js) -- see that
+    // file's own doc comments on both functions.
+    commitProjectReplaceAll:commitProjectReplaceAllScenes,
+    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline
   });
 }
 
@@ -604,7 +609,11 @@ function openSceneTextNow(sceneId,extra){
     // Find/Replace Stage D2.1.1 (Goal A): hands the project-wide session
     // (if any) straight to the new controller mountSceneEditor is about to
     // create -- see that function's own doc comment.
-    projectSession:extra?.projectSession
+    projectSession:extra?.projectSession,
+    // Find/Replace Stage D2.2.1: see mountSceneModalTextEditor's identical
+    // comment above.
+    commitProjectReplaceAll:commitProjectReplaceAllScenes,
+    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline
   });
   showModal("textModal",{initialFocus:sceneTextEditor.view.dom});
   trackerFor("textModal").captureInitialState();

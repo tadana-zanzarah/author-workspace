@@ -1,7 +1,7 @@
 import {sceneDocSchema} from "./editor/scene-doc-schema.js";
 import {docToJSON,loadSceneDocument} from "./editor/scene-doc-convert.js";
 import {createSceneEditorGroup} from "./editor/scene-editor-controller.js";
-import {normalizedEqual} from "./dirty-state.js";
+import {normalizedEqual,normalizeSnapshot} from "./dirty-state.js";
 
 function includedScenes(){
   return data.scenes
@@ -58,7 +58,7 @@ function openAllScenesNow(){
     // call would steal focus back from a just-selected project-search match
     // (openModal() always re-schedules its own default-initial-focus
     // microtask, even when reopening an already-open modal).
-    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra)});
+    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra),commitProjectReplaceAll:commitProjectReplaceAllScenes,rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline});
     items.forEach(scene=>allScenesEditorGroup.mountScene(scene.id,{editorContainer:document.getElementById(`allSceneEditor-${scene.id}`),scene}));
   }
   showModal("allScenesModal");
@@ -107,6 +107,76 @@ async function saveAllScenes(){
   }),{renderAfter:false});
 }
 
+// Find/Replace Stage D2.2.1: the ONE atomic multi-scene write project-wide
+// Replace All commits through -- wired as find-replace-controller.js's
+// `commitProjectReplaceAll` (via scene-editor-controller.js's
+// projectSearchDeps) on every mountSceneEditor/createSceneEditorGroup call
+// site (js/scenes.js's mountSceneModalTextEditor/openSceneTextNow, and
+// openAllScenesNow above). `plan` is exactly one find-replace-project-
+// replace-all.js planProjectReplaceAll() result with `changed:true` --
+// `plan.scenes` already carries every affected scene's final, already-
+// serialized `{sceneId,sceneText,sceneTextDoc}` row; this function's only
+// job is committing all of them together as ONE logical mutation, never a
+// per-scene loop (contrast saveAllScenes's own cloud branch above, an
+// accepted PRE-EXISTING per-scene loop for ordinary multi-scene Save --
+// deliberately NOT reused here, since D2.2.1 requires true atomicity a loop
+// of updateSceneText calls cannot provide).
+//
+// Local: one commitDataChange mutator touching every affected scene's
+// sceneText/sceneTextDoc -- storage.js's own commitProjectChange already
+// makes that one transactional copy/validate/write/swap, so this is the
+// local half of "one logical Project Replace All = one atomic commit"
+// (product rule 5) for free, no new local-atomicity mechanism needed.
+//
+// Cloud: one bulkUpdateSceneText RPC call, through the existing
+// runCloudMutation/cloudProjectSync serialized mutation queue -- which
+// already resolves `expected_revision` from the current confirmed revision
+// (getRevision()) and fails the whole call (REVISION_CONFLICT, surfaced via
+// `.ok:false`, never retried automatically) exactly like every other cloud
+// content mutation. metadata:{richText:sceneTextDoc} mirrors update_scene_text/
+// bulk_update_scene_text's own set-not-merge contract (see
+// supabase/migrations/20260910120000_scene_text_bulk_update.sql) -- the same
+// mapping saveAllScenes's own cloud branch already uses per scene.
+async function commitProjectReplaceAllScenes(plan){
+  if(isCloudWorkspace()){
+    const result=await runCloudMutation("bulkUpdateSceneText",(api,revision)=>api.bulkUpdateSceneText(
+      cloudProjectSync.projectId,revision,
+      plan.scenes.map(({sceneId,sceneText,sceneTextDoc})=>({sceneId,sceneText,metadata:{richText:sceneTextDoc}}))
+    ),{renderAfter:false});
+    if(!result.ok)return result;
+    data=cloudProjectSync.confirmedProject;render();return result;
+  }
+  return commitDataChange(next=>plan.scenes.forEach(({sceneId,sceneText,sceneTextDoc})=>{
+    const target=next.scenes.find(s=>s.id===sceneId);
+    if(target){target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc}
+  }));
+}
+
+// Find/Replace Stage D2.2.1: rebases exactly the persisted-doc portion of
+// whichever currently-open tracked form happens to be showing this sceneId,
+// after commitProjectReplaceAllScenes above has already committed it AND
+// find-replace-controller.js's replaceProjectAll has already synchronized
+// that form's own live EditorView to the committed doc (see
+// find-replace-project-replace-all.js's syncMountedScenesAfterReplaceAll) --
+// the same two-step "commit, then rebase the baseline to match" shape the
+// (now-superseded) D2.1 design established, reusing dirty-state.js's own
+// generic rebaseExtra rather than a full captureInitialState() (which would
+// also silently accept any OTHER unrelated pending dirty state already
+// sitting in that same form -- e.g. an in-progress title edit in the Scene
+// modal). A pure no-op wherever this sceneId doesn't match whatever that
+// tracker is currently showing, or the tracker isn't active at all --
+// rebaseExtra itself already guards on `active`.
+//
+// `editingSceneId`/`textEditingSceneId`/`allScenesEditorGroup` are the exact
+// same module-level app state js/scenes.js's own mountSceneModalTextEditor/
+// openSceneTextNow already set (see state.js) -- never a second "which scene
+// is open where" tracking mechanism.
+function rebaseSceneTextDirtyBaseline(sceneId,sceneTextDocJSON){
+  if(editingSceneId===sceneId)trackerFor("sceneModal")?.rebaseExtra(extra=>({...extra,doc:normalizeSnapshot(sceneTextDocJSON)}));
+  if(textEditingSceneId===sceneId)trackerFor("textModal")?.rebaseExtra(extra=>({...extra,doc:normalizeSnapshot(sceneTextDocJSON)}));
+  if(allScenesEditorGroup?.sceneIds().includes(sceneId))trackerFor("allScenesModal")?.rebaseExtra(extra=>({...extra,docs:{...extra.docs,[sceneId]:normalizeSnapshot(sceneTextDocJSON)}}));
+}
+
 function exportWholeText(){
   const items=includedScenes();
   if(!items.length){alert("Нет сцен, включённых в общий текст.");return}
@@ -142,5 +212,5 @@ function exportWholeText(){
 // mounted yet).
 registerFindReplaceShortcuts("allScenesModal",{openFind:()=>allScenesEditorGroup?.openFind(),openReplace:()=>allScenesEditorGroup?.openReplace()});
 
-Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText});
-export {includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText};
+Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText,commitProjectReplaceAllScenes,rebaseSceneTextDirtyBaseline});
+export {includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText,commitProjectReplaceAllScenes,rebaseSceneTextDirtyBaseline};

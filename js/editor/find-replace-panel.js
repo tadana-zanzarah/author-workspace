@@ -346,13 +346,21 @@ export function createFindReplacePanel(container,controller){
   // stage, safe single Replace of the active GLOBAL match only). Both
   // controller functions already refuse to run under the wrong scope on
   // their own (belt-and-braces, never relied on alone) -- this dispatch is
-  // just which one a click/Enter should even attempt. "Заменить все" stays
-  // wired to replaceAll() only, and stays disabled in project scope (Replace
-  // All is explicitly out of scope for D2.1 -- see the snapshot subscriber
-  // below).
+  // just which one a click/Enter should even attempt.
+  // Find/Replace Stage D2.2.1: "Заменить все" now ALSO does one of two
+  // genuinely different things depending on scope -- scene-scope
+  // replaceAll() (Stage C, unchanged) or project-scope replaceProjectAll()
+  // (this stage -- the real, atomic, multi-scene commit). Both controller
+  // functions already refuse to run under the wrong scope on their own, same
+  // belt-and-braces discipline as replaceCurrent/replaceProjectCurrent
+  // above.
   function triggerReplaceOne(){
     if(controller.getSnapshot().scope==="project")return handleProjectReplaceOne();
     controller.replaceCurrent();
+  }
+  function triggerReplaceAll(){
+    if(controller.getSnapshot().scope==="project")return handleProjectReplaceAll();
+    controller.replaceAll();
   }
   // A controlled failure (the active editor's target scene isn't actually
   // mounted here right now, or the match is stale) surfaces as the smallest
@@ -362,7 +370,15 @@ export function createFindReplacePanel(container,controller){
   // fresh notify(), which is the existing, sufficient feedback mechanism.
   const REPLACE_FAILURE_MESSAGES={
     "no-active-editor":"Эта сцена сейчас не открыта для редактирования — замена отменена.",
-    stale:"Совпадение больше не найдено в текущем тексте — замена отменена."
+    stale:"Совпадение больше не найдено в текущем тексте — замена отменена.",
+    // Find/Replace Stage D2.2.1: Replace All's own failure reasons -- see
+    // find-replace-controller.js's replaceProjectAll and find-replace-
+    // project-replace-all.js's planProjectReplaceAll for exactly when each
+    // one is returned. Never a fabricated replaced count on any of these --
+    // the results list/summary simply keep showing whatever the last
+    // successful search actually found.
+    conflict:"У одной из сцен проекта найдено несколько открытых версий с разным текстом — замена по всему проекту отменена. Сохраните или закройте лишние открытые копии этой сцены и повторите поиск.",
+    "persist-failed":"Не удалось сохранить замену по всему проекту. Изменения не применены."
   };
   function handleProjectReplaceOne(){
     replaceStatusEl.hidden=true;replaceStatusEl.textContent="";
@@ -371,22 +387,31 @@ export function createFindReplacePanel(container,controller){
     replaceStatusEl.textContent=REPLACE_FAILURE_MESSAGES[result.reason]||"Замена не выполнена.";
     replaceStatusEl.hidden=false;
   }
+  // Find/Replace Stage D2.2.1: async (the underlying commit may be a real
+  // cloud round-trip) -- controller.getSnapshot() already reflects
+  // projectReplaceAllInFlight the instant the awaited call starts (it calls
+  // notify() synchronously before its own first `await`), so the button's
+  // disabled state updates immediately via the existing subscribe() below,
+  // with no separate busy-flag needed in this file.
+  async function handleProjectReplaceAll(){
+    replaceStatusEl.hidden=true;replaceStatusEl.textContent="";
+    const result=await controller.replaceProjectAll();
+    if(result.ok)return;
+    if(result.reason==="in-flight")return; // a second click while already committing -- ignore, nothing new to report
+    const message=result.reason==="persist-failed"&&result.error?.message
+      ?result.error.message
+      :REPLACE_FAILURE_MESSAGES[result.reason];
+    replaceStatusEl.textContent=message||"Замена по всему проекту не выполнена.";
+    replaceStatusEl.hidden=false;
+  }
   replaceOneButton.addEventListener("click",triggerReplaceOne);
-  replaceAllButton.addEventListener("click",()=>controller.replaceAll());
+  replaceAllButton.addEventListener("click",triggerReplaceAll);
   sceneScopeButton.addEventListener("click",()=>controller.setScope("scene"));
   projectScopeButton.addEventListener("click",()=>controller.setScope("project"));
 
   // Dispatched by js/modal-manager.js's Escape handler, never fired by
   // anything inside this panel itself.
   container.addEventListener("find-replace-escape",()=>controller.close());
-
-  // Manual-test regression fix (item 6): this used to read "Замена по всему
-  // проекту будет доступна после подтверждения изменений" -- worded like a
-  // promised, coming-soon feature announcement. Project-wide Replace is
-  // explicitly out of scope for this stage (and the one after this fix
-  // pass); a plain, factual "not available in this mode" is all a disabled
-  // button needs, with no implied roadmap commitment.
-  const PROJECT_SCOPE_REPLACE_TITLE="Недоступно в режиме «Весь проект»";
 
   // Rebuilds the project-results list from scratch on every relevant
   // snapshot -- simplest correct approach for a "practical first version"
@@ -498,9 +523,7 @@ export function createFindReplacePanel(container,controller){
       // navigation-domain-restricted the way the arrows are -- an explicit
       // result-row click, like Next/Previous, can set the active match to
       // ANY project result, including an off-domain/excluded scene, and a
-      // click on this button must be able to replace THAT one). "Заменить
-      // все" (Replace All) stays out of scope for this stage -- see
-      // docs/find-replace-architecture.md.
+      // click on this button must be able to replace THAT one).
       //
       // Find/Replace Stage D2.1.4 (Finding 1): "an active global result
       // exists" is NOT enough to enable this button -- manual acceptance
@@ -513,11 +536,21 @@ export function createFindReplacePanel(container,controller){
       // see controller.js's resolveProjectReplaceTarget/
       // canReplaceProjectCurrent, the single source of truth this reads.
       replaceOneButton.disabled=!snapshot.projectReplaceEligible;
-      replaceAllButton.disabled=true;
       replaceOneButton.title=snapshot.activeProjectMatchId!=null&&!snapshot.projectReplaceEligible
         ?REPLACE_FAILURE_MESSAGES["no-active-editor"]
         :"Заменить текущее совпадение по всему проекту";
-      replaceAllButton.title=PROJECT_SCOPE_REPLACE_TITLE;
+      // Find/Replace Stage D2.2.1: "Заменить все" now works in project scope
+      // too -- enabled whenever the current project search has at least one
+      // match AND the environment actually has Replace All's atomic commit
+      // wired (snapshot.projectReplaceAllEligible, the single source of
+      // truth -- see find-replace-controller.js's own snapshot()), disabled
+      // (with a distinct label/title) while a commit is already in flight so
+      // a second click can never start an overlapping one.
+      replaceAllButton.disabled=!snapshot.projectReplaceAllEligible;
+      replaceAllButton.textContent=snapshot.projectReplaceAllInFlight?"Замена…":"Заменить все";
+      replaceAllButton.title=snapshot.projectReplaceAllInFlight
+        ?"Выполняется замена по всему проекту…"
+        :"Заменить все совпадения по всему проекту";
     } else {
       countEl.textContent=snapshot.matchCount?`${snapshot.activeIndex+1} из ${snapshot.matchCount}`:"0 из 0";
       const hasMatches=snapshot.matchCount>0;
@@ -525,6 +558,12 @@ export function createFindReplacePanel(container,controller){
       nextButton.disabled=!hasMatches;
       replaceOneButton.disabled=snapshot.activeIndex<0;
       replaceAllButton.disabled=!hasMatches;
+      // Restores the default label in case a project-scope Replace All
+      // commit was still in flight (see the "Замена…" label above) at the
+      // moment scope switched away from "Весь проект" -- that commit keeps
+      // running in the background regardless of which scope the panel shows
+      // now, but this button's own label must not stay stuck on it.
+      replaceAllButton.textContent="Заменить все";
       replaceOneButton.title="Заменить текущее совпадение";
       replaceAllButton.title="Заменить все совпадения в этой сцене";
     }

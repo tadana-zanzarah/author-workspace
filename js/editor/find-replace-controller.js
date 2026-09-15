@@ -24,6 +24,7 @@ import {findReplacePluginKey,buildMatchDecorations} from "./find-replace-decorat
 import {searchProject,flattenProjectMatches,reresolveFlatMatchIndex,pickPostReplaceActiveIndex} from "./find-replace-project-search.js";
 import {getMountedSceneRegistrations} from "./mounted-scene-registry.js";
 import {buildProjectReplacement} from "./find-replace-project-replace.js";
+import {planProjectReplaceAll,syncMountedScenesAfterReplaceAll} from "./find-replace-project-replace-all.js";
 import {TextSelection} from "prosemirror-state";
 import {closeHistory} from "prosemirror-history";
 
@@ -260,7 +261,29 @@ function captureViewportAnchor(view){
 // Save (the scene's own existing Save flow, unchanged) is the only
 // persistence path; find-replace-project-replace.js's buildProjectReplacement
 // is pure planning with no I/O.
-export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null,getNavigableSceneIds=null}={}){
+//
+// Find/Replace Stage D2.2.1: project-wide Replace ALL is a genuinely
+// different operation -- a multi-scene, atomically-committed WRITE (unlike
+// Single Replace, which never persists) -- so it takes two more optional
+// dependencies, both wired for real at the app layer
+// (scene-editor-controller.js's projectSearchDeps -> js/import-export.js):
+//   - commitProjectReplaceAll(plan): plan is exactly one
+//     find-replace-project-replace-all.js planProjectReplaceAll() result
+//     with changed:true. Must commit every plan.scenes row as ONE atomic
+//     write (local: one commitDataChange; cloud: one bulkUpdateSceneText
+//     call) and resolve to a result whose `.ok` this file trusts as the ONLY
+//     success signal -- never a loop of single-scene saves. A caller that
+//     omits this makes replaceProjectAll's own eligibility check (see
+//     snapshot()) stay false, so the panel's "Заменить все" button in
+//     project scope naturally stays disabled rather than silently no-oping.
+//   - rebaseSceneDirtyBaseline(sceneId,sceneTextDocJSON): optional, same
+//     contract/shape the (now-superseded) D2.1 design established --
+//     see dirty-state.js's own rebaseExtra. Called once per COMMITTED scene
+//     after a successful commit+sync, so whichever open form's own dirty
+//     baseline needs to catch up to the just-persisted doc does, without
+//     silently accepting any OTHER pending/unrelated dirty state in the same
+//     form. A no-op wherever it doesn't apply.
+export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null,getNavigableSceneIds=null,commitProjectReplaceAll=null,rebaseSceneDirtyBaseline=null}={}){
   let view=null;
   // Final D1 hardening pass: the sceneId the ATTACHED view is currently
   // showing, threaded in by attachView's caller (which always already knows
@@ -313,6 +336,13 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // unrelated scene's own first match purely because indices shifted.
   // Cleared the instant it's consumed.
   let pendingPostReplaceLocality=null;
+  // Find/Replace Stage D2.2.1: true while replaceProjectAll's own commit is
+  // in flight (awaiting commitProjectReplaceAll -- synchronous for a local
+  // project, a real network round-trip for a cloud one). Gates the panel's
+  // "Заменить все" button so a second click can never start an overlapping
+  // second atomic commit; cleared unconditionally (success or failure)
+  // before the function returns.
+  let projectReplaceAllInFlight=false;
   // Every EditorView currently carrying a project-scope decoration set --
   // see applyProjectDecorations/clearAllProjectDecorations below. Tracked
   // explicitly (rather than re-deriving it) so a scene that drops OUT of the
@@ -357,7 +387,17 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
       // resolveProjectReplaceTarget/canReplaceProjectCurrent above. The panel
       // uses this (never the weaker "an active result id exists" check) to
       // decide the Replace button's disabled state.
-      projectReplaceEligible:canReplaceProjectCurrent()
+      projectReplaceEligible:canReplaceProjectCurrent(),
+      // Find/Replace Stage D2.2.1: whether replaceProjectAll() would actually
+      // be allowed to run right now -- project scope, a real project result
+      // with at least one match, commitProjectReplaceAll actually wired (an
+      // environment that never configured Replace All degrades to a
+      // permanently-disabled button, never a silent no-op click), and no
+      // commit already in flight. The panel reads this (never re-derives its
+      // own weaker check) to decide the "Заменить все" button's disabled
+      // state in project scope.
+      projectReplaceAllEligible:scope==="project"&&!!projectResult&&projectResult.totalMatches>0&&typeof commitProjectReplaceAll==="function"&&!projectReplaceAllInFlight,
+      projectReplaceAllInFlight
     };
   }
   function notify(){
@@ -1341,6 +1381,67 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
     return {ok:true,changed:true,sceneId:target.sceneId};
   }
 
+  // Find/Replace Stage D2.2.1: project-wide Replace ALL. Unlike
+  // replaceProjectCurrent (an ordinary, unsaved, single-editor edit),
+  // Replace All is a genuinely different operation -- a real, atomic,
+  // multi-scene WRITE -- so it is async and only ever runs against a FRESH
+  // plan built at THIS exact call time (find-replace-project-replace-all.js's
+  // planProjectReplaceAll, from live query/caseSensitive/replaceText strings
+  // and each scene's own current authoritative doc -- never from
+  // `projectResult`/`flattenProjectMatches`, which are navigation/display
+  // snapshots, not a write plan). See that module's own doc comment for the
+  // full fresh-plan/live-doc/conflict-abort contract.
+  //
+  // Guarded exactly like replaceProjectCurrent: refuses outside project
+  // scope, and refuses (never persists, never syncs) when the environment
+  // never wired commitProjectReplaceAll -- matching every other optional-
+  // dependency guard in this file.
+  async function replaceProjectAll(){
+    if(scope!=="project")return {ok:false,reason:"wrong-scope"};
+    if(projectReplaceAllInFlight)return {ok:false,reason:"in-flight"};
+    if(typeof getProjectData!=="function"||typeof commitProjectReplaceAll!=="function")return {ok:false,reason:"not-configured"};
+    const plan=planProjectReplaceAll(getProjectData(),query,{caseSensitive,replaceText});
+    if(!plan.ok)return plan; // {reason:"conflict",conflictedSceneIds} -- zero writes attempted
+    if(!plan.changed)return {ok:true,changed:false}; // a fresh plan found nothing to do -- no commit, no dirty, no fabricated count
+    projectReplaceAllInFlight=true;notify();
+    let commitResult;
+    try{
+      commitResult=await commitProjectReplaceAll(plan);
+    }catch(error){
+      projectReplaceAllInFlight=false;notify();
+      return {ok:false,reason:"persist-failed",error:{message:error?.message}};
+    }
+    if(!commitResult?.ok){
+      projectReplaceAllInFlight=false;notify();
+      return {ok:false,reason:"persist-failed",error:commitResult};
+    }
+    // Committed successfully -- bring every live mounted registration for
+    // every affected scene up to the exact committed content (never only the
+    // scene this controller happens to be attached to), then let whichever
+    // open form's own dirty baseline needs to catch up do so (a no-op
+    // wherever it doesn't apply -- see this factory's own doc comment on
+    // rebaseSceneDirtyBaseline).
+    syncMountedScenesAfterReplaceAll(plan.scenes);
+    plan.scenes.forEach(({sceneId,sceneTextDoc})=>rebaseSceneDirtyBaseline?.(sceneId,sceneTextDoc));
+    projectReplaceAllInFlight=false;
+    // Fresh search state, deterministic active-result fallback (product
+    // rule 10): treat this exactly like a genuinely FRESH activation --
+    // reset activeProjectMatchIndex to -1 (never a locality target the way
+    // Single Replace's own pendingPostReplaceLocality is, since Replace All
+    // can touch many unrelated scenes at once, so "stay local to the scene
+    // just edited" has no single well-defined meaning here) and let
+    // recomputeProject()'s own existing resolveFreshProjectActiveIndex ->
+    // pickInitialProjectMatchIndex fallback (caret-relative in the attached
+    // scene if it still has matches -- e.g. the replacement text itself
+    // still matches the query -- else the first remaining result) pick the
+    // new active result, from a genuinely fresh searchProject() call against
+    // the now-committed project data. No manual count/offset patching
+    // anywhere in this function.
+    activeProjectMatchIndex=-1;
+    recomputeProject();
+    return {ok:true,changed:true,affectedSceneCount:plan.affectedSceneCount,totalMatchCount:plan.totalMatchCount};
+  }
+
   function subscribe(listener){
     listeners.add(listener);
     listener(snapshot());
@@ -1350,7 +1451,7 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   return {
     attachView,detachView,handleTransaction,
     setQuery,setReplaceText,setCaseSensitive,
-    open,close,next,previous,replaceCurrent,replaceAll,replaceProjectCurrent,
+    open,close,next,previous,replaceCurrent,replaceAll,replaceProjectCurrent,replaceProjectAll,
     setScope,activateProjectMatch,adoptProjectSession,exportProjectSession,
     subscribe,getSnapshot:snapshot,
     get view(){return view}

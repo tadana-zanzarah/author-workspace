@@ -3,21 +3,26 @@
 Status: **Stage A** (atomic cloud persistence foundation), **Stage B**
 (headless matching/replacement engine), **Stage C** (current-scene panel,
 shortcuts, highlighting, Replace/Replace All, across all three rich-text
-surfaces), **Stage D1** (project-wide search, results, navigation), and
-**Stage D2.1.2** (current, authoritative project-wide Single Replace
-semantics — see that section; it supersedes D2.1/D2.1.1's own "persists
-immediately" contract) are implemented. Project-wide Single Replace is an
-ORDINARY, UNSAVED local edit of the scene's active editor — it is **not**
-automatically persisted; the scene's own existing Save flow is the only
-persistence path, "Закрыть без сохранения" truly discards it, and project
-search always reads the live mounted editor doc. Project-wide **Replace
-All** is explicitly **not** implemented yet — the panel's "Заменить все"
-stays disabled in "Весь проект" scope with an explanatory title;
-`bulkUpdateSceneText` and its migration remain unwired/unapplied, and there
-is still no project-level/multi-scene Undo. This document records the
-decisions those later stages must follow; it is deliberately not a full UI
-spec — unfinished UI details
-are not documented here until they're built.
+surfaces), **Stage D1** (project-wide search, results, navigation),
+**Stage D2.1.2** (authoritative project-wide Single Replace semantics — see
+that section; it supersedes D2.1/D2.1.1's own "persists immediately"
+contract), and **Stage D2.2.1** (project-wide **Replace All** — see that
+section for the full fresh-plan/live-doc/conflict/atomicity contract) are
+implemented. Project-wide Single Replace is still an ORDINARY, UNSAVED local
+edit of the scene's active editor — it is **not** automatically persisted;
+the scene's own existing Save flow is the only persistence path for it,
+"Закрыть без сохранения" truly discards it, and project search always reads
+the live mounted editor doc. Project-wide **Replace All** is a genuinely
+different, separate operation: it commits immediately and atomically (one
+`commitDataChange` locally, one `bulkUpdateSceneText` RPC call in the cloud —
+**Stage D2.2.0** applied `20260910120000_scene_text_bulk_update.sql` to
+production, and Stage D2.2.1 is its first and only caller), never through
+Single Replace's own unsaved-edit path, and never touches any editor's own
+Undo history. There is still no project-level/multi-scene Undo — Replace
+All's own product brief explicitly excludes it (see Stage D2.2.1's own
+"Undo" subsection). This document records the decisions later stages must
+follow; it is deliberately not a full UI spec — unfinished UI details are not
+documented here until they're built.
 
 ## Stage D1: project-wide search, results, navigation (this stage)
 
@@ -1958,12 +1963,283 @@ final values: `{scene_id, scene_text, metadata}`. Contract:
 
 `js/cloud-content-api.js` exposes `bulkUpdateSceneText(projectId,
 expectedRevision, replacements)` following `updateSceneText`'s own adapter
-conventions. **Neither the RPC nor the adapter is wired into any save flow or
-UI yet** — Stage A only establishes and tests the primitive itself.
+conventions.
 
-The migration has **not** been applied to any database (local or production).
-It has been validated via the repository's disposable-CI pattern (see
-`.github/workflows/scene-text-bulk-update-ci.yml`), not against a live
-Supabase project. Production apply requires the full workflow in
-[supabase-workflow.md](supabase-workflow.md) plus explicit per-migration
-approval, and is out of scope until a later stage actually needs the RPC live.
+**Superseded by Stage D2.2.0/D2.2.1 below.** At Stage A, neither the RPC nor
+the adapter were wired into any save flow/UI, and the migration had not been
+applied to any database. Stage D2.2.0 applied it to production (read-only
+pre/post-flight verified, no unrelated migrations touched — see that stage's
+own completion report for the exact production-safety workflow followed) with
+**zero repository changes** — the migration file itself is untouched from
+what Stage A wrote. Stage D2.2.1 is the RPC's first and, as of this writing,
+only real caller: `js/import-export.js`'s `commitProjectReplaceAllScenes`
+(project-wide Replace All's cloud commit path — see the "Stage D2.2.1" section
+below for the full contract). It was validated via the repository's
+disposable-CI pattern (see `.github/workflows/scene-text-bulk-update-ci.yml`)
+before the production apply, exactly as
+[supabase-workflow.md](supabase-workflow.md) requires.
+
+## Stage D2.2.0: production apply of `bulk_update_scene_text`
+
+Backend-only prerequisite for D2.2.1 — no repository source changes, no
+commits, no Find/Replace UI/controller changes, `bulkUpdateSceneText` still
+not called by anything at the end of this stage. Audited the migration's
+contract against actual current source (not the historical Stage A report),
+ran the full local unit suite (`npm test`, 38 suites including
+`cloud-scene-text-bulk-api.test.mjs`) and confirmed the migration's own
+disposable-CI run (`.github/workflows/scene-text-bulk-update-ci.yml`) had
+already succeeded against the exact commit whose migration/test/adapter files
+are byte-identical to this branch's HEAD. Production read-only pre-flight
+confirmed `20260910120000` was the *only* pending migration and
+`bulk_update_scene_text` did not already exist in any conflicting form; the
+target `projects`/`scenes` columns matched the migration's assumptions
+exactly. Applied via the repository's `npm run
+db:production:migration-apply -- --version 20260910120000` (the only write
+path — refuses without an exact, explicit version, and refuses unless that
+version is the only migration pending), after explicit user approval for that
+one migration. Read-only post-flight confirmed the RPC now exists with the
+exact expected signature/grants and that no other schema/signature changed.
+
+## Stage D2.2.1: project-wide Replace All
+
+Implements "Заменить все" for `scope==="project"` ("Весь проект") — the
+multi-scene write path Stage A's migration/adapter were built for. Unlike
+project-wide Single Replace (Stage D2.1.2, an ordinary unsaved local edit),
+Replace All commits immediately and atomically. Project-level Undo is
+explicitly **not** provided by this stage (see "Undo" below).
+
+### Fresh plan, always
+
+`js/editor/find-replace-project-replace-all.js`'s `planProjectReplaceAll
+(projectData, query, {caseSensitive, replaceText})` is a **pure, synchronous**
+planner — no DOM, no dispatch, no persistence. It is called by
+`find-replace-controller.js`'s `replaceProjectAll()` synchronously,
+immediately before any commit is attempted, from the controller's own live
+`query`/`caseSensitive`/`replaceText` **strings** and a fresh
+`getProjectData()` call — **never** from `projectResult`/
+`flattenProjectMatches` (the currently-displayed search result), which are
+navigation/display snapshots and are never trusted as a write plan. Every
+scene's matches are recomputed from scratch (`find-replace-model.js`'s
+`findMatches`) against that scene's own current authoritative doc at the
+exact moment `replaceProjectAll()` runs, exactly like Single Replace's own
+`buildProjectReplacement`/`reresolveMatch` never trust a stored `from`/`to`
+for mutation.
+
+### Project scope: every non-deleted scene, `included:false` included
+
+The planner walks `find-replace-project-search.js`'s own
+`canonicalProjectScenes(projectData)` — the exact same canonical
+chapter-then-scene order Stage D1 search already uses, which already
+includes every active scene regardless of `scene.included` (never
+`includedScenes()`/"Весь текст" export semantics). No extra filtering is
+applied — an excluded scene participates in Replace All exactly like an
+included one.
+
+### Authoritative source: live doc when singly-mounted-or-agreeing, else persisted
+
+`resolveSceneReplacementSource(scene)` (same file) resolves, per scene:
+
+- **No live registration** (`getMountedSceneRegistrations` returns none, or
+  none usable) → the persisted doc (`loadSceneDocument`), loaded fresh.
+- **One live registration, or several that agree** (ProseMirror `Node#eq`) on
+  content → that agreed **live** doc, even if it differs from the persisted
+  one — an author's own unsaved in-progress edits in a mounted scene are
+  planned as part of the replacement, not silently discarded in favor of
+  stale canonical text. This means a scene's committed result can include
+  BOTH the author's own pending edits AND the replacement, in one commit —
+  the explicit, intended contract (not an accident of "whatever happens to be
+  on screen").
+- **Two or more live registrations that disagree** → `{status:"conflict"}`.
+
+This deliberately never uses `mounted-scene-registry.js`'s own
+`getPreferredLiveSceneView` — that function is built to always resolve to
+SOME single best-effort answer (correct for search/navigation, which need a
+live doc regardless of agreement), which is exactly the wrong policy for a
+WRITE decision.
+
+### Conflicting registrations: whole-operation abort, before any write
+
+If ANY scene in the project has disagreeing live registrations, planning
+records it and continues scanning the rest of the project (so every conflict
+can be reported at once), then — regardless of whether any of the conflicted
+scenes would even have matched the query — returns `{ok:false,
+reason:"conflict",conflictedSceneIds}` for the **whole** operation. Zero
+scenes are committed, not even ones that were unaffected by the conflict.
+This is a deliberately conservative policy: a conflict means "this scene's
+current content cannot be safely determined," which makes it impossible to
+know in advance whether it would have matched — so it is always
+disqualifying, project-wide, never scoped down to "only scenes that matched."
+The panel surfaces this as a plain factual status message (see "Failure
+semantics" below); the user resolves it by saving/closing the extra open copy
+and retrying.
+
+### No-op behavior
+
+An empty query, a query that matches nothing anywhere, or a batch whose every
+individual computed replacement is itself a no-op (replacement text identical
+to every matched occurrence) all return `{ok:true,changed:false,
+affectedSceneCount:0,totalMatchCount:0,scenes:[]}`. The controller returns
+this straight through with **no** commit call, no mounted-view sync, no
+dirty-baseline rebase, and no search re-run — nothing to refresh.
+
+### Local atomic commit
+
+`js/import-export.js`'s `commitProjectReplaceAllScenes(plan)` is
+`find-replace-controller.js`'s injected `commitProjectReplaceAll` dependency.
+For a local project it commits every `plan.scenes` row's `sceneText`/
+`sceneTextDoc` through **one** `commitDataChange` mutator call — never a
+per-scene loop (contrast `saveAllScenes`'s own pre-existing, accepted
+per-scene cloud loop for *ordinary* multi-scene Save, deliberately not reused
+here). `storage.js`'s own `commitProjectChange` already makes that one
+transactional copy/validate/write/swap, giving "one logical Project Replace
+All = one atomic local mutation" for free.
+
+### Cloud atomic commit
+
+Same function's cloud branch calls `runCloudMutation("bulkUpdateSceneText",
+(api,revision)=>api.bulkUpdateSceneText(cloudProjectSync.projectId,revision,
+plan.scenes.map(...)))` — **exactly one** RPC call for the whole batch, using
+the current confirmed project revision the existing serialized cloud mutation
+queue already tracks (`getRevision()` inside `createProjectMutationQueue`),
+never a manually-constructed or stale revision. `REVISION_CONFLICT` (or any
+other RPC failure) surfaces as `result.ok===false` through the exact same
+path every other cloud content mutation uses — the queue latches
+(`blocked=true`) exactly as it does for any other conflicting mutation, is
+never auto-retried, and the controller's `replaceProjectAll()` reports
+`{ok:false,reason:"persist-failed",error}` rather than pretending success.
+
+### Rich text / metadata
+
+Each `plan.scenes` row's `sceneTextDoc` comes from `scene-doc-convert.js`'s
+own `serializeSceneDocument(transform.doc)` — the SAME ProseMirror
+doc→`{sceneText,sceneTextDoc}` conversion every other save path uses. The
+cloud commit maps it to `metadata:{richText:sceneTextDoc}`, mirroring
+`update_scene_text`/`bulk_update_scene_text`'s own set-not-merge metadata
+contract (T1, `20260909120000_scene_rich_text.sql`) — `scenes.metadata` is
+still fully owned by the T1 rich-text feature today, so there is no other
+metadata key to preserve/merge; this is the same mapping `saveAllScenes`'s
+own cloud branch already uses per scene, just batched.
+
+### Mounted EditorView synchronization
+
+After a successful commit, `find-replace-project-replace-all.js`'s
+`syncMountedScenesAfterReplaceAll(plan.scenes)` pushes every affected scene's
+**exact already-committed doc** into **every** currently live mounted
+registration for that scene (never only the one used as the planning source —
+several AGREEING registrations must all end synchronized, per the "F.
+Equivalent multiple registrations" contract). Each dispatch prefers REPLAYING
+the same `replaceAllMatches` transform the plan already computed (verified
+safe by checking the replay's own resulting doc against the committed doc
+first) over a wholesale whole-document swap — the same dual-strategy shape
+Stage D2.1.1's own (now-superseded) `syncMountedRegistrations` used, for the
+same reason: a small, localized replay lets `prosemirror-history` correctly
+rebase whatever ELSE is already in that view's own undo stack, while a
+wholesale swap cannot guarantee that. The wholesale swap remains the fallback
+for a registration that genuinely diverged from the planned "before" doc
+during the one async gap a cloud commit has (unreachable for a local commit,
+which is synchronous). Every dispatch is tagged `addToHistory:false`
+unconditionally — see "Undo" below for why this applies even to the view the
+user is actively looking at, unlike Single Replace's own active-editor
+special case. Because the committed doc already equals "the live doc the
+plan was built from, plus the replacement," an author's pre-existing unsaved
+edits are never lost by this step — they are already baked into the
+committed content the sync brings every registration to.
+
+Immediately after, `js/import-export.js`'s `rebaseSceneTextDirtyBaseline
+(sceneId, sceneTextDoc)` is called once per committed scene (unconditionally
+— a no-op wherever it doesn't apply) — it rebases exactly the relevant tracked
+form's own `extra.doc`/`extra.docs[sceneId]` baseline (`dirty-state.js`'s
+`rebaseExtra`, the same generic primitive the — now superseded — D2.1 design
+introduced) so that scene's own open form no longer reports dirty for content
+that is now genuinely persisted, without silently accepting any OTHER
+unrelated pending dirty state already sitting in that same form (e.g. an
+in-progress title edit in the Scene modal survives untouched).
+
+### Fresh search / active-result after success
+
+`replaceProjectAll()` resets `activeProjectMatchIndex` to `-1` and calls the
+controller's own existing `recomputeProject()` — a genuinely fresh
+`searchProject()` against the now-committed project data, exactly the same
+function every other project-scope trigger already uses. No match
+count/offset/snippet is ever hand-patched. The new active result falls out of
+`recomputeProject()`'s own existing, unmodified "genuinely fresh activation"
+policy (`resolveFreshProjectActiveIndex` → `pickInitialProjectMatchIndex`:
+caret-relative within the attached scene if it still has matches — e.g. the
+replacement text itself still contains the query, which is a real, correctly
+reported case — else the first remaining result, else `-1`/"0 из 0" if
+nothing remains anywhere). Replace All deliberately does NOT reuse Single
+Replace's own `pendingPostReplaceLocality` "stay local to the scene just
+edited" policy — Replace All can touch many unrelated scenes in one commit,
+so "the scene just edited" has no single well-defined meaning here.
+
+### Failure semantics
+
+Any pre-commit planning failure (`reason:"conflict"`) or commit failure
+(`reason:"persist-failed"`, carrying the underlying result/error) results in
+**zero** writes/sync/rebase/search-refresh — `replaceProjectAll()` returns
+before any of those steps run. `find-replace-panel.js`'s
+`handleProjectReplaceAll` surfaces a plain factual status message (the same
+`.rte-project-replace-status` element Single Replace's own failure path
+already uses) and never fabricates a replaced count or patches the results
+list itself — a failed attempt leaves the previous search result exactly as
+it was. The "Заменить все" button is disabled while a commit is in flight
+(`projectReplaceAllInFlight`, mirrored in the controller's own `snapshot()`
+as `projectReplaceAllEligible`/`projectReplaceAllInFlight`) so a second click
+can never start an overlapping commit.
+
+### Current-scene / Single Replace: unchanged
+
+`replaceAll()` (scene scope) and `replaceProjectCurrent()` (Single Replace)
+are completely untouched by this stage — `replaceProjectAll()` is a new,
+separate controller method, guarded (`scope!=="project"` refuses) exactly
+like every other project-scope-only operation in this file. The panel's
+"Заменить все" click handler dispatches to `replaceAll()` in scene scope and
+`replaceProjectAll()` in project scope, the same shape "Заменить" already
+uses for `replaceCurrent()`/`replaceProjectCurrent()`.
+
+### Undo
+
+Project-level Undo is explicitly **out of scope**. No ProseMirror history
+transaction ever spans multiple `EditorView`s, and no project-wide mutation
+journal/rollback subsystem exists. Every `syncMountedScenesAfterReplaceAll`
+dispatch is `addToHistory:false` **unconditionally**, including for whichever
+registration the user happens to be actively looking at (unlike Single
+Replace's own Stage D2.1.1 active-editor exception, which deliberately gives
+the active target a normal undo-able transaction) — there is no
+"undo exactly this Replace All" product requirement to satisfy, so no
+registration gets a synthesized undo entry for it. Ordinary per-editor Undo
+for whatever the user typed before/after Replace All in that same view is
+completely unaffected; it simply never sees Replace All itself as an entry.
+
+### Tests
+
+`tools/find-replace-project-replace-all.test.mjs` (headless, real
+ProseMirror `EditorState`, fake view stand-ins registered in the real
+mounted-scene registry — same technique as `tools/find-replace-project-
+replace.test.mjs`) covers: basic multi-scene Replace All with a fresh
+project-search re-run afterward; `included:false` participation;
+fresh-plan protection (live content changed after the last search, before
+Replace All — the plan reflects the change, never a stale offset); a mounted
+scene with unsaved live text (preserved, replacement applied on top of it,
+never on stale canonical text); conflicting live registrations (whole-op
+abort, zero local/cloud writes, injected commit function never even called);
+equivalent multiple registrations (proceeds, every registration ends
+synchronized); local atomicity (exactly one injected commit call covering
+every changed scene); cloud-shaped atomicity (exactly one injected
+"bulk" commit call, never a per-scene loop); commit failure (no fake success,
+no mounted-view sync, no dirty rebase, search state left recoverable);
+no-op (zero commit calls, zero sync, zero rebase); rich-text/metadata
+(`sceneTextDoc` round-trips as valid ProseMirror JSON, unrelated `included`
+flag untouched); and mounted-view synchronization not itself re-triggering a
+second commit. `tools/find-replace-project-replace-all-browser.test.mjs`
+(new) exercises the same essentials against the real running app in local
+mode: a real multi-scene Replace All click updating `localStorage` for every
+affected scene in one project save, an excluded scene participating, and a
+mounted-but-unsaved scene's live edits surviving into the committed text.
+The full unit suite (`npm test`) and the existing `tools/find-replace-
+project-search-browser.test.mjs`, `tools/find-replace-project-replace-
+browser.test.mjs`, and `tools/find-replace-current-scene-browser.test.mjs`
+suites were re-run and remain green with zero changes needed to any of them —
+confirming current-scene Replace/Replace All, Project-wide Single Replace
+(including its own Undo/Redo isolation), dirty/save/discard behavior, and the
+Scene Editor ⇄ Text Scene surface handoff are all unaffected by this stage.

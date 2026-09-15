@@ -176,13 +176,19 @@ try{
 
   // --- Project-scope Replace/Replace All: Stage D2.1 enables single Replace
   // for the currently active GLOBAL match (there is one here -- a query with
-  // matches was just typed); Replace All stays disabled/out of scope with an
-  // explanatory title (see tools/find-replace-project-replace-browser.test.mjs
-  // for D2.1's own dedicated coverage of the enabled Replace button).
+  // matches was just typed) -- see tools/find-replace-project-replace-
+  // browser.test.mjs for D2.1's own dedicated coverage of the enabled
+  // Replace button. Stage D2.2.1 (superseding this test's own original "stays
+  // disabled/out of scope" assertion, same as D2.1's own precedent for
+  // updating -- not reverting -- a Replace-lockout assertion when the
+  // product behavior intentionally changes) enables Replace All too, once
+  // the project search has at least one match -- see tools/find-replace-
+  // project-replace-all-browser.test.mjs for its own dedicated coverage of
+  // an actual multi-scene commit.
   if(await page.locator("#allScenesFindReplace .rte-replace-one").isDisabled())
     throw new Error("Заменить must be enabled in project scope once there is an active global match (D2.1)");
-  if(!await page.locator("#allScenesFindReplace .rte-replace-all").isDisabled())
-    throw new Error("Заменить все must remain disabled while scope is Весь проект (Replace All is out of scope for D2.1)");
+  if(await page.locator("#allScenesFindReplace .rte-replace-all").isDisabled())
+    throw new Error("Заменить все must be enabled in project scope once the search has at least one match (D2.2.1)");
   if(await page.locator("#allScenesFindReplace .rte-replace-input").isDisabled())
     throw new Error("The Replace input itself must remain usable in project scope");
   await page.fill("#allScenesFindReplace .rte-replace-input","пёс");
