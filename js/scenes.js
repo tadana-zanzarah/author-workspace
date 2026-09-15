@@ -564,11 +564,13 @@ function mountSceneModalTextEditor(scene,extra){
     onSwitchSurface:handoff=>switchToTextSceneSeamless(scene.id,handoff),
     switchSurfaceLabel:"Текст сцены",
     projectSession:extra?.projectSession,
-    // Find/Replace Stage D2.2.1: wires project-wide Replace All's atomic
-    // commit + dirty-baseline rebase (js/import-export.js) -- see that
-    // file's own doc comments on both functions.
+    // Find/Replace Stage D2.2.1/D2.2.2: wires project-wide Replace All's
+    // safety confirmation, atomic commit, and dirty-baseline rebase
+    // (js/import-export.js) -- see that file's own doc comments on all
+    // three functions.
     commitProjectReplaceAll:commitProjectReplaceAllScenes,
-    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline
+    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline,
+    confirmProjectReplaceAll:confirmProjectReplaceAllScenes
   });
 }
 
@@ -610,10 +612,11 @@ function openSceneTextNow(sceneId,extra){
     // (if any) straight to the new controller mountSceneEditor is about to
     // create -- see that function's own doc comment.
     projectSession:extra?.projectSession,
-    // Find/Replace Stage D2.2.1: see mountSceneModalTextEditor's identical
-    // comment above.
+    // Find/Replace Stage D2.2.1/D2.2.2: see mountSceneModalTextEditor's
+    // identical comment above.
     commitProjectReplaceAll:commitProjectReplaceAllScenes,
-    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline
+    rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline,
+    confirmProjectReplaceAll:confirmProjectReplaceAllScenes
   });
   showModal("textModal",{initialFocus:sceneTextEditor.view.dom});
   trackerFor("textModal").captureInitialState();

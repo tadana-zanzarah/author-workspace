@@ -6,23 +6,29 @@ shortcuts, highlighting, Replace/Replace All, across all three rich-text
 surfaces), **Stage D1** (project-wide search, results, navigation),
 **Stage D2.1.2** (authoritative project-wide Single Replace semantics — see
 that section; it supersedes D2.1/D2.1.1's own "persists immediately"
-contract), and **Stage D2.2.1** (project-wide **Replace All** — see that
-section for the full fresh-plan/live-doc/conflict/atomicity contract) are
-implemented. Project-wide Single Replace is still an ORDINARY, UNSAVED local
-edit of the scene's active editor — it is **not** automatically persisted;
-the scene's own existing Save flow is the only persistence path for it,
-"Закрыть без сохранения" truly discards it, and project search always reads
-the live mounted editor doc. Project-wide **Replace All** is a genuinely
-different, separate operation: it commits immediately and atomically (one
-`commitDataChange` locally, one `bulkUpdateSceneText` RPC call in the cloud —
-**Stage D2.2.0** applied `20260910120000_scene_text_bulk_update.sql` to
-production, and Stage D2.2.1 is its first and only caller), never through
-Single Replace's own unsaved-edit path, and never touches any editor's own
-Undo history. There is still no project-level/multi-scene Undo — Replace
-All's own product brief explicitly excludes it (see Stage D2.2.1's own
-"Undo" subsection). This document records the decisions later stages must
-follow; it is deliberately not a full UI spec — unfinished UI details are not
-documented here until they're built.
+contract), **Stage D2.2.1** (project-wide **Replace All** — see that section
+for the full fresh-plan/live-doc/conflict/atomicity contract), and
+**Stage D2.2.2** (the mandatory explicit confirmation Replace All shows
+before its commit — see that section) are implemented. Project-wide Single
+Replace is still an ORDINARY, UNSAVED local edit of the scene's active
+editor — it is **not** automatically persisted; the scene's own existing
+Save flow is the only persistence path for it, "Закрыть без сохранения"
+truly discards it, and project search always reads the live mounted editor
+doc. Project-wide **Replace All** is a genuinely different, separate
+operation: after an explicit user confirmation (Stage D2.2.2 — the operation
+persists immediately and is not undoable through normal Ctrl+Z, so the user
+is told this, along with the fresh replacement/scene counts and that any
+open scene's unsaved live text will be persisted too, before anything
+happens), it commits immediately and atomically (one `commitDataChange`
+locally, one `bulkUpdateSceneText` RPC call in the cloud — **Stage D2.2.0**
+applied `20260910120000_scene_text_bulk_update.sql` to production, and
+Stage D2.2.1 is its first and only caller), never through Single Replace's
+own unsaved-edit path, and never touches any editor's own Undo history.
+There is still no project-level/multi-scene Undo — Replace All's own product
+brief explicitly excludes it (see Stage D2.2.1's own "Undo" subsection). This
+document records the decisions later stages must follow; it is deliberately
+not a full UI spec — unfinished UI details are not documented here until
+they're built.
 
 ## Stage D1: project-wide search, results, navigation (this stage)
 
@@ -2283,3 +2289,209 @@ suites were re-run and remain green with zero changes needed to any of them —
 confirming current-scene Replace/Replace All, Project-wide Single Replace
 (including its own Undo/Redo isolation), dirty/save/discard behavior, and the
 Scene Editor ⇄ Text Scene surface handoff are all unaffected by this stage.
+
+## Stage D2.2.2: explicit confirmation before project-wide Replace All
+
+Adds a mandatory confirmation step before Project Replace All's commit
+(`scope==="project"` only — current-scene Replace All, `replaceAll()`, is
+completely untouched and never shows it).
+
+### Why this exists
+
+Unlike every other Find/Replace mutation in this app, Project Replace All
+(D2.2.1) persists **immediately** across potentially many scenes at once and
+is **not** reachable through ordinary `Ctrl+Z` — a scene's own ProseMirror
+undo history never records it (`syncMountedScenesAfterReplaceAll`'s dispatches
+are all `addToHistory:false`, by design — see D2.2.1's own "Undo" subsection).
+It can also silently persist unsaved live text sitting in any open scene that
+happens to be part of the operation (D2.2.1's own authoritative-source
+policy — see that stage's "Authoritative source" section). None of this is
+true of current-scene Replace All (an ordinary, undoable local edit) or
+Single Replace (never persists at all) — so only Project Replace All needs
+an explicit "are you sure, here is exactly what will happen" prompt.
+
+### Confirmation UI
+
+Reuses the existing generic confirmation dialog
+(`js/modal-manager.js`'s `showConfirmAction`/`#confirmActionModal`, already
+used for delete-scene/-chapter/-tag/-location) rather than a new modal — a
+`role="alertdialog"` element with `aria-labelledby`/`aria-describedby`, a
+focus trap, Escape support (resolves as Cancel), initial focus on the SAFE
+action (`#confirmActionCancel`), and opener-based focus restoration on close,
+all unchanged/for free. `css/modals.css` adds one rule,
+`#confirmActionDescription{white-space:pre-line}`, so a multi-point body
+(joined with `\n\n`) renders as distinct lines — a pure no-op for every
+existing single-line caller.
+
+Title: **"Заменить во всём проекте?"**. Body (four lines, using the app's
+existing `pluralRu` Russian-count helper, same convention the project-results
+summary's own "N совпадений · M сцен" wording already uses):
+
+```
+Будет выполнено {N} {замена/замены/замен} ({M} {сцена/сцены/сцен}).
+
+Изменения будут сохранены сразу и их нельзя будет отменить через Ctrl+Z.
+
+Если в открытых сценах есть несохранённые изменения, они тоже будут
+сохранены вместе с заменой.
+
+Замена выполняется по всему проекту, включая сцены, исключённые из общего
+текста.
+```
+
+Actions: **"Отмена"** / **"Заменить и сохранить"**. Implemented in
+`js/import-export.js`'s `confirmProjectReplaceAllScenes(plan)`, wired as
+`find-replace-controller.js`'s `confirmProjectReplaceAll` dependency through
+the same three `mountSceneEditor`/`createSceneEditorGroup` call sites as
+`commitProjectReplaceAll`/`rebaseSceneDirtyBaseline`. Unlike those two,
+`confirmProjectReplaceAll` is **required**, not optional-degrades-gracefully:
+omitting it makes `replaceProjectAll()` refuse with `not-configured` before
+ever planning or confirming, and the panel's own eligibility check keeps
+"Заменить все" disabled — the safety prompt can never be silently skipped by
+a misconfigured environment.
+
+### Pre-confirmation: a fresh preflight plan, and when NOT to confirm
+
+`find-replace-controller.js`'s `replaceProjectAll()` builds a plan with
+D2.2.1's own `planProjectReplaceAll` — synchronously, from live
+`query`/`caseSensitive`/`replaceText` and a fresh `getProjectData()` call,
+exactly like before this stage — **before** even considering whether to show
+a confirmation. `replacementCount`/`sceneCount` shown in the dialog always
+come from this exact fresh plan, never a stale project-search snapshot.
+
+- A **conflict** (`plan.ok===false`) is returned immediately — no
+  confirmation is shown for an operation that cannot proceed at all (a
+  confirmation naming numbers for an operation that will just fail would be
+  actively misleading).
+- A **no-op** (`plan.changed===false`) is also returned immediately with no
+  confirmation — nothing to authorize, nothing to warn about.
+
+### Mandatory post-confirmation freshness validation
+
+The confirmation is **not** a blank cheque authorizing whatever plan was
+shown — state can keep changing for as long as the dialog is open (another
+surface, another session, simple elapsed time). Immediately after the user
+answers, `replaceProjectAll()` **always** rebuilds the plan again
+(`planProjectReplaceAll`, same call as before) from current authoritative
+state — the confirmed `plan` variable is never the thing that gets
+committed; only a freshly-rebuilt one is.
+
+- If the fresh plan is now a **conflict**, this aborts immediately with the
+  same safe conflict result as the pre-confirmation case — reconfirming
+  cannot fix a conflict, so it is never offered as an option here; zero
+  writes.
+- If the fresh plan is now a **no-op**, this returns `{changed:false}` with
+  no commit.
+- Otherwise, `find-replace-project-replace-all.js`'s new
+  `projectReplacePlansMateriallyDiffer(previous,next)` compares the
+  confirmed plan against the fresh one. A change is **material** when the
+  total replacement count changes, the affected scene **count** changes, or
+  — even at an unchanged count — the affected scene **set** itself changes
+  (one scene dropping out while a different one appears is still a
+  materially different operation the user never actually saw, even though
+  the count matches by coincidence). Scene **content**/text is never
+  compared directly here — that comparison already happened inside
+  `planProjectReplaceAll` itself.
+
+### Reconfirmation on material change
+
+If the fresh plan differs materially, the stale confirmation does **not**
+authorize committing the new, different operation. `replaceProjectAll()`
+loops back and shows the confirmation **again**, with the new fresh numbers,
+requiring an explicit new confirmation — never a silent auto-commit under
+outdated authorization, and never a silent substitution of a
+differently-scoped write. This is bounded by
+`MAX_PROJECT_REPLACE_CONFIRM_ROUNDS` (3) — not because a single round could
+ever loop automatically (every iteration requires a genuine user click on the
+freshly-renumbered dialog), but so a pathological "the project keeps changing
+on every single round" case fails with a clear, honest `unstable` result
+(zero writes) instead of asking forever.
+
+### Cancel
+
+Zero canonical mutations, zero RPC calls, zero mounted-view synchronization,
+zero dirty-baseline rebasing, zero search-result patching. Every existing
+unsaved edit is left exactly as it was, and the Find/Replace session remains
+fully usable afterward — a confirmed Replace All immediately following a
+Cancel works normally. `replaceProjectAll()` returns
+`{ok:true,changed:false,reason:"cancelled"}`, which the panel's existing
+`if(result.ok)return;` branch already handles silently (Cancel is not an
+error, nothing is shown).
+
+### Unsaved live content
+
+Preserves D2.2.1's own authoritative-source policy unchanged: a mounted live
+doc may be newer than the persisted canonical state, and Replace All persists
+the final live document for affected scenes — so a pre-existing unsaved edit
+in an affected, mounted scene becomes part of the successful commit. This
+stage's confirmation text makes that consequence explicit to the user before
+it happens; opening the confirmation itself performs zero writes (confirmed
+by browser coverage: canonical data is unchanged between the click that opens
+the dialog and the user's actual answer).
+
+### In-flight gating and focus
+
+`projectReplaceAllInFlight` (and the panel's `projectReplaceAllEligible`
+snapshot field, which now also requires `confirmProjectReplaceAll` to be
+wired) is deliberately **not** set while the confirmation dialog itself is
+open or during the freshness-revalidation/reconfirmation loop — only around
+the actual `commitProjectReplaceAll` call. Setting it earlier would disable
+the "Заменить все" button via the panel's own snapshot-driven render, and a
+browser forcibly blurs a button the instant it becomes `disabled` — which
+would steal `document.activeElement` out from under `showConfirmAction`'s own
+opener-capture (`openModal`'s `options.opener||document.activeElement`),
+breaking "focus returns to the button that opened the confirmation" on
+Cancel. This is safe without the extra gating: the confirmation modal already
+makes the underlying panel `inert` via the existing generic modal-stack
+machinery (`js/modal-manager.js`'s `syncLayers`), which genuinely blocks a
+second click for the whole time the dialog (or a reconfirmation round) is
+open — the async commit call itself is the one real gap where the panel
+becomes interactive again before the operation has actually finished, and
+that is exactly the window `projectReplaceAllInFlight` now covers.
+
+### Success
+
+Unchanged from D2.2.1: one atomic commit (local `commitDataChange` / cloud
+`bulkUpdateSceneText`), every live mounted registration for every affected
+scene synchronized, dirty baselines rebased, a fresh project search rebuilt
+with the existing deterministic active-result fallback, no manual
+count/offset patching, no project-level Undo.
+
+### Tests
+
+`tools/find-replace-project-replace-all.test.mjs` gained a new headless
+Section 5 (real ProseMirror `EditorState`, fake view stand-ins, injected
+`confirmProjectReplaceAll`): fresh counts (including `included:false`
+scenes) reaching the confirmation; Cancel (zero writes/sync/rebase, unsaved
+live content and dirty state untouched, session still usable); the unsaved
+live edit's own content visible to the confirmation callback exactly as it
+will be committed; a material change (project data mutated *during* the
+awaited confirm call) producing exactly one reconfirmation round with the
+new fresh numbers, committing only the final reconfirmed plan; the
+`MAX_PROJECT_REPLACE_CONFIRM_ROUNDS` cap failing safely (zero writes) when
+the project never stabilizes; and a conflict discovered *after* confirmation
+aborting immediately (never treated as a reconfirmable material change).
+Section 4's existing controller-integration tests were updated (not
+rewritten) to auto-confirm via an injected `confirmProjectReplaceAll`,
+preserving their original atomicity/sync/rebase/freshness/failure coverage
+under the new required-confirmation gate, plus two new not-configured cases
+isolating a missing commit function from a missing confirm function.
+
+`tools/find-replace-project-replace-all-browser.test.mjs`'s existing Parts 1–5
+were updated to click through the real confirmation dialog (`#confirmActionConfirm`);
+Part 1 additionally asserts the dialog opens before any write, with the
+correct role, title, fresh counts, Ctrl+Z/unsaved-text/excluded-scenes wording,
+button labels, and initial focus on the safe (Cancel) action. New Part 6
+covers Cancel end-to-end in the real app (zero writes, unsaved live text and
+dirty state preserved, focus restored to the opener button, then a normal
+confirmed Replace All immediately afterward still works). New Part 7 confirms
+current-scene Replace All never shows the confirmation and remains directly
+undoable via a real `Ctrl+Z` keypress.
+
+The full unit suite (`npm test`) and the existing `tools/find-replace-
+project-search-browser.test.mjs`, `tools/find-replace-project-replace-
+browser.test.mjs`, and `tools/find-replace-current-scene-browser.test.mjs`
+suites were re-run and remain green with zero changes needed to any of them
+— confirming current-scene Replace/Replace All + Undo, Project-wide Single
+Replace + Undo/Redo, D2.1 surface handoff, and D2.2.1's stale-hidden-
+registration corrective fix are all unaffected by this stage.

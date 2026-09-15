@@ -265,3 +265,25 @@ export function syncMountedScenesAfterReplaceAll(sceneResults){
   }
   return synced;
 }
+
+// Find/Replace Stage D2.2.2: the exact "material change" test the
+// confirmation flow's mandatory post-confirmation freshness re-check (see
+// find-replace-controller.js's replaceProjectAll) uses to decide "does the
+// plan the user just confirmed still describe the operation about to be
+// committed, or must they be asked again against fresh numbers". Per
+// docs/find-replace-architecture.md's D2.2.2 section, a change is material
+// when the total replacement count changes, the affected SCENE COUNT
+// changes, or -- even at an unchanged count -- the affected scene SET
+// itself changes (one scene dropping out while a different one appears,
+// same count, is still a materially different operation the user has not
+// actually seen/authorized). Never compares scene CONTENT/text itself --
+// that comparison is exactly what planProjectReplaceAll's own fresh
+// findMatches/replaceAllMatches call already re-derives from scratch; this
+// function only ever compares the two already-built plans' own summary
+// shape, both pure/synchronous, no I/O.
+export function projectReplacePlansMateriallyDiffer(previousPlan,nextPlan){
+  if(previousPlan.totalMatchCount!==nextPlan.totalMatchCount)return true;
+  if(previousPlan.affectedSceneCount!==nextPlan.affectedSceneCount)return true;
+  const previousSceneIds=new Set(previousPlan.scenes.map(sceneResult=>sceneResult.sceneId));
+  return nextPlan.scenes.some(sceneResult=>!previousSceneIds.has(sceneResult.sceneId));
+}

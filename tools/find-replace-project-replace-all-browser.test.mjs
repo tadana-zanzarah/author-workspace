@@ -59,6 +59,32 @@ try{
   const sceneTextOf=async(page,id)=>(await rawProject(page)).scenes.find(s=>s.id===id).sceneText;
   const editorText=async(page,selector)=>page.locator(`${selector} .ProseMirror`).innerText();
 
+  // Find/Replace Stage D2.2.2: the shared confirmation helpers every
+  // "Заменить все" click in project scope now needs -- js/modal-manager.js's
+  // generic showConfirmAction()/#confirmActionModal, never a bespoke dialog.
+  const confirmDialogInfo=async page=>page.evaluate(()=>{
+    const modal=document.getElementById("confirmActionModal");
+    return {
+      visible:modal?.style.display==="flex",
+      role:modal?.getAttribute("role"),
+      title:document.getElementById("confirmActionTitle")?.textContent||"",
+      description:document.getElementById("confirmActionDescription")?.textContent||"",
+      confirmLabel:document.getElementById("confirmActionConfirm")?.textContent||"",
+      cancelLabel:document.getElementById("confirmActionCancel")?.textContent||"",
+      activeElementId:document.activeElement?.id||null
+    };
+  });
+  async function confirmProjectReplaceAll(page){
+    await page.waitForSelector("#confirmActionModal",{state:"visible"});
+    await page.click("#confirmActionConfirm");
+    await page.waitForTimeout(150);
+  }
+  async function cancelProjectReplaceAll(page){
+    await page.waitForSelector("#confirmActionModal",{state:"visible"});
+    await page.click("#confirmActionCancel");
+    await page.waitForTimeout(80);
+  }
+
   // ============================================================
   // PART 1: basic multi-scene Replace All -- every affected scene lands in
   // ONE project save (localStorage reflects all of them after one click),
@@ -78,8 +104,30 @@ try{
     if(await page.isDisabled("#fullSceneTextFindReplace .rte-replace-all"))
       throw new Error("Заменить все must be enabled in project scope once matches exist");
 
+    // Find/Replace Stage D2.2.2 (Test Requirements 1/2/3): clicking
+    // "Заменить все" must open the confirmation BEFORE any write, showing
+    // the FRESH replacement count and affected scene count -- every scene in
+    // the WHOLE fixture project containing "кот" (7: all-1/all-2/all-hidden/
+    // all-live/hbug-discard/hbug-switch/hbug-after-replace -- the excluded
+    // all-hidden scene IS counted, all-unrelated is NOT), proper dialog
+    // semantics, and zero canonical mutation yet.
     await page.click("#fullSceneTextFindReplace .rte-replace-all");
-    await page.waitForTimeout(150);
+    const dialog=await confirmDialogInfo(page);
+    if(!dialog.visible)throw new Error("Заменить все must open a confirmation dialog before any write");
+    if(dialog.role!=="alertdialog")throw new Error(`Expected role="alertdialog", got ${dialog.role}`);
+    if(!dialog.title.includes("Заменить во всём проекте"))throw new Error(`Unexpected confirmation title: ${dialog.title}`);
+    if(!dialog.description.includes("Будет выполнено 7 замен (7 сцен)"))
+      throw new Error(`Expected the fresh replacement/scene counts (7 matches, 7 scenes) in the confirmation body, got: ${dialog.description}`);
+    if(!dialog.description.includes("Ctrl+Z"))throw new Error("Confirmation must state the operation cannot be undone with Ctrl+Z");
+    if(!dialog.description.toLowerCase().includes("исключ"))throw new Error("Confirmation must state the operation includes scenes excluded from the general text");
+    if(!dialog.description.toLowerCase().includes("несохранённые"))throw new Error("Confirmation must warn that unsaved live text in open scenes will also be saved");
+    if(dialog.confirmLabel!=="Заменить и сохранить")throw new Error(`Unexpected confirm label: ${dialog.confirmLabel}`);
+    if(dialog.cancelLabel!=="Отмена")throw new Error(`Unexpected cancel label: ${dialog.cancelLabel}`);
+    if(dialog.activeElementId!=="confirmActionCancel")throw new Error(`Expected initial focus on the SAFE (Cancel) action, got #${dialog.activeElementId}`);
+    if((await sceneTextOf(page,"all-1"))!=="Кот один.")
+      throw new Error("Zero writes must have happened before the user answers the confirmation");
+
+    await confirmProjectReplaceAll(page);
 
     if((await sceneTextOf(page,"all-1"))!=="пёс один.")
       throw new Error("Expected all-1 to be replaced");
@@ -125,7 +173,14 @@ try{
     await page.fill("#fullSceneTextFindReplace .rte-replace-input","пёс");
     await page.waitForTimeout(60);
     await page.click("#fullSceneTextFindReplace .rte-replace-all");
-    await page.waitForTimeout(150);
+    // Test Requirement 6: the confirmation must warn about unsaved live
+    // text specifically, and it must not have persisted anything by itself.
+    const dialog=await confirmDialogInfo(page);
+    if(!dialog.description.toLowerCase().includes("несохранённые"))
+      throw new Error("Confirmation must warn about unsaved live content before it is included/persisted");
+    if((await sceneTextOf(page,"all-live"))!=="Кот в живой сцене.")
+      throw new Error("Opening the confirmation must not itself persist the unsaved live edit");
+    await confirmProjectReplaceAll(page);
 
     const expected="пёс в живой сцене. Ещё один пёс пришёл.";
     if((await sceneTextOf(page,"all-live"))!==expected)
@@ -172,7 +227,7 @@ try{
     await page.fill("#sceneTextFindReplace .rte-replace-input","пёс");
     await page.waitForTimeout(60);
     await page.click("#sceneTextFindReplace .rte-replace-all");
-    await page.waitForTimeout(150);
+    await confirmProjectReplaceAll(page);
 
     const statusText=await page.evaluate(()=>{
       const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
@@ -211,7 +266,7 @@ try{
     await page.fill("#sceneTextFindReplace .rte-replace-input","пёс");
     await page.waitForTimeout(60);
     await page.click("#sceneTextFindReplace .rte-replace-all");
-    await page.waitForTimeout(150);
+    await confirmProjectReplaceAll(page);
 
     const statusText=await page.evaluate(()=>{
       const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
@@ -240,7 +295,7 @@ try{
     await page.fill("#fullSceneTextFindReplace .rte-replace-input","пёс");
     await page.waitForTimeout(60);
     await page.click("#fullSceneTextFindReplace .rte-replace-all");
-    await page.waitForTimeout(150);
+    await confirmProjectReplaceAll(page);
     if((await sceneTextOf(page,"hbug-after-replace"))!=="пёс после замены.")
       throw new Error("Setup: expected the first Replace All to succeed");
 
@@ -256,7 +311,7 @@ try{
     await page.fill("#sceneTextFindReplace .rte-replace-input","волк");
     await page.waitForTimeout(60);
     await page.click("#sceneTextFindReplace .rte-replace-all");
-    await page.waitForTimeout(150);
+    await confirmProjectReplaceAll(page);
     const statusText=await page.evaluate(()=>{
       const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
       return el?{hidden:el.hidden,text:el.textContent}:null;
@@ -265,6 +320,83 @@ try{
       throw new Error(`A second Replace All right after a post-commit handoff must not false-conflict; got: ${JSON.stringify(statusText)}`);
     if((await sceneTextOf(page,"hbug-after-replace"))!=="волк после замены.")
       throw new Error(`Expected the second Replace All to succeed; got: ${await sceneTextOf(page,"hbug-after-replace")}`);
+  }
+
+  // ============================================================
+  // PART 6 (D2.2.2): Cancel -- zero writes, unsaved live content preserved,
+  // dirty state preserved, focus restored to the safe action's opener, and
+  // the Find/Replace panel remains fully usable afterward (a second,
+  // confirmed Replace All right after a Cancel still works).
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("all-1"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    // An unsaved live edit, present before Cancel and expected to survive it.
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Ещё текст.");
+    const beforeText=await editorText(page,"#fullSceneTextEditor");
+    const wasDirty=await page.evaluate(()=>trackerFor("textModal").isDirty());
+    if(!wasDirty)throw new Error("Setup: the unsaved edit must register as dirty before Cancel");
+
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    await page.click("#fullSceneTextFindReplace .rte-scope-project");
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","кот");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","пёс");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextFindReplace .rte-replace-all");
+    await cancelProjectReplaceAll(page);
+
+    if((await sceneTextOf(page,"all-1"))!=="Кот один.")
+      throw new Error("Cancel must perform zero canonical writes");
+    if((await editorText(page,"#fullSceneTextEditor"))!==beforeText)
+      throw new Error("Cancel must leave the unsaved live edit exactly as it was");
+    if(!await page.evaluate(()=>trackerFor("textModal").isDirty()))
+      throw new Error("Cancel must not alter dirty state -- the scene must still report dirty from the unsaved edit");
+    const focusedAfterCancel=await page.evaluate(()=>document.activeElement?.classList?.contains("rte-replace-all"));
+    if(!focusedAfterCancel)
+      throw new Error("Focus must be restored to the button that opened the confirmation after Cancel");
+
+    // The Find/Replace session remains usable: a confirmed Replace All
+    // right after a Cancel still works correctly.
+    await page.click("#fullSceneTextFindReplace .rte-replace-all");
+    await confirmProjectReplaceAll(page);
+    if((await sceneTextOf(page,"all-1"))!=="пёс один. Ещё текст.")
+      throw new Error(`Expected the post-Cancel confirmed Replace All to succeed, including the still-unsaved edit; got: ${await sceneTextOf(page,"all-1")}`);
+  }
+
+  // ============================================================
+  // PART 7 (D2.2.2, Test Requirement 12): current-scene Replace All
+  // ("Эта сцена" scope) must NOT show the project-wide confirmation at all,
+  // and must remain directly undoable through ordinary ProseMirror Undo.
+  // ============================================================
+  {
+    const page=await freshPage();
+    await page.evaluate(()=>openSceneText("all-1"));
+    await page.waitForSelector("#fullSceneTextEditor .ProseMirror");
+    await page.click("#fullSceneTextToolbar .rte-btn-find");
+    // Scope defaults to "Эта сцена" -- no need to switch.
+    await page.fill("#fullSceneTextFindReplace .rte-find-input","кот");
+    await page.fill("#fullSceneTextFindReplace .rte-replace-input","пёс");
+    await page.waitForTimeout(60);
+    await page.click("#fullSceneTextFindReplace .rte-replace-all");
+    await page.waitForTimeout(150);
+
+    if(await page.evaluate(()=>document.getElementById("confirmActionModal")?.style.display==="flex"))
+      throw new Error("Current-scene Replace All must never show the project-wide confirmation dialog");
+    if((await editorText(page,"#fullSceneTextEditor"))!=="пёс один.")
+      throw new Error("Current-scene Replace All must still apply immediately, unconfirmed");
+    // Undoable through ordinary ProseMirror Ctrl+Z, unlike Project Replace
+    // All -- click back into the editor first (the "Заменить все" button
+    // itself holds keyboard focus right after the click, same as any other
+    // button; a real user clicking back into their manuscript before
+    // pressing Ctrl+Z is the realistic path this exercises).
+    await page.click("#fullSceneTextEditor .ProseMirror");
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(60);
+    if((await editorText(page,"#fullSceneTextEditor"))!=="Кот один.")
+      throw new Error("Current-scene Replace All must remain directly undoable through normal Ctrl+Z");
   }
 
   console.log("find-replace project-replace-all browser tests: OK");

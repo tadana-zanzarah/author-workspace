@@ -310,30 +310,54 @@ _resetMountedSceneRegistryForTests();
 //    rebase wiring, fresh search/active-result after success, and failure
 //    semantics (conflict / persist-failed / no-op) with zero
 //    writes/sync/rebase on any failure path.
+//
+// Find/Replace Stage D2.2.2: confirmProjectReplaceAll is now REQUIRED (the
+// same "not-configured" guard as commitProjectReplaceAll -- see find-
+// replace-controller.js's own factory doc comment on why the safety
+// confirmation is never silently skippable) for replaceProjectAll to reach
+// planning at all. Every controller below that expects to reach a real
+// commit auto-confirms via `confirmProjectReplaceAll:async()=>true` --
+// Section 5 is where the confirmation flow itself (cancel, freshness
+// revalidation, material-change reconfirmation, conflict-while-open) gets
+// its own dedicated coverage.
 // ================================================================
 
 // 4a. Wrong scope / not-configured guards -- never throw, never call the
-// injected commit function.
+// injected commit OR confirm function.
 {
-  let calls=0;
-  const controller=createFindReplaceController({getProjectData:()=>makeProject([]),commitProjectReplaceAll:async()=>{calls++;return {ok:true}}});
+  let commitCalls=0,confirmCalls=0;
+  const controller=createFindReplaceController({getProjectData:()=>makeProject([]),commitProjectReplaceAll:async()=>{commitCalls++;return {ok:true}},confirmProjectReplaceAll:async()=>{confirmCalls++;return true}});
   const wrongScope=await controller.replaceProjectAll();
   assert.equal(wrongScope.ok,false);assert.equal(wrongScope.reason,"wrong-scope");
-  assert.equal(calls,0);
+  assert.equal(commitCalls,0);assert.equal(confirmCalls,0);
 }
 {
-  const controller=createFindReplaceController({getProjectData:()=>makeProject([])}); // no commitProjectReplaceAll wired
+  // Missing commitProjectReplaceAll specifically -- confirmProjectReplaceAll
+  // IS wired, so this isolates the missing-commit case.
+  const controller=createFindReplaceController({getProjectData:()=>makeProject([]),confirmProjectReplaceAll:async()=>true});
   controller.open();controller.setScope("project");
   const result=await controller.replaceProjectAll();
   assert.equal(result.ok,false);assert.equal(result.reason,"not-configured");
 }
+{
+  // Missing confirmProjectReplaceAll specifically -- commitProjectReplaceAll
+  // IS wired, so this isolates the missing-confirmation case: the safety
+  // prompt must never be silently skippable.
+  let commitCalls=0;
+  const controller=createFindReplaceController({getProjectData:()=>makeProject([]),commitProjectReplaceAll:async()=>{commitCalls++;return {ok:true}}});
+  controller.open();controller.setScope("project");
+  const result=await controller.replaceProjectAll();
+  assert.equal(result.ok,false);assert.equal(result.reason,"not-configured");
+  assert.equal(commitCalls,0);
+}
 
-// 4b. Basic success: ONE commit call covering every affected scene (never a
-// per-scene loop -- this is the controller-level atomicity contract both
-// the local commitDataChange path and the cloud bulkUpdateSceneText path
-// are built on top of), mounted views synced, dirty-baseline rebase called
-// once per committed scene, and a fresh search afterward shows zero
-// remaining matches for the now-replaced query.
+// 4b. Basic success: the confirmation is shown with the FRESH plan's own
+// counts, ONE commit call covering every affected scene (never a per-scene
+// loop -- this is the controller-level atomicity contract both the local
+// commitDataChange path and the cloud bulkUpdateSceneText path are built on
+// top of), mounted views synced, dirty-baseline rebase called once per
+// committed scene, and a fresh search afterward shows zero remaining
+// matches for the now-replaced query.
 _resetMountedSceneRegistryForTests();
 {
   const project=makeProject([
@@ -344,6 +368,7 @@ _resetMountedSceneRegistryForTests();
   const reg1=registerMountedScene("b1",{view:view1,surfaceId:"textModal",activate(){}});
   const commitCalls=[];
   const rebaseCalls=[];
+  const confirmCalls=[];
   const commitProjectReplaceAll=async plan=>{
     commitCalls.push(plan);
     // Mirrors js/import-export.js's own local commit: ONE mutation over the
@@ -356,7 +381,8 @@ _resetMountedSceneRegistryForTests();
   };
   const controller=createFindReplaceController({
     getProjectData:()=>project,commitProjectReplaceAll,
-    rebaseSceneDirtyBaseline:(sceneId,doc)=>rebaseCalls.push({sceneId,doc})
+    rebaseSceneDirtyBaseline:(sceneId,doc)=>rebaseCalls.push({sceneId,doc}),
+    confirmProjectReplaceAll:async plan=>{confirmCalls.push(plan);return true}
   });
   attachToController(view1,controller,"b1");
   controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
@@ -364,6 +390,9 @@ _resetMountedSceneRegistryForTests();
   const result=await controller.replaceProjectAll();
   assert.equal(result.ok,true);assert.equal(result.changed,true);
   assert.equal(result.affectedSceneCount,2);assert.equal(result.totalMatchCount,2);
+  assert.equal(confirmCalls.length,1,"confirmation shown exactly once for the normal, unchanged-state path");
+  assert.equal(confirmCalls[0].affectedSceneCount,2,"confirmation receives the FRESH plan's own scene count");
+  assert.equal(confirmCalls[0].totalMatchCount,2,"confirmation receives the FRESH plan's own match count");
   assert.equal(commitCalls.length,1,"exactly ONE commit call for the whole batch -- never a per-scene loop");
   assert.equal(commitCalls[0].scenes.length,2);
   assert.equal(project.scenes[0].sceneText,"пёс один.");
@@ -377,8 +406,9 @@ _resetMountedSceneRegistryForTests();
   unregisterMountedScene("b1",reg1);
 }
 
-// 4c. Conflict: replaceProjectAll refuses, zero writes -- the injected
-// commit function is never even called.
+// 4c. Conflict BEFORE confirmation: replaceProjectAll refuses, zero writes
+// -- the injected confirm AND commit functions are never even called (no
+// pointless/misleading confirmation for an operation that cannot proceed).
 _resetMountedSceneRegistryForTests();
 {
   const project=makeProject([scene("conf","Конф","chapter-1","Кот сидел.")]);
@@ -386,13 +416,14 @@ _resetMountedSceneRegistryForTests();
   const viewB=fakeView(plainTextToDoc(schema,"Кот сидел громко."));
   const regA=registerMountedScene("conf",{view:viewA,surfaceId:"textModal",activate(){}});
   const regB=registerMountedScene("conf",{view:viewB,surfaceId:"sceneModal",activate(){}});
-  let calls=0;
-  const controller=createFindReplaceController({getProjectData:()=>project,commitProjectReplaceAll:async()=>{calls++;return {ok:true}}});
+  let commitCalls=0,confirmCalls=0;
+  const controller=createFindReplaceController({getProjectData:()=>project,commitProjectReplaceAll:async()=>{commitCalls++;return {ok:true}},confirmProjectReplaceAll:async()=>{confirmCalls++;return true}});
   controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
   const result=await controller.replaceProjectAll();
   assert.equal(result.ok,false);assert.equal(result.reason,"conflict");
   assert.deepEqual(result.conflictedSceneIds,["conf"]);
-  assert.equal(calls,0,"a planning-time conflict must never reach the commit function");
+  assert.equal(confirmCalls,0,"a planning-time conflict must never show a misleading confirmation");
+  assert.equal(commitCalls,0,"a planning-time conflict must never reach the commit function");
   assert.equal(project.scenes[0].sceneText,"Кот сидел.","zero canonical writes on a conflict");
   unregisterMountedScene("conf",regA);unregisterMountedScene("conf",regB);
 }
@@ -409,7 +440,8 @@ _resetMountedSceneRegistryForTests();
   const controller=createFindReplaceController({
     getProjectData:()=>project,
     commitProjectReplaceAll:async()=>({ok:false,code:"REVISION_CONFLICT",message:"Проект изменён в другом сеансе."}),
-    rebaseSceneDirtyBaseline:()=>rebaseCalls++
+    rebaseSceneDirtyBaseline:()=>rebaseCalls++,
+    confirmProjectReplaceAll:async()=>true
   });
   attachToController(view,controller,"fail");
   controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
@@ -425,20 +457,204 @@ _resetMountedSceneRegistryForTests();
   unregisterMountedScene("fail",reg);
 }
 
-// 4e. No-op: a fresh plan finds zero replacements -> the commit function is
-// never called, no sync, no rebase, no revision-like local mutation.
+// 4e. No-op: a fresh plan finds zero replacements -> no confirmation shown,
+// the commit function is never called, no sync, no rebase, no
+// revision-like local mutation.
 {
   const project=makeProject([scene("noop","НульОп","chapter-1","Собака лает.")]);
-  let calls=0,rebaseCalls=0;
+  let commitCalls=0,confirmCalls=0,rebaseCalls=0;
   const controller=createFindReplaceController({
     getProjectData:()=>project,
-    commitProjectReplaceAll:async()=>{calls++;return {ok:true}},
-    rebaseSceneDirtyBaseline:()=>rebaseCalls++
+    commitProjectReplaceAll:async()=>{commitCalls++;return {ok:true}},
+    rebaseSceneDirtyBaseline:()=>rebaseCalls++,
+    confirmProjectReplaceAll:async()=>{confirmCalls++;return true}
   });
   controller.open();controller.setScope("project");controller.setQuery("жираф");controller.setReplaceText("пёс");
   const result=await controller.replaceProjectAll();
   assert.equal(result.ok,true);assert.equal(result.changed,false);
-  assert.equal(calls,0);assert.equal(rebaseCalls,0);
+  assert.equal(confirmCalls,0,"a fresh no-op plan must never show a pointless confirmation");
+  assert.equal(commitCalls,0);assert.equal(rebaseCalls,0);
+}
+
+// ================================================================
+// 5. Find/Replace Stage D2.2.2: the confirmation flow itself -- fresh
+// pre-confirmation counts, Cancel semantics, mandatory post-confirmation
+// freshness revalidation, material-change reconfirmation, conflict-while-
+// open, and the MAX_PROJECT_REPLACE_CONFIRM_ROUNDS safety cap.
+// ================================================================
+
+// 5a. included:false matches are included in the counts the confirmation
+// receives (Test Requirement 3).
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([
+    scene("v-inc","Видима","chapter-1","Кот виден."),
+    scene("v-hid","Скрыта","chapter-1","Кот скрыт.",{included:false})
+  ]);
+  let confirmedPlan=null;
+  const controller=createFindReplaceController({
+    getProjectData:()=>project,
+    commitProjectReplaceAll:async plan=>{plan.scenes.forEach(({sceneId,sceneText})=>{project.scenes.find(s=>s.id===sceneId).sceneText=sceneText});return {ok:true}},
+    confirmProjectReplaceAll:async plan=>{confirmedPlan=plan;return true}
+  });
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const result=await controller.replaceProjectAll();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  assert.equal(confirmedPlan.affectedSceneCount,2,"the excluded scene must be counted in the confirmation too");
+  assert.deepEqual(confirmedPlan.scenes.map(s=>s.sceneId).sort(),["v-hid","v-inc"]);
+}
+
+// 5b. Cancel: zero writes, zero sync, zero dirty-baseline rebase, unsaved
+// live content untouched, Find/Replace session remains usable (the
+// controller is not left in any broken state -- a normal search still
+// works right after).
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([scene("cancel-me","ОтменаМеня","chapter-1","Кот сидел.")]);
+  const view=fakeView(plainTextToDoc(schema,"Кот сидел и ещё не сохранённый текст."));
+  const reg=registerMountedScene("cancel-me",{view,surfaceId:"textModal",activate(){}});
+  let commitCalls=0,rebaseCalls=0;
+  const controller=createFindReplaceController({
+    getProjectData:()=>project,
+    commitProjectReplaceAll:async()=>{commitCalls++;return {ok:true}},
+    rebaseSceneDirtyBaseline:()=>rebaseCalls++,
+    confirmProjectReplaceAll:async()=>false // Отмена
+  });
+  attachToController(view,controller,"cancel-me");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const result=await controller.replaceProjectAll();
+  assert.equal(result.ok,true);assert.equal(result.changed,false);assert.equal(result.reason,"cancelled");
+  assert.equal(commitCalls,0,"Cancel must perform zero writes");
+  assert.equal(rebaseCalls,0,"Cancel must not rebase any dirty baseline");
+  assert.equal(project.scenes[0].sceneText,"Кот сидел.","Cancel must leave canonical data untouched");
+  assert.equal(view.state.doc.textContent,"Кот сидел и ещё не сохранённый текст.","Cancel must leave the unsaved live edit exactly as it was");
+  // Find/Replace session remains usable: a plain search still works.
+  const snapshot=controller.getSnapshot();
+  assert.equal(snapshot.projectReplaceAllInFlight,false,"the in-flight flag must clear after Cancel");
+  assert.ok(snapshot.projectResult.totalMatches>0,"the panel/session is still usable after Cancel -- the existing search result is untouched");
+  unregisterMountedScene("cancel-me",reg);
+}
+
+// 5c. Unsaved mounted live edit: the confirmation callback receives a plan
+// whose scene text already includes the live edit (so a real UI can warn
+// with genuinely accurate numbers); Cancel does not persist it; Confirm
+// commits it together with the replacement.
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([scene("live-edit","ЖиваяПравка","chapter-1","Кот сидел.")]);
+  const view=fakeView(plainTextToDoc(schema,"Кот сидел и ещё кот пришёл."));
+  const reg=registerMountedScene("live-edit",{view,surfaceId:"textModal",activate(){}});
+  const controller=createFindReplaceController({
+    getProjectData:()=>project,
+    commitProjectReplaceAll:async plan=>{plan.scenes.forEach(({sceneId,sceneText,sceneTextDoc})=>{const s=project.scenes.find(x=>x.id===sceneId);s.sceneText=sceneText;s.sceneTextDoc=sceneTextDoc});return {ok:true}},
+    confirmProjectReplaceAll:async plan=>{
+      assert.equal(plan.scenes[0].sceneText,"пёс сидел и ещё пёс пришёл.","the confirmation must see the unsaved live edit's own content, already reflecting the planned replacement");
+      return true;
+    }
+  });
+  attachToController(view,controller,"live-edit");
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const result=await controller.replaceProjectAll();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  assert.equal(project.scenes[0].sceneText,"пёс сидел и ещё пёс пришёл.","the unsaved live edit is persisted together with the replacement");
+  assert.equal(view.state.doc.textContent,"пёс сидел и ещё пёс пришёл.");
+  unregisterMountedScene("live-edit",reg);
+}
+
+// 5d. Freshness while the confirmation is open: canonical data changes
+// (simulating another surface/session) DURING the awaited confirm call,
+// before the user answers. The post-confirmation freshness check must
+// detect the material change and require an explicit reconfirmation
+// against the NEW numbers -- never silently commit the operation the user
+// actually saw.
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([
+    scene("mat-a","МатА","chapter-1","Кот один."),
+    scene("mat-b","МатБ","chapter-1","И кот тут.")
+  ]);
+  const confirmedPlans=[];
+  let commitCalls=0;
+  const controller=createFindReplaceController({
+    getProjectData:()=>project,
+    commitProjectReplaceAll:async plan=>{commitCalls++;plan.scenes.forEach(({sceneId,sceneText})=>{project.scenes.find(s=>s.id===sceneId).sceneText=sceneText});return {ok:true}},
+    confirmProjectReplaceAll:async plan=>{
+      confirmedPlans.push(plan);
+      if(confirmedPlans.length===1){
+        // While the (simulated) dialog is "open", a third scene gains a
+        // match -- e.g. another tab/session added text elsewhere.
+        project.scenes.push(scene("mat-c","МатВ","chapter-1","Новый кот появился."));
+      }
+      return true; // the user confirms both times -- reconfirmation is still explicit user action
+    }
+  });
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const result=await controller.replaceProjectAll();
+  assert.equal(result.ok,true);assert.equal(result.changed,true);
+  assert.equal(confirmedPlans.length,2,"a material change (new affected scene) must trigger exactly one reconfirmation round");
+  assert.equal(confirmedPlans[0].affectedSceneCount,2,"the FIRST confirmation reflects the state at that moment");
+  assert.equal(confirmedPlans[1].affectedSceneCount,3,"the SECOND confirmation reflects the fresh, changed state -- never the stale first plan");
+  assert.equal(commitCalls,1,"only the FINAL, reconfirmed plan is ever committed -- never the stale one");
+  assert.equal(result.affectedSceneCount,3);
+  assert.equal(project.scenes.find(s=>s.id==="mat-c").sceneText,"Новый пёс появился.","the newly-appeared scene is committed as part of the reconfirmed operation");
+}
+
+// 5e. MAX_PROJECT_REPLACE_CONFIRM_ROUNDS: if the project keeps changing on
+// every single round, the operation fails safely (zero writes) instead of
+// asking forever.
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([scene("unstable-1","Нестаб1","chapter-1","Кот раз.")]);
+  let counter=0,commitCalls=0,confirmCalls=0;
+  const controller=createFindReplaceController({
+    getProjectData:()=>project,
+    commitProjectReplaceAll:async()=>{commitCalls++;return {ok:true}},
+    confirmProjectReplaceAll:async()=>{
+      confirmCalls++;
+      counter++;
+      project.scenes.push(scene(`unstable-${counter+1}`,`Нестаб${counter+1}`,"chapter-1",`Кот номер ${counter+1}.`));
+      return true;
+    }
+  });
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const result=await controller.replaceProjectAll();
+  assert.equal(result.ok,false);assert.equal(result.reason,"unstable");
+  assert.equal(commitCalls,0,"zero writes when the project never stabilizes");
+  assert.equal(confirmCalls,3,"exactly MAX_PROJECT_REPLACE_CONFIRM_ROUNDS confirmation attempts, never an unbounded loop");
+  const snapshot=controller.getSnapshot();
+  assert.equal(snapshot.projectReplaceAllInFlight,false,"the in-flight flag must still clear after the cap is hit");
+}
+
+// 5f. Conflict arising WHILE the confirmation is open: no commit, zero
+// partial writes, the same safe conflict result as the pre-confirmation
+// case -- never treated as a "material change" to silently reconfirm past.
+_resetMountedSceneRegistryForTests();
+{
+  const project=makeProject([scene("late-conf","ПоздноКонфликт","chapter-1","Кот сидел.")]);
+  const viewA=fakeView(plainTextToDoc(schema,"Кот сидел тихо."));
+  const regA=registerMountedScene("late-conf",{view:viewA,surfaceId:"textModal",activate(){}});
+  let commitCalls=0,confirmCalls=0;
+  const controller=createFindReplaceController({
+    getProjectData:()=>project,
+    commitProjectReplaceAll:async()=>{commitCalls++;return {ok:true}},
+    confirmProjectReplaceAll:async()=>{
+      confirmCalls++;
+      // While the dialog is "open", a SECOND, DISAGREEING live registration
+      // appears for the SAME scene (e.g. opened in another surface) --
+      // `viewA` alone was fine (single registration, no conflict) at
+      // pre-confirmation planning time; this is what turns it into a real
+      // conflict for the mandatory post-confirmation freshness check.
+      const viewB=fakeView(plainTextToDoc(schema,"Кот убежал совсем в другую сторону."));
+      registerMountedScene("late-conf",{view:viewB,surfaceId:"sceneModal",activate(){}});
+      return true;
+    }
+  });
+  controller.open();controller.setScope("project");controller.setQuery("кот");controller.setReplaceText("пёс");
+  const result=await controller.replaceProjectAll();
+  assert.equal(result.ok,false);assert.equal(result.reason,"conflict");
+  assert.equal(confirmCalls,1,"a conflict discovered post-confirmation must abort immediately -- never re-shown as a reconfirmation");
+  assert.equal(commitCalls,0,"zero writes when a conflict is discovered after confirmation");
+  assert.equal(project.scenes[0].sceneText,"Кот сидел.","zero canonical writes");
 }
 
 console.log("find-replace project-replace-all unit tests: OK");

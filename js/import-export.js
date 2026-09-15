@@ -2,6 +2,7 @@ import {sceneDocSchema} from "./editor/scene-doc-schema.js";
 import {docToJSON,loadSceneDocument} from "./editor/scene-doc-convert.js";
 import {createSceneEditorGroup} from "./editor/scene-editor-controller.js";
 import {normalizedEqual,normalizeSnapshot} from "./dirty-state.js";
+import {pluralRu} from "./editor/find-replace-panel.js";
 
 function includedScenes(){
   return data.scenes
@@ -58,7 +59,7 @@ function openAllScenesNow(){
     // call would steal focus back from a just-selected project-search match
     // (openModal() always re-schedules its own default-initial-focus
     // microtask, even when reopening an already-open modal).
-    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra),commitProjectReplaceAll:commitProjectReplaceAllScenes,rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline});
+    allScenesEditorGroup=createSceneEditorGroup({toolbarContainer:document.getElementById("allScenesToolbar"),findReplaceContainer:document.getElementById("allScenesFindReplace"),characters:data.characters,surfaceId:"allScenesModal",revealSurface:()=>{if(document.getElementById("allScenesModal").style.display!=="flex")showModal("allScenesModal")},getProjectData:()=>data,openSceneForEditing:(sceneId,extra)=>openSceneText(sceneId,extra),commitProjectReplaceAll:commitProjectReplaceAllScenes,rebaseSceneDirtyBaseline:rebaseSceneTextDirtyBaseline,confirmProjectReplaceAll:confirmProjectReplaceAllScenes});
     items.forEach(scene=>allScenesEditorGroup.mountScene(scene.id,{editorContainer:document.getElementById(`allSceneEditor-${scene.id}`),scene}));
   }
   showModal("allScenesModal");
@@ -105,6 +106,43 @@ async function saveAllScenes(){
     const target=next.scenes.find(s=>s.id===scene.id);
     target.sceneText=sceneText;target.sceneTextDoc=sceneTextDoc;
   }),{renderAfter:false});
+}
+
+// Find/Replace Stage D2.2.2: the explicit safety confirmation project-wide
+// Replace All shows before ITS commit -- wired as find-replace-controller.js's
+// `confirmProjectReplaceAll` (via scene-editor-controller.js's
+// projectSearchDeps) on every mountSceneEditor/createSceneEditorGroup call
+// site, the same three as commitProjectReplaceAllScenes below. `plan` is a
+// FRESH find-replace-project-replace-all.js planProjectReplaceAll() result
+// with `changed:true` -- find-replace-controller.js's replaceProjectAll owns
+// rebuilding it fresh both before this call and again immediately after the
+// user answers (this function has no persistence/freshness responsibility
+// at all, purely a yes/no prompt over the numbers it's handed).
+//
+// Reuses js/modal-manager.js's existing generic showConfirmAction/
+// confirmActionModal (already used for delete-scene/-chapter/-tag/-location
+// confirmations) rather than a new dialog -- proper dialog semantics
+// (role="alertdialog", aria-labelledby/describedby), keyboard operability,
+// initial focus on the SAFE action (#confirmActionCancel, that element's own
+// existing default), and opener-based focus restoration on close all come
+// for free, unchanged. `description` uses `\n\n` between its four points --
+// css/modals.css gives `#confirmActionDescription` `white-space:pre-line`
+// specifically so this (and any future multi-point confirmation) renders as
+// distinct lines/paragraphs rather than one run-on sentence; every existing
+// single-line caller is unaffected since none of them contain a newline.
+// Counts use pluralRu (find-replace-panel.js, already the app's one Russian
+// count-pluralization helper -- D1.1) exactly like the project-results
+// summary's own "N совпадений · M сцен" wording, never a second
+// pluralization implementation.
+async function confirmProjectReplaceAllScenes(plan){
+  const description=[
+    `Будет выполнено ${plan.totalMatchCount} ${pluralRu(plan.totalMatchCount,"замена","замены","замен")} `+
+      `(${plan.affectedSceneCount} ${pluralRu(plan.affectedSceneCount,"сцена","сцены","сцен")}).`,
+    "Изменения будут сохранены сразу и их нельзя будет отменить через Ctrl+Z.",
+    "Если в открытых сценах есть несохранённые изменения, они тоже будут сохранены вместе с заменой.",
+    "Замена выполняется по всему проекту, включая сцены, исключённые из общего текста."
+  ].join("\n\n");
+  return showConfirmAction({title:"Заменить во всём проекте?",description,confirmLabel:"Заменить и сохранить",cancelLabel:"Отмена"});
 }
 
 // Find/Replace Stage D2.2.1: the ONE atomic multi-scene write project-wide
@@ -212,5 +250,5 @@ function exportWholeText(){
 // mounted yet).
 registerFindReplaceShortcuts("allScenesModal",{openFind:()=>allScenesEditorGroup?.openFind(),openReplace:()=>allScenesEditorGroup?.openReplace()});
 
-Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText,commitProjectReplaceAllScenes,rebaseSceneTextDirtyBaseline});
-export {includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText,commitProjectReplaceAllScenes,rebaseSceneTextDirtyBaseline};
+Object.assign(globalThis,{includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText,commitProjectReplaceAllScenes,rebaseSceneTextDirtyBaseline,confirmProjectReplaceAllScenes});
+export {includedScenes,openAllScenes,saveAllScenes,destroyAllScenesEditorGroup,exportWholeText,commitProjectReplaceAllScenes,rebaseSceneTextDirtyBaseline,confirmProjectReplaceAllScenes};

@@ -378,7 +378,12 @@ export function createFindReplacePanel(container,controller){
     // the results list/summary simply keep showing whatever the last
     // successful search actually found.
     conflict:"У одной из сцен проекта найдено несколько открытых версий с разным текстом — замена по всему проекту отменена. Сохраните или закройте лишние открытые копии этой сцены и повторите поиск.",
-    "persist-failed":"Не удалось сохранить замену по всему проекту. Изменения не применены."
+    "persist-failed":"Не удалось сохранить замену по всему проекту. Изменения не применены.",
+    // Find/Replace Stage D2.2.2: MAX_PROJECT_REPLACE_CONFIRM_ROUNDS
+    // (find-replace-controller.js) exhausted -- the project kept changing
+    // on every reconfirmation round. Never a real error, just an honest
+    // "try again" -- zero writes happened.
+    unstable:"Проект слишком часто менялся во время подтверждения замены — попробуйте ещё раз."
   };
   function handleProjectReplaceOne(){
     replaceStatusEl.hidden=true;replaceStatusEl.textContent="";

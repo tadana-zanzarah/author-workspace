@@ -24,13 +24,26 @@ import {findReplacePluginKey,buildMatchDecorations} from "./find-replace-decorat
 import {searchProject,flattenProjectMatches,reresolveFlatMatchIndex,pickPostReplaceActiveIndex} from "./find-replace-project-search.js";
 import {getMountedSceneRegistrations} from "./mounted-scene-registry.js";
 import {buildProjectReplacement} from "./find-replace-project-replace.js";
-import {planProjectReplaceAll,syncMountedScenesAfterReplaceAll} from "./find-replace-project-replace-all.js";
+import {planProjectReplaceAll,syncMountedScenesAfterReplaceAll,projectReplacePlansMateriallyDiffer} from "./find-replace-project-replace-all.js";
 import {TextSelection} from "prosemirror-state";
 import {closeHistory} from "prosemirror-history";
 
 function isViewUsable(view){
   return !!view&&!view.isDestroyed;
 }
+
+// Find/Replace Stage D2.2.2: an upper bound on how many times
+// replaceProjectAll's own confirm-then-revalidate loop will re-show the
+// confirmation dialog after a material change is detected between what the
+// user just confirmed and what is actually about to be committed (see that
+// function's own doc comment). Not a risk of a silent/automatic infinite
+// loop either way -- every single iteration requires a genuine, explicit
+// user click on the (freshly re-numbered) confirmation dialog -- this cap
+// only exists so a pathological case (project data changing on every single
+// round, e.g. very active simultaneous multi-tab editing) fails with a
+// clear, honest "try again" outcome instead of asking the user to keep
+// reconfirming indefinitely.
+const MAX_PROJECT_REPLACE_CONFIRM_ROUNDS=3;
 
 // Corrective pass: ProseMirror's own tr.scrollIntoView() turned out NOT to
 // scroll anything here, and this is worth explaining precisely rather than
@@ -283,7 +296,20 @@ function captureViewportAnchor(view){
 //     baseline needs to catch up to the just-persisted doc does, without
 //     silently accepting any OTHER pending/unrelated dirty state in the same
 //     form. A no-op wherever it doesn't apply.
-export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null,getNavigableSceneIds=null,commitProjectReplaceAll=null,rebaseSceneDirtyBaseline=null}={}){
+//
+// Find/Replace Stage D2.2.2: `confirmProjectReplaceAll(plan)` -- an explicit
+// safety confirmation before Project Replace All's immediate, non-undoable
+// commit. Unlike the two dependencies above, this one is REQUIRED (not just
+// optional-degrades-gracefully) for replaceProjectAll to reach a commit at
+// all -- omitting it makes the function behave exactly like
+// commitProjectReplaceAll being missing (`not-configured`, and the panel's
+// own eligibility check keeps "Заменить все" disabled), rather than silently
+// skipping the safety prompt. Must resolve to `true` (proceed) or `false`
+// (cancel, zero writes) -- see replaceProjectAll's own doc comment for the
+// full confirm/revalidate/reconfirm contract this drives. Wired for real at
+// the app layer to js/import-export.js's confirmProjectReplaceAllScenes
+// (a showConfirmAction() call with the fresh plan's own counts).
+export function createFindReplaceController({getProjectData=null,navigateToSceneMatch=null,getNavigableSceneIds=null,commitProjectReplaceAll=null,rebaseSceneDirtyBaseline=null,confirmProjectReplaceAll=null}={}){
   let view=null;
   // Final D1 hardening pass: the sceneId the ATTACHED view is currently
   // showing, threaded in by attachView's caller (which always already knows
@@ -388,15 +414,16 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
       // uses this (never the weaker "an active result id exists" check) to
       // decide the Replace button's disabled state.
       projectReplaceEligible:canReplaceProjectCurrent(),
-      // Find/Replace Stage D2.2.1: whether replaceProjectAll() would actually
-      // be allowed to run right now -- project scope, a real project result
-      // with at least one match, commitProjectReplaceAll actually wired (an
-      // environment that never configured Replace All degrades to a
-      // permanently-disabled button, never a silent no-op click), and no
-      // commit already in flight. The panel reads this (never re-derives its
-      // own weaker check) to decide the "Заменить все" button's disabled
-      // state in project scope.
-      projectReplaceAllEligible:scope==="project"&&!!projectResult&&projectResult.totalMatches>0&&typeof commitProjectReplaceAll==="function"&&!projectReplaceAllInFlight,
+      // Find/Replace Stage D2.2.1/D2.2.2: whether replaceProjectAll() would
+      // actually be allowed to run right now -- project scope, a real
+      // project result with at least one match, BOTH commitProjectReplaceAll
+      // AND confirmProjectReplaceAll actually wired (an environment that
+      // never configured either degrades to a permanently-disabled button,
+      // never a silent no-op click or a silent skip of the safety
+      // confirmation), and no commit already in flight. The panel reads this
+      // (never re-derives its own weaker check) to decide the "Заменить все"
+      // button's disabled state in project scope.
+      projectReplaceAllEligible:scope==="project"&&!!projectResult&&projectResult.totalMatches>0&&typeof commitProjectReplaceAll==="function"&&typeof confirmProjectReplaceAll==="function"&&!projectReplaceAllInFlight,
       projectReplaceAllInFlight
     };
   }
@@ -1393,53 +1420,134 @@ export function createFindReplaceController({getProjectData=null,navigateToScene
   // full fresh-plan/live-doc/conflict-abort contract.
   //
   // Guarded exactly like replaceProjectCurrent: refuses outside project
-  // scope, and refuses (never persists, never syncs) when the environment
-  // never wired commitProjectReplaceAll -- matching every other optional-
-  // dependency guard in this file.
+  // scope, and refuses (never persists, never syncs, never even shows the
+  // confirmation) when the environment never wired commitProjectReplaceAll
+  // OR confirmProjectReplaceAll -- matching every other optional-dependency
+  // guard in this file, except this feature treats BOTH as required for any
+  // commit to be reachable at all (see this factory's own doc comment on
+  // confirmProjectReplaceAll for why the confirmation itself is never
+  // optional/skippable).
+  //
+  // Find/Replace Stage D2.2.2: adds the mandatory explicit-confirmation step
+  // -- Project Replace All persists immediately and is not undoable through
+  // normal Ctrl+Z, so the user must be told exactly what is about to happen
+  // (replacement/scene counts, immediate persistence, no Undo, that any
+  // open scene's unsaved live text participates and gets persisted too, and
+  // that the operation spans included:false scenes) and explicitly agree,
+  // every time, before any write. The confirmation is shown against the
+  // SAME `plan` already built above (a genuinely fresh preflight -- see
+  // product rule A) -- a conflict or a no-op is never shown a confirmation
+  // at all (rule B), since there is either nothing to authorize or nothing
+  // safe to authorize yet.
+  //
+  // Rule C/D (the confirmation is not a blank cheque for whatever plan was
+  // shown -- state may keep changing for as long as the dialog stays open,
+  // through another surface, another session, or simple elapsed time):
+  // immediately after the user confirms, this ALWAYS rebuilds the plan
+  // again from current authoritative state -- never commits the plan the
+  // dialog displayed. If the fresh post-confirmation plan differs from what
+  // was confirmed in a MATERIAL way (replacement count, affected scene
+  // count, or affected scene SET -- projectReplacePlansMateriallyDiffer,
+  // find-replace-project-replace-all.js), the stale confirmation does not
+  // authorize committing the new, different operation: this loops back and
+  // shows the confirmation AGAIN, with the new fresh numbers, requiring an
+  // explicit new confirmation -- never a silent auto-commit under outdated
+  // authorization, and never a silent substitution of a differently-scoped
+  // write. Bounded by MAX_PROJECT_REPLACE_CONFIRM_ROUNDS -- not because a
+  // single round could ever loop automatically (every iteration requires a
+  // genuine user click on the freshly-renumbered dialog), but so a
+  // pathological "project keeps changing every single round" case fails
+  // with a clear, honest outcome instead of asking forever. A conflict
+  // discovered at this post-confirmation freshness check (a live
+  // registration started disagreeing while the dialog was open) is never
+  // "reconfirmed" -- like the pre-confirmation case, reconfirming cannot fix
+  // a conflict, so it aborts immediately with the same safe conflict result,
+  // zero writes.
   async function replaceProjectAll(){
     if(scope!=="project")return {ok:false,reason:"wrong-scope"};
     if(projectReplaceAllInFlight)return {ok:false,reason:"in-flight"};
-    if(typeof getProjectData!=="function"||typeof commitProjectReplaceAll!=="function")return {ok:false,reason:"not-configured"};
-    const plan=planProjectReplaceAll(getProjectData(),query,{caseSensitive,replaceText});
-    if(!plan.ok)return plan; // {reason:"conflict",conflictedSceneIds} -- zero writes attempted
-    if(!plan.changed)return {ok:true,changed:false}; // a fresh plan found nothing to do -- no commit, no dirty, no fabricated count
-    projectReplaceAllInFlight=true;notify();
-    let commitResult;
+    if(typeof getProjectData!=="function"||typeof commitProjectReplaceAll!=="function"||typeof confirmProjectReplaceAll!=="function")return {ok:false,reason:"not-configured"};
+    let plan=planProjectReplaceAll(getProjectData(),query,{caseSensitive,replaceText});
+    if(!plan.ok)return plan; // {reason:"conflict",conflictedSceneIds} -- zero writes, no confirmation shown
+    if(!plan.changed)return {ok:true,changed:false}; // a fresh plan found nothing to do -- no confirmation, no commit, no dirty, no fabricated count
+
+    // `projectReplaceAllInFlight` is deliberately NOT set for the
+    // confirmation/freshness-loop portion below -- only right around the
+    // actual commit call further down. Setting it (and notifying) here would
+    // disable the "Заменить все" button via the panel's own snapshot-driven
+    // render, and a DISABLED element is forcibly blurred by the browser --
+    // which would steal `document.activeElement` out from under
+    // showConfirmAction's own opener-capture (`openModal`'s
+    // `options.opener||document.activeElement`), breaking "focus returns to
+    // the button that opened the confirmation" on Cancel. This is safe: the
+    // confirmation modal already makes the underlying panel `inert` via the
+    // existing generic modal-stack machinery (js/modal-manager.js's
+    // syncLayers), which genuinely blocks a second click for the whole time
+    // the dialog (or a reconfirmation round) is open -- no separate
+    // in-flight gating is needed until the async commit call itself, which
+    // is the one real gap where the panel becomes interactive again before
+    // the operation has actually finished.
     try{
-      commitResult=await commitProjectReplaceAll(plan);
+      for(let round=0;round<MAX_PROJECT_REPLACE_CONFIRM_ROUNDS;round++){
+        const confirmed=await confirmProjectReplaceAll(plan);
+        if(!confirmed)return {ok:true,changed:false,reason:"cancelled"}; // zero writes, zero sync, zero rebase -- see confirmProjectReplaceAll's own contract
+
+        // Mandatory post-confirmation freshness re-validation (product rule
+        // C/D) -- never trust `plan` (what the dialog showed) as the write
+        // plan; always re-derive from current authoritative state right
+        // before committing.
+        const freshPlan=planProjectReplaceAll(getProjectData(),query,{caseSensitive,replaceText});
+        if(!freshPlan.ok)return freshPlan; // a live registration started disagreeing while the dialog was open -- abort, zero writes, same safe conflict result as the pre-confirmation case
+        if(!freshPlan.changed)return {ok:true,changed:false}; // became a no-op while the dialog was open
+
+        if(!projectReplacePlansMateriallyDiffer(plan,freshPlan)){
+          projectReplaceAllInFlight=true;notify();
+          try{
+            const commitResult=await commitProjectReplaceAll(freshPlan);
+            if(!commitResult?.ok)return {ok:false,reason:"persist-failed",error:commitResult};
+            // Committed successfully -- bring every live mounted
+            // registration for every affected scene up to the exact
+            // committed content (never only the scene this controller
+            // happens to be attached to), then let whichever open form's
+            // own dirty baseline needs to catch up do so (a no-op wherever
+            // it doesn't apply -- see this factory's own doc comment on
+            // rebaseSceneDirtyBaseline).
+            syncMountedScenesAfterReplaceAll(freshPlan.scenes);
+            freshPlan.scenes.forEach(({sceneId,sceneTextDoc})=>rebaseSceneDirtyBaseline?.(sceneId,sceneTextDoc));
+            // Fresh search state, deterministic active-result fallback
+            // (product rule 10): treat this exactly like a genuinely FRESH
+            // activation -- reset activeProjectMatchIndex to -1 (never a
+            // locality target the way Single Replace's own
+            // pendingPostReplaceLocality is, since Replace All can touch
+            // many unrelated scenes at once, so "stay local to the scene
+            // just edited" has no single well-defined meaning here) and let
+            // recomputeProject()'s own existing
+            // resolveFreshProjectActiveIndex -> pickInitialProjectMatchIndex
+            // fallback (caret-relative in the attached scene if it still
+            // has matches -- e.g. the replacement text itself still matches
+            // the query -- else the first remaining result) pick the new
+            // active result, from a genuinely fresh searchProject() call
+            // against the now-committed project data. No manual
+            // count/offset patching anywhere in this function.
+            activeProjectMatchIndex=-1;
+            recomputeProject();
+            return {ok:true,changed:true,affectedSceneCount:freshPlan.affectedSceneCount,totalMatchCount:freshPlan.totalMatchCount};
+          }finally{
+            projectReplaceAllInFlight=false;notify();
+          }
+        }
+        // Material change: the just-confirmed authorization no longer
+        // matches reality. Never commit under it -- loop back and require
+        // the user to explicitly reconfirm against the NEW fresh numbers
+        // (confirmProjectReplaceAll is called again, at the top of the next
+        // iteration, with `plan` now equal to `freshPlan`).
+        plan=freshPlan;
+      }
+      return {ok:false,reason:"unstable"}; // MAX_PROJECT_REPLACE_CONFIRM_ROUNDS exhausted -- project kept changing every round; zero writes
     }catch(error){
       projectReplaceAllInFlight=false;notify();
       return {ok:false,reason:"persist-failed",error:{message:error?.message}};
     }
-    if(!commitResult?.ok){
-      projectReplaceAllInFlight=false;notify();
-      return {ok:false,reason:"persist-failed",error:commitResult};
-    }
-    // Committed successfully -- bring every live mounted registration for
-    // every affected scene up to the exact committed content (never only the
-    // scene this controller happens to be attached to), then let whichever
-    // open form's own dirty baseline needs to catch up do so (a no-op
-    // wherever it doesn't apply -- see this factory's own doc comment on
-    // rebaseSceneDirtyBaseline).
-    syncMountedScenesAfterReplaceAll(plan.scenes);
-    plan.scenes.forEach(({sceneId,sceneTextDoc})=>rebaseSceneDirtyBaseline?.(sceneId,sceneTextDoc));
-    projectReplaceAllInFlight=false;
-    // Fresh search state, deterministic active-result fallback (product
-    // rule 10): treat this exactly like a genuinely FRESH activation --
-    // reset activeProjectMatchIndex to -1 (never a locality target the way
-    // Single Replace's own pendingPostReplaceLocality is, since Replace All
-    // can touch many unrelated scenes at once, so "stay local to the scene
-    // just edited" has no single well-defined meaning here) and let
-    // recomputeProject()'s own existing resolveFreshProjectActiveIndex ->
-    // pickInitialProjectMatchIndex fallback (caret-relative in the attached
-    // scene if it still has matches -- e.g. the replacement text itself
-    // still matches the query -- else the first remaining result) pick the
-    // new active result, from a genuinely fresh searchProject() call against
-    // the now-committed project data. No manual count/offset patching
-    // anywhere in this function.
-    activeProjectMatchIndex=-1;
-    recomputeProject();
-    return {ok:true,changed:true,affectedSceneCount:plan.affectedSceneCount,totalMatchCount:plan.totalMatchCount};
   }
 
   function subscribe(listener){

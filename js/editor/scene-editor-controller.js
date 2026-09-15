@@ -35,14 +35,18 @@ import {navigateToSceneMatch} from "./find-replace-navigation.js";
 // has) -- find-replace-controller.js's own eligibility check already keeps
 // the "Заменить все" button disabled whenever commitProjectReplaceAll is
 // missing.
-function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds,commitProjectReplaceAll,rebaseSceneDirtyBaseline}){
+// Find/Replace Stage D2.2.2: `confirmProjectReplaceAll` (js/import-export.js's
+// confirmProjectReplaceAllScenes) is forwarded the same way -- also plain,
+// app-layer-owned, nothing surface-specific to adapt.
+function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds,commitProjectReplaceAll,rebaseSceneDirtyBaseline,confirmProjectReplaceAll}){
   if(!getProjectData)return {};
   return {
     getProjectData,
     navigateToSceneMatch:(sceneId,matchRange,options)=>navigateToSceneMatch(sceneId,matchRange,{...options,openSceneForEditing}),
     getNavigableSceneIds,
     commitProjectReplaceAll,
-    rebaseSceneDirtyBaseline
+    rebaseSceneDirtyBaseline,
+    confirmProjectReplaceAll
   };
 }
 
@@ -90,10 +94,10 @@ function projectSearchDeps({getProjectData,openSceneForEditing,getNavigableScene
 // exists; the caller (js/scenes.js) decides that and performs the actual
 // open (through the SAME `openSceneText`/`editScene` + existing dirty-guard
 // path every other transition already uses).
-export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,projectSession=null,onSwitchSurface=null,switchSurfaceLabel=null,commitProjectReplaceAll=null,rebaseSceneDirtyBaseline=null}){
+export function mountSceneEditor({editorContainer,toolbarContainer,scene,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,projectSession=null,onSwitchSurface=null,switchSurfaceLabel=null,commitProjectReplaceAll=null,rebaseSceneDirtyBaseline=null,confirmProjectReplaceAll=null}){
   editorContainer.innerHTML="";
   const doc=loadSceneDocument(sceneDocSchema,scene);
-  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,commitProjectReplaceAll,rebaseSceneDirtyBaseline})):null;
+  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,commitProjectReplaceAll,rebaseSceneDirtyBaseline,confirmProjectReplaceAll})):null;
   findReplace?.adoptProjectSession(projectSession);
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{
@@ -319,8 +323,8 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
 // (e.g. "Весь текст") to the front; each individual scene's registration
 // additionally retargets the shared toolbar/find-replace controller to that
 // scene and scrolls its own block into view -- see mountScene below.
-export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,commitProjectReplaceAll=null,rebaseSceneDirtyBaseline=null}){
-  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds:()=>sceneIds(),commitProjectReplaceAll,rebaseSceneDirtyBaseline})):null;
+export function createSceneEditorGroup({toolbarContainer,characters=[],findReplaceContainer=null,surfaceId=null,revealSurface=null,getProjectData=null,openSceneForEditing=null,commitProjectReplaceAll=null,rebaseSceneDirtyBaseline=null,confirmProjectReplaceAll=null}){
+  const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,getNavigableSceneIds:()=>sceneIds(),commitProjectReplaceAll,rebaseSceneDirtyBaseline,confirmProjectReplaceAll})):null;
   const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined});
   const instances=new Map();
