@@ -152,9 +152,21 @@
 #quickSceneTitleStep{justify-content:center;gap:10px}
 @media(max-width:760px){
   .mobile-fullscreen-modal.modal-backdrop{padding:0;align-items:stretch;justify-content:stretch}
+  /* Stage E2.2 real-phone fullscreen microfix: real-device review found a
+     strip of the underlying workspace still exposed below the surface.
+     Root cause was a specificity clash, not a missing rule -- per-modal
+     shells set their own height via an ID selector (e.g.
+     `#quickSceneModal .modal{height:min(80vh,640px)}` above), which is
+     (1 id, 1 class) and always outranks this primitive's (0 id, 2 class)
+     selector regardless of source order, so the height override below was
+     silently losing even though it was present. `!important` here is
+     deliberate: this primitive's whole purpose is "no matter what
+     desktop-sizing rule a consuming modal declares, phone gets true
+     fullscreen," so it must always win on this axis. Scoped to this one
+     phone-only media query and these four sizing properties only. */
   .mobile-fullscreen-modal .modal{
-    width:100%;max-width:100%;margin:0;border-radius:0;
-    height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;
+    width:100%!important;max-width:100%!important;margin:0!important;border-radius:0!important;
+    height:100vh!important;height:100dvh!important;max-height:100vh!important;max-height:100dvh!important;
   }
 }
 

@@ -83,6 +83,38 @@ try{
   const focusedIsEditor=await page.evaluate(()=>document.activeElement.closest("#quickSceneEditor")!==null);
   if(!focusedIsEditor)throw new Error("Focus should enter the writing surface promptly");
 
+  // Stage E2.2 real-phone fullscreen microfix: real-device review found a
+  // strip of the underlying workspace exposed below the surface (root
+  // cause: an ID-scoped per-modal height rule outranking the shared
+  // `.mobile-fullscreen-modal` primitive's override by CSS specificity —
+  // see css/editor.css). Check the ACTUAL rendered geometry against the
+  // page viewport, not just that some fullscreen class/rule exists, since
+  // that is exactly the layer that missed the original defect.
+  // Honesty note: this runs in Playwright's emulated mobile viewport, which
+  // is a fixed CSS viewport box — it does not reproduce Android Chrome's
+  // own dynamic (collapsing/expanding) toolbar behavior on a real device.
+  // A pass here proves the surface fills the full viewport Playwright
+  // reports; it is not itself proof of physical-device geometry, which is
+  // why real-phone review remains the final check.
+  const viewportSize=page.viewportSize();
+  const modalRect=await page.$eval("#quickSceneModal .modal",el=>el.getBoundingClientRect().toJSON());
+  const geometryTolerance=2;
+  if(Math.abs(modalRect.top-0)>geometryTolerance)throw new Error(`Quick Scene surface must reach the viewport top on phone: top=${modalRect.top}`);
+  if(Math.abs(modalRect.left-0)>geometryTolerance)throw new Error(`Quick Scene surface must reach the viewport left on phone: left=${modalRect.left}`);
+  if(Math.abs(viewportSize.width-modalRect.right)>geometryTolerance)throw new Error(`Quick Scene surface must reach the viewport right on phone: right=${modalRect.right}, viewport width=${viewportSize.width}`);
+  if(Math.abs(viewportSize.height-modalRect.bottom)>geometryTolerance)throw new Error(`Quick Scene surface must reach the viewport bottom on phone: bottom=${modalRect.bottom}, viewport height=${viewportSize.height} (this is the exact real-phone defect: a bottom strip of the underlying workspace left exposed)`);
+
+  // The underlying workspace must not be interactable while Quick Scene is
+  // open — probe a point near the bottom-left of the viewport (where the
+  // real-phone screenshot showed the exposed strip and the floating
+  // "Навигация" control) and confirm it resolves inside the Quick Scene
+  // surface, not the workspace behind it.
+  const pointBelongsToQuickScene=await page.evaluate(()=>{
+    const el=document.elementFromPoint(20,window.innerHeight-10);
+    return el!==null&&el.closest("#quickSceneModal")!==null;
+  });
+  if(!pointBelongsToQuickScene)throw new Error("Underlying workspace must not be reachable/interactable while Quick Scene is open");
+
   // 4. Whitespace-only content cannot advance/create a scene.
   await page.locator("#quickSceneEditor .ProseMirror").pressSequentially("   ");
   await page.tap("#quickSceneSaveNext");
@@ -157,6 +189,15 @@ try{
   await page.tap("#discardChanges");
   await page.waitForFunction(()=>document.getElementById("quickSceneModal").style.display==="none");
   if((await page.evaluate(()=>data.scenes.length))!==beforeCancel)throw new Error("Cancel before creation must not create a scene");
+
+  // Closing restores normal workspace interaction — the same probe point
+  // used above to confirm the workspace was UNreachable while open must now
+  // resolve outside Quick Scene.
+  const pointRestoredAfterClose=await page.evaluate(()=>{
+    const el=document.elementFromPoint(20,window.innerHeight-10);
+    return el===null||el.closest("#quickSceneModal")===null;
+  });
+  if(!pointRestoredAfterClose)throw new Error("Closing Quick Scene must restore normal workspace interaction");
 
   // Opening and closing with nothing typed must not even prompt — not
   // dirty, closes immediately.
