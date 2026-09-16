@@ -838,3 +838,101 @@ No Supabase changes, no migrations, `reference/` and `backup/` untouched.
 E3.2 was not started. Find/Replace itself was not redesigned — only
 `.rte-project-result-row`'s overflow behavior changed, phone-only. Matrix's
 own horizontal-scroll behavior (Stage E2.1) was not touched or altered.
+
+## 22. Stage E3.1.2 — project Find/Replace shared horizontal results scroll
+
+E3.1.1 (§20) technically solved reachability — a clipped snippet was no
+longer permanently unreachable — but real-phone review rejected the
+interaction model it used: making each `.rte-project-result-row`
+**independently** horizontally scrollable gave every row two competing
+touch gestures on the same small tappable surface (tap-to-navigate vs.
+swipe-to-reveal), and each row scrolled to its own independent horizontal
+position, so inspecting later context across several results meant
+swiping every row separately. Visually and conceptually the rows form ONE
+result surface, so horizontal position should belong to that surface as a
+whole, not to each row.
+
+### Scroll ownership: before vs. after
+
+- **E3.1.1**: each `.rte-project-result-row` was its own horizontal scroll
+  owner (`overflow-x:auto`), independent of every other row.
+- **E3.1.2**: `.rte-project-results` — the results LIST, already the
+  *vertical* scroll owner (`overflow-y:auto`, unconditional at every
+  width) — becomes the single *horizontal* scroll owner too, phone-only.
+  Individual rows get `overflow:visible` (not `hidden`, not `auto`) — a
+  row with `overflow:visible` is not a scroll container at all; assigning
+  it a `scrollLeft` is a documented no-op in every browser, which is
+  exactly the proof this stage's regression uses that rows are no longer
+  independently scrollable (see below).
+
+### How the shared coordinate space is established
+
+No extra wrapper element or explicit width was needed. Each row's
+`white-space:nowrap` text simply paints past its own box once
+`overflow:visible` stops clipping it; CSS's standard "scrollable overflow"
+propagation carries that painted region through any ancestor that is ALSO
+`overflow:visible` (the row itself, `.rte-project-result-group`) until it
+reaches the nearest actual scroll-clipping ancestor —
+`.rte-project-results`. That element's own `scrollWidth` therefore
+genuinely reflects the widest row's content, and a single `scrollLeft` on
+it moves every row's visible position together, since all rows share its
+one coordinate space by construction (they are siblings/descendants
+scrolled by the same container, not separately positioned elements kept
+in sync by JS). This is pure native block-overflow propagation — no
+custom scroll-sync or gesture-detection code was written, per the task's
+own preference for native browser scrolling over custom JS.
+
+### Final interaction contract (phone, project/global Find/Replace results)
+
+- **Vertical** swipe/scroll on the results surface → browse result rows
+  (unchanged from before either stage).
+- **Horizontal** swipe/scroll on the results surface → inspect later
+  context shared across the whole visible result set — scrolling once
+  shifts every visible row by the same amount.
+- **Tap** a result row → navigates to that exact match (existing
+  `activateProjectMatch` wiring, completely unchanged by either stage —
+  native click-after-scroll suppression is what keeps a drag-to-scroll
+  gesture from also firing a spurious navigation, with no extra code).
+
+Verified in-browser with two long-line project-search results: rows report
+`overflow-x:visible` and ignore `scrollLeft` assignment entirely (stays at
+0); `.rte-project-results` reports `overflow-x:auto` with genuine
+`scrollWidth>clientWidth` and its `scrollLeft` does move; after scrolling
+it, both visible rows' `getBoundingClientRect().left` shifted by the
+identical delta (200.26px in one manual check); a tap on a row after
+scrolling correctly activated that row's own match; the Text Scene modal
+stayed exactly fullscreen; the page gained no horizontal scroll
+(`scrollWidth===clientWidth`, `window.scrollX===0`); vertical result-list
+browsing and the manuscript editor's own vertical scroll were both
+unaffected. Desktop is untouched: rows still compute `overflow:hidden`/
+`text-overflow:ellipsis`, and `.rte-project-results` has no horizontal
+overflow to scroll at all (`scrollWidth===clientWidth`), since desktop
+rows still clip their own content before it could ever reach the list.
+
+**Files changed:** `css/editor.css` (E3.1.1's phone-only rule replaced,
+not left active alongside a second mechanism);
+`tools/mobile-text-scene-browser.test.mjs` (fixture extended to two
+long-line scenes so the regression can prove rows share one coordinate
+space, not just that one row overflows; assertions rewritten for the new
+contract).
+
+**Test-methodology note** (continuing the E3.1.1 lesson): a bare
+"`scrollLeft` moved" check is not proof of real scrollability — Chromium
+accepts a programmatic `scrollLeft` assignment even on elements that
+aren't real scroll containers in some cases. This stage's regression
+instead asserts the actual governing computed property
+(`overflow-x:visible` for rows, i.e. definitively *not* a scroll
+container) plus the *documented no-op* behavior that follows from it
+(assigning `scrollLeft` to an `overflow:visible` element must leave it at
+0), and separately proves the shared owner's `scrollLeft` both moves AND
+produces the identical rect shift across multiple sibling rows — geometry
+proof, not just a CSS declaration check.
+
+## 23. Explicit confirmation (E3.1.2)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E3.2 was not started. The Find/Replace panel itself was not redesigned,
+no controls were collapsed for landscape, search/replace semantics and
+result-navigation semantics are unchanged, and no multi-line mobile result
+cards were introduced — this stage only changed which element owns
+horizontal overflow for project-search results on phone.
