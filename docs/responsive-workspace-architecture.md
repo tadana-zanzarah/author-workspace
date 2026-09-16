@@ -496,3 +496,29 @@ functional layout, not final visual polish", per the task); a real
 device's own default zoom/density may make the single column read
 differently than the emulated-viewport checks here; Table and Compact
 remain untouched and still desktop-shaped, as intended for this stage.
+
+### E2.1 real-phone microfix — internal horizontal scroll
+
+Real-phone testing (single-tap and single-column geometry both accepted)
+found a bug the above missed: a horizontal swipe could still pan Cards
+content left/right, clipping titles/metadata on the left. Root cause:
+`#board{min-width:max-content}` (`css/timeline.css:21`) is unconditional —
+it exists so Matrix's grid never gets squeezed below its natural column
+widths, but the same rule also floors Cards' board at its content's
+*unwrapped* intrinsic width (long titles/metadata can exceed the phone
+viewport this way even though everything still visually wraps normally).
+`.viewport{overflow-x:auto}` correctly contained that oversized board
+*within itself* — so `document.documentElement.scrollWidth` stayed clean,
+which is exactly why the original E2.1 check (page-level overflow only)
+missed it — but the internal container itself was genuinely scrollable,
+and a real touch swipe could pan it.
+
+Fix: `.board.view-cards{min-width:0}`, scoped inside the same mobile media
+query, touching only the Cards board at phone width. Matrix
+(`.view-table`) and desktop Cards are unaffected — verified live and in
+`tools/mobile-cards-browser.test.mjs`, which now checks `.viewport`'s own
+`scrollWidth`/`clientWidth` and that it cannot be panned to a non-zero
+`scrollLeft`, not just page-level overflow (and confirms Matrix still can
+be panned at the same phone width). Confirmed this new check actually
+catches the bug by re-running it with the fix temporarily reverted before
+restoring it.

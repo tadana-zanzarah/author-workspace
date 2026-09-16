@@ -761,4 +761,19 @@
        (.compact-scene-card) needs no changes — it already fills its own
        grid cell at 100% width/height. */
     .scene-cards-grid{grid-template-columns:minmax(0,1fr)}
+    /* Stage E2.1 real-phone microfix: #board's own min-width:max-content
+       (css/timeline.css) is unconditional — it exists so Matrix's grid
+       never gets squeezed below its natural column widths, but the same
+       rule was quietly also floor-ing Cards' board (its text content's
+       own max-content intrinsic width, e.g. an unwrapped title/chapter
+       heading, can exceed the phone viewport even though every element
+       still visually wraps within it). .viewport{overflow-x:auto} then
+       correctly contained that oversized board WITHIN itself rather than
+       leaking to the page — so document.scrollWidth looked clean — but a
+       real touch swipe could still pan that internal scroll, shifting
+       Cards content left and clipping it. Scoped to the Cards board only
+       (Matrix, via .view-table, is untouched and keeps its real
+       horizontal scroll; desktop Cards is untouched, this rule only
+       applies below the mobile-shell breakpoint). */
+    .board.view-cards{min-width:0}
   }

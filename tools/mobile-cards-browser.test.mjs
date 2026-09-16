@@ -5,8 +5,17 @@ const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-
 const {chromium}=require("playwright");
 const base=process.env.AUTHOR_WORKSPACE_URL||"http://127.0.0.1:8000/";
 const server=spawn(process.execPath,["tools/server.mjs"],{stdio:"ignore"});
+// Scene-a's title/date are deliberately long enough to reproduce the
+// real-phone E2.1 microfix bug: #board's inherited min-width:max-content
+// (css/timeline.css, meant for Matrix) computes from the widest UNWRAPPED
+// intrinsic content anywhere inside it — short seed titles/chips never
+// exceeded the phone viewport under that sizing, which is exactly why the
+// original "no page-level horizontal overflow" check missed the bug (it
+// only failed to reproduce with short content, not because the underlying
+// min-width:max-content wasn't there). This length reliably exceeds a
+// ~360-390px phone viewport's max-content width.
 const project={version:11,characters:[{id:"char-a",name:"Анна"}],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false},{id:"chapter-one",title:"Глава 1",collapsed:false}],locations:[{id:"loc-a",name:"Дом"}],tags:[],future:{},scenes:[
-  {id:"scene-a",title:"Первая сцена",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"loc-a",tags:[],writingStatus:"draft",sceneText:"Текст А",included:true,status:"floating",people:{"char-a":{action:"",relationChanges:{},visibleRelations:[]}}},
+  {id:"scene-a",title:"Первая сцена подлиннее, чтобы точно превысить ширину телефона",date:"2026-01-01",time:"10:00",dateReview:false,chapterId:"chapter-one",locationId:"loc-a",tags:[],writingStatus:"draft",sceneText:"Текст А",included:true,status:"floating",people:{"char-a":{action:"",relationChanges:{},visibleRelations:[]}}},
   {id:"scene-b",title:"Вторая сцена",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"idea",sceneText:"Текст Б",included:true,status:"floating",people:{}}
 ]};
 const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
@@ -33,6 +42,40 @@ try{
     const vw=await page.evaluate(()=>document.documentElement.clientWidth);
     const scrollWidth=await page.evaluate(()=>document.documentElement.scrollWidth);
     if(scrollWidth>vw+1)throw new Error(`Cards introduced page-level horizontal overflow: ${scrollWidth} > ${vw}`);
+
+    // Real-phone E2.1 microfix: page-level scrollWidth alone missed this —
+    // #board inherits min-width:max-content from css/timeline.css (there
+    // for Matrix), which also floored Cards' board wider than the phone
+    // viewport even though .viewport{overflow-x:auto} correctly contained
+    // that oversized board WITHIN itself (so the page never scrolled) —
+    // meaning a real touch swipe could still pan .viewport horizontally,
+    // clipping Cards content left. Check the actual internal scroll
+    // container's geometry, and that it cannot be panned to a non-zero
+    // scrollLeft, not just the page.
+    const cardsViewportOverflow=await page.evaluate(()=>{
+      const viewport=document.querySelector(".viewport.workspace-viewport");
+      return {scrollWidth:viewport.scrollWidth,clientWidth:viewport.clientWidth};
+    });
+    if(cardsViewportOverflow.scrollWidth>cardsViewportOverflow.clientWidth+1)throw new Error(`Cards' internal .viewport is horizontally scrollable: ${JSON.stringify(cardsViewportOverflow)}`);
+    const cardsScrollLeftAfterAttempt=await page.evaluate(()=>{
+      const viewport=document.querySelector(".viewport.workspace-viewport");
+      viewport.scrollLeft=200;
+      return viewport.scrollLeft;
+    });
+    if(cardsScrollLeftAfterAttempt!==0)throw new Error(`Cards' internal .viewport panned horizontally to ${cardsScrollLeftAfterAttempt}px — a real swipe could shift/clip card content`);
+
+    // Matrix intentionally keeps real horizontal scroll (many character
+    // columns can genuinely exceed the viewport) — the fix above is scoped
+    // to .board.view-cards only, so switching to Matrix at the same phone
+    // width must still allow real panning.
+    await page.evaluate(()=>{currentView="table";render()});
+    const matrixCanPan=await page.evaluate(()=>{
+      const viewport=document.querySelector(".viewport.workspace-viewport");
+      viewport.scrollLeft=30;
+      return viewport.scrollLeft;
+    });
+    if(matrixCanPan===0)throw new Error("Matrix's intentional horizontal scroll should still work at phone width");
+    await page.evaluate(()=>{currentView="cards";render()});
 
     // Chapter grouping/order and scene order are untouched — same DOM order
     // the seed data was given.
