@@ -754,4 +754,11 @@
     .search-row .filter-field-tail{display:none}
     .search-row.filters-expanded .filter-dropdown{display:flex}
     .search-row.filters-expanded .filter-field-tail{display:flex}
+    /* Stage E2.1: Cards was still using its desktop auto-fill grid here
+       (repeat(auto-fill,minmax(260px,1fr)) — the real-phone E1.1 review
+       found this fit a partial second column at phone width instead of a
+       true single-column list. Force exactly one track; the card itself
+       (.compact-scene-card) needs no changes — it already fills its own
+       grid cell at 100% width/height. */
+    .scene-cards-grid{grid-template-columns:minmax(0,1fr)}
   }

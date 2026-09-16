@@ -452,3 +452,47 @@ E1.1 made no production CSS/DOM/JS changes — see the E1.1 commit for why
 none was justified. E2, E3, Quick Scene, and fullscreen Text Scene were
 not implemented. Supabase, migrations, `reference/`, and `backup/` were
 not touched. The only repository change in E1.1 is this document.
+
+## 14. Stage E2.1 — Mobile Cards + single-tap scene access
+
+Scope: Cards only, gated at the same 760px mobile-shell breakpoint as E1;
+no new breakpoint. Table/Compact/Text Scene/header IA/Quick Scene
+untouched, per the E1.1 real-phone findings above.
+
+- **Single column**: `.scene-cards-grid`'s desktop `grid-template-columns:
+  repeat(auto-fill,minmax(260px,1fr))` (§7) was, at real phone widths,
+  fitting a partially-visible second column instead of one true column —
+  exactly the E1.1-confirmed defect. Fixed with one override inside the
+  existing mobile media query: `grid-template-columns:minmax(0,1fr)`. The
+  card itself (`.compact-scene-card`) needed no changes — it already
+  filled its own grid cell at 100% width/height, so a wider single cell is
+  enough; no new metadata model, no restructured card markup.
+- **Single-tap to Text Scene**: the card's own `onclick` (previously
+  `selectScene(id)` directly) now routes through a new
+  `handleCardPrimaryTap(id)` (`js/scenes.js`) that branches on the same
+  760px `matchMedia` query used for the CSS: below it, calls the existing
+  `openSceneText(id)`; at/above it, calls `selectScene(id)` exactly as
+  before. No second editor-opening implementation, no new permanent
+  "Открыть текст" button — the card surface itself stays the tap target,
+  per the product requirement. `ondblclick="editScene(id)"` (full Scene
+  Editor) is unchanged on both tiers.
+- **Nested-control protection**: every interactive element already inside
+  a card — location/character/tag chips, the two reorder buttons, the
+  title's own quick-rename `ondblclick` — already called
+  `event.stopPropagation()` in its own handler before E2.1. That existing
+  protection is what makes routing the card's primary tap through
+  `openSceneText` safe with zero additional event-handling code: a tap
+  that starts on any of those controls never reaches the card's own
+  `onclick` at all, regardless of what that handler does. Confirmed live
+  (and in `tools/mobile-cards-browser.test.mjs`) rather than assumed.
+- **Desktop unchanged**: verified live — at desktop width
+  `.scene-cards-grid` keeps its multi-column auto-fill grid, a single
+  click still only selects (`.selected-scene` class, no modal), and
+  double-click still opens the full Scene Editor.
+
+Deferred to real-phone review (expected, not a completeness gap for this
+stage): exact card padding/typography/touch-target sizing ("early
+functional layout, not final visual polish", per the task); a real
+device's own default zoom/density may make the single column read
+differently than the emulated-viewport checks here; Table and Compact
+remain untouched and still desktop-shaped, as intended for this stage.

@@ -62,6 +62,28 @@ function selectScene(sceneId){
   document.querySelectorAll("[data-scene-id]").forEach(el=>el.classList.toggle("selected-scene",el.dataset.sceneId===sceneId));
 }
 
+// Stage E2.1: mobile Cards single-tap access. Mirrors the mobile-shell
+// breakpoint already introduced in css/layout.css (Stage E1) rather than
+// adding a new one. Guarded so a non-browser context (matchMedia absent)
+// safely falls back to desktop behavior instead of throwing.
+function isMobileShellViewport(){
+  return typeof matchMedia==="function"&&matchMedia("(max-width:760px)").matches;
+}
+
+// Cards' own onclick (renderCompactCard, js/render.js) routes through here
+// instead of calling selectScene directly: below the mobile-shell breakpoint
+// a tap on the card's primary surface reaches Text Scene in one step (the
+// same "minimum taps" goal as the Stage E1 Navigation drawer), while desktop
+// keeps its existing click=select/dblclick=edit behavior unchanged. Nested
+// controls inside the card (location/character/tag chips, reorder buttons,
+// the title's own dblclick-to-rename) already call event.stopPropagation()
+// in their own onclick, so this never receives a click that originated on
+// them — no new event-handling needed to protect them.
+function handleCardPrimaryTap(sceneId){
+  if(isMobileShellViewport())openSceneText(sceneId);
+  else selectScene(sceneId);
+}
+
 // Quiet-by-default N+1 insertion control: a thin divider that expands into a
 // clickable "+" on hover/focus, and swaps to a "move here" affordance while a
 // scene drag is in progress (see body.scene-drag-active in css/timeline.css).
@@ -670,5 +692,5 @@ async function deleteScene(sceneId){
   render();
 }
 
-Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
-export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};
+Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,isMobileShellViewport,handleCardPrimaryTap,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
+export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,isMobileShellViewport,handleCardPrimaryTap,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};

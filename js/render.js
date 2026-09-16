@@ -468,7 +468,7 @@ function renderCompactCard(scene,index){
   return `<article class="compact-scene-card ${scene.status} ${selectedSceneIndex===index?"selected-scene":""}" data-scene-id="${esc(scene.id)}"
     draggable="${disabled?"false":"true"}" title="${disabled?"Чтобы менять порядок сцен, сбросьте фильтры.":""}"
     ondragstart="cardDragStart(event,'${jsq(scene.id)}')" ondragend="cardDragEnd()"
-    onclick="selectScene('${jsq(scene.id)}')" ondblclick="editScene('${jsq(scene.id)}')">
+    onclick="handleCardPrimaryTap('${jsq(scene.id)}')" ondblclick="editScene('${jsq(scene.id)}')">
     <span class="visually-hidden">${esc(placementLabel)}</span>
     <div class="compact-card-title quick-editable" ondblclick="event.stopPropagation();quickEditTitle('${jsq(scene.id)}',this)">${esc(sceneTitle)}</div>
     <div class="scene-meta">
