@@ -1,10 +1,12 @@
 # Responsive workspace & mobile personalization — architecture
 
-Status: **Stage E0** (verification audit only — no responsive implementation).
-Confirms/corrects a prior external static audit against the actual repository
-and runtime, at baseline commit `f007fc7` (branch `master`). This document
-records findings to seed E1+; it does not itself define final CSS/DOM
-contracts.
+Status: **Stage E1.1** (E0 audit → E1 mobile shell prototype implemented and
+committed → E1.1 real-phone review pass, docs-only). Baseline `f007fc7`
+(branch `master`). §§1–9 are the original E0 audit; §10 records what E1
+actually built; §11 records the real-phone review (accepted behavior,
+confirmed-but-deferred limitations, and the explicit E3 product
+requirement it surfaced); §12 is the refined E2/E3 sub-staging to preserve
+until those stages start.
 
 ## Product goal (context)
 
@@ -260,9 +262,193 @@ No changes to stage boundaries are needed beyond calling out the E3
 keyboard-viewport spike and the Scene-Editor-vs-Text-Scene sequencing
 above.
 
-## 9. Explicit confirmation
+## 9. Explicit confirmation (E0)
 
 No responsive production implementation was made in E0. All findings above
 were gathered via read-only source inspection and live-browser inspection
 against `?local=1` (no Supabase project touched, no production data
-affected). The only repository change in this stage is this document.
+affected). The only repository change in E0 is this document.
+
+## 10. Stage E1 — what was actually implemented
+
+Branch `feature/responsive-workspace-shell`, commit `4c0decb`. Scope: the
+first functional mobile shell, gated at the existing 760px breakpoint
+(reused rather than adding a new one), desktop (>760px) untouched:
+
+- Desktop sidebar hidden below 760px; replaced by a fixed "☰ Навигация"
+  trigger opening `#mobileNavModal` — a plain centered modal (same
+  contract as every other simple modal, no new scroll/backdrop model)
+  listing chapters with their scenes nested underneath. Tapping a chapter
+  calls the existing `navigateToChapter`; tapping a scene calls the
+  existing `openSceneText` directly (one tap to text, no intermediate
+  "find it in the scene list" step).
+- `.main-workspace`'s five direct children reprioritized via CSS
+  `order` (not a DOM move): search/view-switch, then scenes, then
+  banner/dashboard/stats.
+- Advanced filter dropdowns collapse behind a "Фильтры (N)" toggle;
+  `#activeFilterChips`/`#filterSummary` stay visible regardless, so an
+  active filter is never silently hidden.
+- Header wraps instead of clipping (`header{overflow:hidden}` kept —
+  it only clips escaping absolutely-positioned content, not normal
+  wrapped flow; `.header-actions{flex:none}` alone doesn't let
+  `flex-wrap` take effect for a single overflowing item, fixed with
+  `flex-basis:100%` so it gets its own full wrapped line).
+- `setupOverflowSafeMenu`'s panel repositioning (`js/app.js`) hardened
+  with an on-screen clamp, needed once the wrapped header could put the
+  "Меню" trigger near the left edge instead of always near the right.
+- "+ Новая сцена" unchanged (still opens the full Scene Editor);
+  Characters/Locations reachable via the existing header "Меню", not a
+  new menu.
+
+Two real regressions were found and fixed during E1 itself via live-browser
+testing (not assumption): `header{overflow:visible}` broke horizontal
+containment (reverted), and `.header-actions{flex:none}` silently defeated
+the wrap fix (fixed with `flex-basis:100%`). Both are in the E1 commit
+message.
+
+## 11. Stage E1.1 — real-phone review (Android, real cloud project data)
+
+E1 was manually tested on a real Android phone against real cloud project
+data over the local network — not `?local=1`/emulated-viewport, the first
+real-device pass. No production code changes resulted from this review;
+see the E1.1 commit for the reasoning.
+
+### Accepted — do not redesign
+
+- **Mobile Navigation** (§10): tested against a chapter with 28 scenes —
+  the trigger was easy to reach, the drawer read clearly, the scene list
+  scrolled, and a scene was reachable quickly with the tap-to-text
+  behavior working as designed. The drawer/modal-based approach is
+  validated; visual sheet/fullscreen polish is a later, optional
+  refinement, not a rebuild.
+- **Filter progressive disclosure**: compact when collapsed, usable at
+  phone width when expanded, active-filter state stayed understandable.
+- **Header wrap**: actions wrap instead of silently disappearing, as
+  designed — the real device did not surface a case E1's own testing
+  missed.
+- **No page-level horizontal overflow** from the E1 shell itself.
+
+### Confirmed limitations — deferred, not E1 defects
+
+These are real, but describe surfaces E1 never touched (Table/Cards/
+Compact/Text Scene/deeper header IA/onboarding) — none is a regression in
+what E1 actually shipped (the shell/navigation/filter/header-wrap
+mechanics), so none justifies an E1 production change:
+
+- **Table view**: still desktop-width; columns extend past the useful
+  viewport. → E2 (view-specific responsive work), not E1.1.
+- **Cards view**: still reads as a desktop multi-column surface at phone
+  width (~1.something cards visible per row) and still has no single-tap
+  "open Text Scene" action (double-tap only — see §3). Not blocking today
+  because Navigation already provides a single-tap path to any scene's
+  text; Cards' own tap gap is real but not an E1-completeness problem.
+  → E2.1.
+- **Compact view**: still table-like — date column wide, title truncated,
+  controls own their own column. → deferred past the responsive
+  foundation stages, unchanged from the E0 classification.
+- **Text Scene**: functions well enough on a real device (including the
+  Android on-screen keyboard) to validate the Navigation flow end-to-end,
+  but its geometry is still desktop-modal-derived — doesn't fill the
+  available mobile viewport, toolbar still wraps into multiple
+  desktop-proportioned rows, and keyboard/viewport behavior needs
+  dedicated work. → E3.1; see the explicit product requirement below.
+- **Header information density**: "+ Новая сцена / Весь текст / Выгрузить
+  текст / Экспорт / Меню / account" wrapping to multiple visible rows
+  costs real vertical space on the first screen. E1's job was "reachable,
+  not silently clipped" — it did that; it was never asked to also
+  reprioritize which actions get first-screen real estate. A later pass
+  should move secondary operations (export/download) out of premium
+  first-screen space. → deferred, not an E1.1 fix (would be header-IA
+  redesign, explicitly out of scope for this follow-up).
+- **Empty-project onboarding**: the empty-state block duplicates
+  scene-creation affordances and consumes significant mobile space on a
+  fresh project. → deferred.
+
+### Explicit E3 product requirement — Text Scene must become fullscreen on phone
+
+Confirmed and elevated during this review as a firm requirement for E3.1,
+not just an observation, recorded here so it survives until that stage:
+
+> On phones, Text Scene must become a **true fullscreen writing surface**.
+> It must not look like a large centered desktop modal. When open on
+> phone: no underlying workspace pixels intentionally visible at the top,
+> bottom, or left/right edges; the surface occupies the available mobile
+> viewport; writing space is treated as expensive and maximized; when the
+> on-screen keyboard appears, the remaining usable viewport is used
+> efficiently. Desktop Text Scene does **not** need to become fullscreen
+> because of this requirement — phone-only.
+
+This sits on top of, and does not contradict, the E0 §5 finding that
+`#textModal` (`height:92vh;overflow:hidden`) is already the closer of the
+two editor surfaces to mobile-ready and that none of its `vh`-based sizing
+is currently keyboard-aware (`dvh`/visual-viewport API still unverified
+against a real keyboard at the time of E0). E3.1 implementation must
+satisfy both: fullscreen geometry, and correct behavior under a real
+on-screen keyboard.
+
+### CSS visual-order vs DOM/tab-order — conclusion
+
+E1's mobile reorder of `.main-workspace`'s children (`#storageBanner`,
+`#projectDashboard`, `#statsStrip`, pushed visually below the
+toolbar/board via flex `order`, §10) was flagged in the E1 report as a
+known tradeoff: DOM order stays banner → dashboard → stats → toolbar →
+viewport, so a keyboard/screen-reader user's linear order differs from
+the sighted visual order.
+
+Re-examined here against the actual markup (`js/render.js`
+`renderDashboard`/`renderStats`, and every writer of `#storageBanner` —
+`js/storage.js`, `js/cloud-app.js`): **none of the three reordered
+regions contains a single focusable element.** `#statsStrip` is
+`<span class="stat-pill">` text pills; `#projectDashboard` is
+`<span>`/`<div>`/`<strong>` pipeline stages and a progress bar;
+`#storageBanner` only ever receives `.textContent` (never markup with
+controls). Tab-key navigation only stops on focusable elements, so this
+reorder has **zero effect on keyboard tab order** — there is nothing in
+these regions to tab to out of sequence.
+
+What remains is a narrower, non-blocking concern: a screen reader
+browsing linearly (not tabbing) would still encounter the banner/
+dashboard/stats text before the search box and scene list, opposite the
+sighted visual order — a WCAG 1.3.2 "meaningful sequence" nicety, not a
+functional or correctness defect (nothing is mislabeled, hidden from, or
+inaccessible to assistive tech, just sequenced differently). **Conclusion:
+not a blocking E1 accessibility/correctness problem — no fix in E1.1.**
+Track it for a later responsive/accessibility cleanup pass, where the
+options are (a) leave it, given the practical impact is low, or (b) move
+the three containers' static markup later in `index.html` once their
+final mobile treatment (§ "Confirmed limitations" above — onboarding/
+header IA work) is settled, rather than patching DOM order twice.
+
+## 12. Refined E2/E3 sub-staging (preserve — do not implement yet)
+
+Refines §8's E2/E3 boxes into the sequencing agreed after the E1.1 review;
+stage boundaries elsewhere in §8 are unchanged.
+
+- **E2.1 — Mobile Cards + scene access**: true single-column phone Cards
+  using phone width efficiently; scene title stays primary, secondary
+  metadata becomes compact; a clear single-tap action opens Text Scene
+  (reusing Table's existing `openSceneText`/`row-action-icon` pattern,
+  §3). Do not attempt Table or Compact in the same pass.
+- **E2.2 — Quick Scene**: a second, fast-capture creation path, distinct
+  from and additional to the existing "+ Новая сцена" (which must keep
+  opening the full Scene Editor unchanged). Enters text immediately, no
+  upfront metadata form; on Save, derives a default title from the first
+  non-empty line, shown prefilled and immediately editable (accept as-is
+  or type over it without first clearing a placeholder); saves into the
+  existing unplaced/"Без главы" semantics with an appropriate default
+  status. §4 already confirms the reusable pieces: `openNewSceneAtNow`
+  vs. create-on-save are already decoupled, and `chapter-unassigned` is
+  already the correct landing bucket.
+- **E3.1 — Mobile Text Scene**: the fullscreen requirement above, real
+  on-screen-keyboard/viewport behavior, maximized writing area, mobile
+  toolbar treatment, phone-appropriate Save/Close.
+- **E3.2 — Full Scene Editor mobile adaptation**: follows E3.1; harder,
+  per §5's nested-scroll finding (double-nested vs. Text Scene's single
+  fixed-height model).
+
+## 13. Explicit confirmation (E1.1)
+
+E1.1 made no production CSS/DOM/JS changes — see the E1.1 commit for why
+none was justified. E2, E3, Quick Scene, and fullscreen Text Scene were
+not implemented. Supabase, migrations, `reference/`, and `backup/` were
+not touched. The only repository change in E1.1 is this document.
