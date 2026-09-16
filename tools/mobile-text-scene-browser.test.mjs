@@ -10,9 +10,17 @@ const server=spawn(process.execPath,["tools/server.mjs"],{stdio:"ignore"});
 // a phone viewport's visible height -- see the scroll-ownership check below.
 const longText=Array.from({length:120},(_,i)=>`Абзац номер ${i+1}. `+"Текст сцены для проверки длинной прокрутки на телефоне. ".repeat(5)).join("\n\n");
 
+// Stage E3.1.1: one long, unbroken (no line breaks) sentence containing a
+// unique keyword -- a project-search result snippet built from this is
+// reliably wider than a phone viewport, reproducing the real-phone
+// unreachable-overflow defect in the result row.
+const longLineKeyword="ГОРИЗОНТМАРКЕР";
+const longLine=`Это очень длинное предложение с ключевым словом ${longLineKeyword} которое должно выходить далеко за пределы ширины экрана телефона и не помещаться в одну строку результата поиска совсем никак.`;
+
 const project={version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false},{id:"chapter-one",title:"Глава 1",collapsed:false}],locations:[],tags:[],future:{},scenes:[
   {id:"scene-a",title:"Короткая сцена",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:"Текст А",included:true,status:"floating",people:{}},
-  {id:"scene-b",title:"Длинная сцена",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:longText,included:true,status:"floating",people:{}}
+  {id:"scene-b",title:"Длинная сцена",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:longText,included:true,status:"floating",people:{}},
+  {id:"scene-c",title:"Сцена с длинной строкой",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:longLine,included:true,status:"floating",people:{}}
 ]};
 
 const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
@@ -125,6 +133,52 @@ try{
       return el===null||el.closest("#textModal")===null;
     });
     if(!pointRestored)throw new Error("Closing Text Scene must restore normal workspace interaction");
+
+    // Stage E3.1.1 real-phone microfix: a project-search result snippet
+    // wider than the phone viewport must be horizontally reachable via the
+    // result ROW's own scroll (the narrowest correct scroll owner -- see
+    // css/editor.css's comment on `.rte-project-result-row`), while the
+    // outer Text Scene surface, the page, and the manuscript editor must
+    // NOT gain horizontal scroll as a side effect.
+    await page.evaluate(()=>openSceneText("scene-c"));
+    await page.waitForFunction(()=>document.getElementById("textModal").style.display==="flex");
+    await page.tap("#fullSceneTextToolbar .rte-btn-find");
+    await page.tap('#fullSceneTextFindReplace .rte-scope-btn:not(.active)');
+    await page.locator("#fullSceneTextFindReplace .rte-find-input").fill("ГОРИЗОНТМАРКЕР");
+    await page.waitForSelector(".rte-project-result-row");
+
+    const rowOverflow=await page.$eval(".rte-project-result-row",el=>({scrollWidth:el.scrollWidth,clientWidth:el.clientWidth}));
+    if(rowOverflow.scrollWidth<=rowOverflow.clientWidth)throw new Error(`Project result row fixture did not actually overflow horizontally -- test fixture too short: ${JSON.stringify(rowOverflow)}`);
+    // The computed overflow-x value is what actually governs whether a real
+    // touch drag can scroll this element -- `overflow:hidden` still accepts
+    // a PROGRAMMATIC scrollLeft assignment in Chromium (scrollIntoView-style
+    // scrolling works even on hidden-overflow elements), so checking that
+    // scrollLeft merely "moves" is not sufficient to prove real swipe access;
+    // it passed even against the unfixed CSS. overflow-x must genuinely be
+    // auto/scroll, not hidden, for a touch drag to reach the rest of the text.
+    const rowOverflowX=await page.$eval(".rte-project-result-row",el=>getComputedStyle(el).overflowX);
+    if(rowOverflowX==="hidden")throw new Error(`Project result row must be touch-scrollable (overflow-x auto/scroll), not clipped: overflow-x=${rowOverflowX}`);
+    const rowScrollProbe=await page.$eval(".rte-project-result-row",el=>{el.scrollLeft=200;return el.scrollLeft});
+    if(rowScrollProbe<=0)throw new Error("Project result row did not scroll horizontally when scrollLeft was set");
+
+    // Contained: the results LIST (the row's own scroll-parent), the Text
+    // Scene outer surface, and the page must not have moved/gained scroll.
+    const resultsListScrollLeft=await page.$eval(".rte-project-results",el=>{const before=el.scrollLeft;el.scrollLeft=999;const after=el.scrollLeft;el.scrollLeft=before;return after});
+    if(resultsListScrollLeft!==0)throw new Error(`The results list itself must not scroll horizontally, only individual rows: scrollLeft=${resultsListScrollLeft}`);
+    const outerModalRect=await page.$eval("#textModal .modal",el=>el.getBoundingClientRect().toJSON());
+    if(Math.abs(viewportSize.width-outerModalRect.right)>geometryTolerance||Math.abs(outerModalRect.left-0)>geometryTolerance)throw new Error(`Text Scene's outer surface must not gain horizontal scroll/offset from the result row: ${JSON.stringify(outerModalRect)}`);
+    const pageOverflowAfterResultScroll={scrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),clientWidth:await page.evaluate(()=>document.documentElement.clientWidth),windowScrollX:await page.evaluate(()=>window.scrollX)};
+    if(pageOverflowAfterResultScroll.scrollWidth>pageOverflowAfterResultScroll.clientWidth+geometryTolerance)throw new Error(`Result-row scroll leaked into page-level horizontal overflow: ${JSON.stringify(pageOverflowAfterResultScroll)}`);
+    if(pageOverflowAfterResultScroll.windowScrollX!==0)throw new Error(`Result-row scroll must not move the page itself: windowScrollX=${pageOverflowAfterResultScroll.windowScrollX}`);
+
+    // Normal vertical scroll of the editor itself is unaffected by this
+    // fix (different element, orthogonal axis).
+    const editorScrollProbe=await page.$eval("#fullSceneTextEditor",el=>{const before=el.scrollTop;el.scrollTop=el.scrollHeight;const after=el.scrollTop;el.scrollTop=before;return {before,after}});
+    if(editorScrollProbe.after<0)throw new Error("Editor vertical scroll should be unaffected by the result-row horizontal scroll fix");
+
+    await page.tap("#fullSceneTextFindReplace .rte-find-close");
+    await page.tap("#closeText");
+    await page.waitForFunction(()=>document.getElementById("textModal").style.display==="none");
 
     // Normal open path #2: Stage E1's Navigation drawer scene tap, opening a
     // genuinely long scene -- checks internal manuscript scroll ownership.

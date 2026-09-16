@@ -755,3 +755,86 @@ No Supabase changes, no migrations, `reference/` and `backup/` untouched.
 E3.2 (full Scene Editor mobile adaptation) was not started — `#sceneModal`
 was not touched. Cards/Table/Compact and the mobile header were not
 redesigned. No new metadata fields were added.
+
+## 20. Real-phone E3.1 acceptance + Stage E3.1.1 result-row horizontal-scroll microfix
+
+Real Android phone review **accepted** Stage E3.1 in full: Cards tap and
+Navigation tap both reach Text Scene, true fullscreen holds, the Android
+keyboard opens automatically, portrait writing/editing/long-text scrolling
+all work, save/footer stay usable, the Scene Editor handoff works, and
+Find/Replace opens and functions. Landscape Text Scene itself does not
+catastrophically break (see the deferred item below for the one real
+landscape usability issue found). The general E3.1 fullscreen architecture
+was not reopened.
+
+One concrete defect was found: in project/global Find/Replace result mode,
+a result snippet wider than the phone viewport was genuinely unreachable —
+not just visually truncated, but **inaccessible**. Root cause:
+`.rte-project-result-row{overflow:hidden;text-overflow:ellipsis}`
+(css/editor.css) clips each result row's own snippet to its box exactly as
+intended on desktop, but `overflow:hidden` also blocks any user-initiated
+scroll of the clipped content — there was no way to swipe to the rest of
+the snippet, on any viewport width. `.rte-project-results` (the row's own
+scroll-parent, the vertically-scrolling list of rows) was never the actual
+overflow boundary — each row already clips its own content to its own box
+before the overflow could ever reach the list — so making the *list*
+scroll further would not have fixed anything; the row itself is the
+narrowest correct scroll owner.
+
+Fixed with a phone-only (`@media(max-width:760px)`) override: each
+`.rte-project-result-row` gets `overflow-x:auto` (replacing `hidden`) and
+`text-overflow:clip` (`ellipsis` requires `overflow:hidden` to render at
+all, so it's incompatible with genuine scroll and was dropped on phone
+only), plus `overscroll-behavior-x:contain` as a defensive measure against
+scroll-chaining. `white-space:nowrap` (already present) is what keeps each
+snippet on one line rather than wrapping. The list's own vertical scroll
+and each row's horizontal scroll are independent axes on different
+elements, so this does not create the kind of same-axis scroll conflict
+Stage E2.1's Cards/`.board` microfix had to fix. Desktop is completely
+unaffected (`overflow-x:hidden`/`ellipsis` unchanged, verified at
+1280×800).
+
+Verified in-browser: a seeded scene with a long single-line sentence
+containing a unique keyword produces a project-search result row with
+`scrollWidth` (727px) genuinely exceeding `clientWidth` (338px);
+`scrollLeft` moves and reveals previously-clipped text; the results list,
+the Text Scene modal's own fullscreen geometry, and
+`document.documentElement`'s width are all unaffected. The automated
+regression (below) initially only checked that `scrollLeft` could be set
+and moved — that check passed even against the **unfixed** CSS, because
+Chromium accepts a programmatic `scrollLeft` assignment on an
+`overflow:hidden` element (the same mechanism that makes
+`scrollIntoView()` work on hidden-overflow containers) even though a real
+touch drag could never reach it. The regression was corrected to assert
+the actual computed `overflow-x` value instead (must not be `hidden`),
+confirmed to fail against the unfixed CSS and pass with the fix — the same
+"prove it reproduces the real defect" discipline this stage has followed
+since the E2.2.1 Quick Scene investigation.
+
+**Files changed:** `css/editor.css` (the fix);
+`tools/mobile-text-scene-browser.test.mjs` (new project-search scene
+fixture + horizontal-scroll assertions, inserted into the existing phone
+regression rather than a new file, since it exercises the same Text Scene
+Find/Replace surface already under test there).
+
+### Deferred to E6 — compact mobile Find/Replace / landscape
+
+Real-phone landscape review found that with the Android keyboard, browser
+chrome, and an *expanded* project Find/Replace panel all present
+simultaneously, very little manuscript height remains — Text Scene itself
+does not break, but the writing area becomes impractically short. This
+microfix intentionally does **not** address it (no Find/Replace redesign,
+no hidden controls, no keyboard hacks, no landscape redesign). Recorded as
+a deferred E6 mobile UX item: Find/Replace should eventually support a
+compact/collapsed mobile state so an expanded project-results list doesn't
+consume most of the usable landscape writing viewport. A likely direction
+is a compact active-search strip (e.g. current-match count + previous/next
++ an explicit expand-results affordance) — the exact design is
+intentionally **not** decided here.
+
+## 21. Explicit confirmation (E3.1.1)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E3.2 was not started. Find/Replace itself was not redesigned — only
+`.rte-project-result-row`'s overflow behavior changed, phone-only. Matrix's
+own horizontal-scroll behavior (Stage E2.1) was not touched or altered.

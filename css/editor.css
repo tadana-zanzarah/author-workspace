@@ -265,6 +265,32 @@
 .rte-project-result-row.active{border-color:var(--brand);background:var(--brand-tint)}
 .rte-project-result-match{background:#e9c56d;color:inherit;border-radius:2px;font-style:normal}
 
+/* Stage E3.1.1 real-phone microfix: a project-search result snippet
+   (before/match/after, all `white-space:nowrap` so a match never wraps
+   mid-word) can be wider than the phone viewport. On desktop this is
+   harmless -- `.rte-project-result-row{overflow:hidden;text-overflow:
+   ellipsis}` above just truncates it. On phone the real-device review found
+   the truncated continuation genuinely unreachable: `overflow:hidden` clips
+   AND blocks scrolling in the same declaration, so there was no way to
+   swipe to the rest of the snippet.
+   The row itself (not `.rte-project-results`, its scroll-parent) is the
+   correct, narrowest scroll owner: overflow already happens INSIDE each
+   row's own box (each is `width:100%` with `overflow:hidden`), never
+   reaching `.rte-project-results` itself, so making the LIST scrollable
+   instead would have fixed nothing. `text-overflow:ellipsis` requires
+   `overflow:hidden` to render at all, so it must be dropped here in favor
+   of genuine horizontal scroll -- `.rte-project-results`' own vertical
+   scroll (list of rows) and each row's horizontal scroll (one snippet) are
+   independent axes on different elements, so neither competes with the
+   other the way Stage E2.1's Cards/`.board` horizontal-pan bug did. Phone-
+   only: desktop keeps its existing ellipsis-truncation behavior unchanged. */
+@media(max-width:760px){
+  .rte-project-result-row{
+    overflow-x:auto;text-overflow:clip;
+    overscroll-behavior-x:contain;
+  }
+}
+
 /* Match highlighting: ProseMirror inline decorations only, never raw DOM text
    wrapping inside the editable content -- see find-replace-decorations.js.
    A dedicated tint (not the shared --warning-tint token, which is already
