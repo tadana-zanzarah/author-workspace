@@ -924,8 +924,14 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="textModal" role="dialog" aria-modal="true" aria-labelledby="textModalTitle">
-  <div class="modal" style="width:min(1100px,100%)">
+<!-- Stage E3.1: `.mobile-fullscreen-modal` (css/editor.css) is the same
+     reusable phone-fullscreen shell Quick Scene already uses -- see that
+     file's own comment for why this must be applied via the class here
+     rather than a second fullscreen implementation. Desktop width moved
+     into css/editor.css (`#textModal .modal`) so the shell's own !important
+     phone overrides have only one thing to beat, not an inline style too. -->
+<div class="modal-backdrop mobile-fullscreen-modal" id="textModal" role="dialog" aria-modal="true" aria-labelledby="textModalTitle">
+  <div class="modal">
     <h2 id="textModalTitle">Текст сцены</h2>
     <div id="fullSceneTextToolbar"></div>
     <div id="fullSceneTextFindReplace"></div>

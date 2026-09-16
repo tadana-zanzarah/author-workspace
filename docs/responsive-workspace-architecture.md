@@ -618,3 +618,140 @@ database entity, no schema change, no migration. E3.1 (fullscreen Text
 Scene adaptation, mobile toolbar/keyboard), Table/Compact/Characters/
 Locations/header-IA redesign were not implemented. Supabase itself,
 migrations, `reference/`, and `backup/` were not touched.
+
+## 17. Quick Scene real-phone fullscreen microfix (post-E2.2)
+
+Real-device review of E2.2 found two issues, fixed as small, scoped
+corrections rather than reopening E2.2 itself:
+
+- **Open-path blocker** (unreproduced): a real Android tap showed the
+  button's pressed state but no modal ever opened. Extensive investigation
+  (desktop click, phone-width click, genuine touch+Android UA, simulated
+  cloud mode with a large project, actual cloud-mode header DOM state) could
+  not reproduce it through any faithful local/mobile/touch/simulated-cloud
+  path. The one concrete, provable gap found: the `openQuickScene` ->
+  `requestEditorTransition` -> `mountSceneEditor` chain had no error
+  handling at all — any exception anywhere in it would previously fail
+  completely silently (the tap shows its normal pressed CSS state and
+  nothing else ever happens), exactly matching the symptom. Fixed with a
+  `.catch()` that logs and shows a user-facing message — a diagnostic safety
+  net, explicitly **not** a proven root-cause fix.
+- **Fullscreen geometry defect**: on phone, a strip of the underlying
+  workspace stayed visible below the "fullscreen" surface. Root cause was a
+  CSS specificity clash, not a missing rule — this is the important, general
+  finding for E3.1 below.
+
+### The specificity finding (load-bearing for E3.1)
+
+`.mobile-fullscreen-modal .modal{height:100dvh...}` (two classes,
+specificity `0,2,0`) was silently losing to the per-modal shell's own ID
+rule, e.g. `#quickSceneModal .modal{height:min(80vh,640px)}` (ID + class,
+specificity `1,1,0`) — an ID selector always outranks any number of
+classes, regardless of source order, so the "fullscreen" override was
+present in the stylesheet and still never won. Fixed by marking the
+primitive's four sizing properties (`width`, `max-width`, `margin`,
+`border-radius`, `height`, `max-height`) `!important`, scoped to the
+`@media(max-width:760px)` block for exactly this one class — the
+primitive's whole contract is "no matter what a consuming modal declares
+for its own desktop sizing, phone gets true fullscreen," which is exactly
+what `!important` is for here. Confirmed in-browser: rendered geometry
+exactly matches the viewport, no border-radius, no margin; desktop
+unaffected. **This is why E3.1 below verifies actual rendered geometry via
+`getBoundingClientRect()`, not the presence of a fullscreen rule** — a
+declared rule losing the cascade is invisible to anything that only checks
+for the rule's existence.
+
+## 18. Stage E3.1 — Mobile Text Scene fullscreen writing experience
+
+Adapted the existing `#textModal` (Text Scene) into a true phone-fullscreen
+writing surface, reusing the exact same `.mobile-fullscreen-modal`
+primitive Quick Scene already uses (css/editor.css) — no second fullscreen
+implementation, no new editor, no new modal.
+
+### What changed
+
+- `index.html`: `#textModal` gained the `mobile-fullscreen-modal` class
+  (same as `#quickSceneModal`). Its old inline `style="width:min(1100px,
+  100%)"` was removed and folded into `#textModal .modal`'s own CSS rule
+  instead, so the primitive's phone-only `!important` overrides only have
+  one thing to beat (the ID rule), not an inline style too — keeping the
+  same mechanism §17 already established, not a second one.
+- `css/editor.css`: `#textModal .modal` gained an explicit `width` (moved
+  from the inline style above); the `.mobile-fullscreen-modal` primitive's
+  own comment was updated to note both Quick Scene and Text Scene now share
+  it.
+- `tools/mobile-text-scene-browser.test.mjs` (new): genuine-touch mobile
+  regression, modeled directly on `tools/quick-scene-browser.test.mjs`'s
+  own E2.2.1 lesson (`isMobile:true, hasTouch:true`, Android UA,
+  `page.tap()`).
+
+No JS changes were required. `openSceneText`/`openSceneTextNow`
+(js/scenes.js), the modal-manager `showModal(..., {initialFocus:...})`
+call, and the dirty-state guard were already correct and already shared
+with Quick Scene — the defect (and the fix) were entirely in CSS/markup.
+
+### Mobile scroll ownership
+
+Already correct before this stage and unchanged: `#textModal .modal` is a
+fixed-height flex column (`display:flex;flex-direction:column`, height now
+resolved via the fullscreen primitive instead of the old plain `92vh`);
+`.rte-toolbar`/footer are `flex:none` (consume only their required height);
+`.rte-editor` is `flex:1 1 auto;min-height:0;overflow-y:auto` — the single
+scrolling region. This is the *opposite* of `#sceneModal .rte-editor`'s own
+fixed `height:320px` (T2's legacy pattern for the modal that scrolls as a
+whole) — Text Scene was already built around "the manuscript is the
+primary scroll," which is exactly what the phone contract in this stage's
+brief asked for. Verified in-browser with a 120-paragraph scene: the editor
+scrolls internally from 0 to its full `scrollHeight`, `window.scrollY`
+stays `0` throughout, and `document.documentElement.scrollWidth` never
+exceeds the viewport width.
+
+### Keyboard / viewport — what's proven and what isn't
+
+Text Scene's `showModal("textModal",{initialFocus:sceneTextEditor.view.dom})`
+call is the identical modal-manager initial-focus mechanism Quick Scene
+already uses, which the latest real-phone review (immediately preceding
+this stage) confirmed now reliably opens the Android on-screen keyboard.
+No focus-lifecycle change was made or needed for Text Scene — same
+mechanism, same expected behavior. This is an inference from a shared code
+path, not something this stage's automated tests can verify: **Playwright
+cannot drive a real Android on-screen keyboard or its visual-viewport
+resize**, so no automated test here asserts keyboard-open behavior or
+proves the manuscript remains usable *while the keyboard covers part of the
+screen*. What the automated regression does prove is the geometry Playwright
+can control: fullscreen `getBoundingClientRect()` against the page
+viewport, genuine DOM focus after a real touch-tap open path, and internal
+(not page-level) scroll for a long manuscript. Real-phone review is the
+only way to confirm keyboard-open behavior and on-screen-keyboard-visible
+layout — this is an explicit, named limitation, not an oversight.
+
+### Functionality preserved
+
+Verified live (in-browser) and via the new regression: rich-text editing,
+formatting toolbar (bold/italic/strike/alignment/undo/redo/scene-break),
+POV/text insertion control, Find/Replace entry (`a→z` opens the panel
+inline, still reachable inside the fullscreen shell), "Редактор сцены"
+handoff (round-trip, carries the live unsaved doc both directions), Save,
+Save-and-close, Close/discard guard (existing dirty-state semantics,
+unchanged), and landscape phone sanity (667×375: fullscreen, no clipping,
+toolbar fits one row, footer reachable, no horizontal overflow). No
+controls were removed, hidden, or redesigned — the existing `.rte-toolbar`
+`flex-wrap` already handles narrower widths (same mechanism Quick Scene's
+own toolbar already relies on).
+
+### Deferred (not this stage)
+
+Full Scene Editor mobile adaptation (`#sceneModal`) — confirmed still an
+ordinary non-fullscreen modal on phone during this stage's testing, exactly
+as intended; per §7/§12's own nested-scroll finding this is a genuinely
+harder, structurally different problem, still E3.2's job. Table/Compact
+redesign, new metadata, Supabase/schema changes — none touched. Real
+on-screen-keyboard-visible layout verification — real-phone only, see
+above. Landscape polish beyond the basic sanity check above — E6.
+
+## 19. Explicit confirmation (E3.1)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E3.2 (full Scene Editor mobile adaptation) was not started — `#sceneModal`
+was not touched. Cards/Table/Compact and the mobile header were not
+redesigned. No new metadata fields were added.
