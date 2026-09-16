@@ -684,8 +684,33 @@ function showQuickSceneStep(step){
   }
 }
 
+// Stage E2.2.1 real-phone blocker: a real Android tap on "Быстрая сцена"
+// visibly pressed the button (confirming the tap reached it) but no
+// modal ever appeared -- reproducible on-device, but NOT reproducible
+// through any faithful local/mobile/touch/simulated-cloud attempt tried
+// during investigation (desktop click, phone-width click, genuine touch +
+// Android UA via page.tap(), simulated isCloudWorkspace()+cloudProjectSync
+// with a large realistic project, and the actual cloud-mode header DOM
+// state with workspaceCloudBar/workspaceAccountMenu unhidden -- all
+// opened correctly, no console/page errors). The concrete gap the
+// investigation DID find and can fix with certainty: nothing in this
+// chain (requestEditorTransition -> openQuickSceneNow -> mountSceneEditor)
+// had any error handling -- every other header action (+ Новая сцена,
+// etc.) has this exact same pre-existing structural gap, so this is not a
+// new risk introduced here, just the one place currently under
+// investigation. Previously, ANY exception anywhere in this chain --
+// whatever its real cause turns out to be -- would fail completely
+// silently: the tap would show its normal pressed state (pure CSS) and
+// nothing else would ever happen, exactly matching the reported symptom.
+// This does not claim to fix the unreproduced root cause; it makes any
+// future occurrence visible/diagnosable (console + a user-facing message)
+// instead of silently doing nothing, so the next real-device attempt can
+// capture what actually failed.
 function openQuickScene(){
-  return requestEditorTransition(()=>openQuickSceneNow());
+  return requestEditorTransition(()=>openQuickSceneNow()).catch(error=>{
+    console.error("[Author Workspace] Не удалось открыть «Быструю сцену»:",error);
+    globalThis.showStorageMessage?.("Не удалось открыть «Быструю сцену». Попробуйте ещё раз.","error");
+  });
 }
 
 function openQuickSceneNow(){
