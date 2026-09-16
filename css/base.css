@@ -318,4 +318,32 @@
     .account-menu-panel{max-width:calc(100vw - 32px)}
     header{position:static;top:auto}
     header .workspace-identity .project-title{max-width:50vw}
+    /* Stage E1: below the width where the single-row header (see the
+       overflow:hidden rule and its comment, above) can fit every action,
+       wrap instead of silently clipping — header already stops being sticky
+       at this same breakpoint (position:static, just above), so a taller
+       wrapped header costs no permanently-pinned space. Keep overflow:hidden
+       — it doesn't clip normal wrapped flow content (header's height is
+       min-height, not a fixed height, so it grows to fit the wrapped rows),
+       it only clips content escaping header's own box, which is exactly
+       what still needs clipping here: the "Меню"/account <details> panels
+       are unconditionally display:grid in CSS (visibility while CLOSED
+       depends on overflow:hidden clipping them, not on [open] — see
+       setupOverflowSafeMenu's comment in js/app.js for the open-state half
+       of this) — overflow:visible here was tried and reverted after it let
+       a still-laid-out-but-closed panel escape and cause real page-level
+       horizontal scroll. "+ Новая сцена" (#addFirst) still needs to stay
+       the existing full-editor scene creation path (Stage E1 scope) —
+       moving it first is purely visual prominence, not a behavior change. */
+    header{flex-wrap:wrap;row-gap:6px}
+    /* .header-actions{flex:none} (base rule above) is flex-shrink:0 — with
+       flex-wrap alone it still computes its own hypothetical width as
+       max-content (as if nothing inside it ever wrapped) and overflows
+       header's box instead of reflowing, since there's no adjacent sibling
+       line for it to be pushed onto (only the empty app-logo-slot precedes
+       it). flex-basis:100% forces it onto header's second wrapped line at
+       the FULL available width, which is what actually makes its own
+       flex-wrap on its children take effect within that bounded width. */
+    header .header-actions{flex:1 1 100%;flex-wrap:wrap;margin-left:0}
+    header #addFirst{order:-1}
   }

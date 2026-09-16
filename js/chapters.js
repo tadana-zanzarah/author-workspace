@@ -279,5 +279,43 @@ function navigateToChapter(chapterId){
   return true;
 }
 
-Object.assign(globalThis,{chapterById,tagById,writingStatusById,closeProjectMenu,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter});
-export {chapterById,tagById,writingStatusById,closeProjectMenu,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter};
+// Stage E1: mobile chapter/scene Navigation drawer. Read-only entity access
+// (same role as the desktop sidebar's chapter list, see renderSidebar in
+// render.js), just grouped with each chapter's scenes nested underneath so a
+// single tap reaches a scene's text — no separate "find it again in the
+// scene list" step. Reuses the same data source/order as every scene view
+// (data.chapters in stored order, data.scenes in stored order per chapter),
+// the existing navigateToChapter scroll-to-chapter behavior, and the
+// existing openSceneText open-path — no new navigation or persistence logic.
+// Deliberately ignores active filters (like the sidebar's own chapter list)
+// since this is structural navigation, not a filtered view.
+function renderMobileNavContent(){
+  const root=document.getElementById("mobileNavContent");
+  if(!root)return;
+  root.innerHTML=data.chapters.map(chapter=>{
+    const scenes=data.scenes.filter(s=>s.chapterId===chapter.id);
+    const sceneItems=scenes.map(s=>`<button type="button" class="mobile-nav-scene" onclick="openMobileNavScene('${jsq(s.id)}')" aria-label="Открыть текст сцены «${esc(s.title||"Без названия")}»">${esc(s.title||"Без названия")}</button>`).join("");
+    return `<div class="mobile-nav-chapter">
+      <button type="button" class="mobile-nav-chapter-title" onclick="openMobileNavChapter('${jsq(chapter.id)}')" aria-label="Перейти к главе «${esc(chapter.title)}»">${esc(chapter.title)}<span class="sidebar-count">${scenes.length}</span></button>
+      <div class="mobile-nav-scene-list">${sceneItems||'<span class="profile-note mobile-nav-empty">Сцен пока нет</span>'}</div>
+    </div>`;
+  }).join("");
+}
+
+function openMobileNav(){
+  renderMobileNavContent();
+  showModal("mobileNavModal");
+}
+
+function openMobileNavChapter(chapterId){
+  hideModal("mobileNavModal");
+  navigateToChapter(chapterId);
+}
+
+function openMobileNavScene(sceneId){
+  hideModal("mobileNavModal");
+  openSceneText(sceneId);
+}
+
+Object.assign(globalThis,{chapterById,tagById,writingStatusById,closeProjectMenu,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter,openMobileNav,renderMobileNavContent,openMobileNavChapter,openMobileNavScene});
+export {chapterById,tagById,writingStatusById,closeProjectMenu,openChaptersManager,renderChaptersManager,addChapterDraftRow,moveChapterDraft,deleteChapterDraft,saveChapterDraft,openTagsManager,renderTagsManager,addTagDraftRow,deleteTagDraft,saveTagDraft,toggleChapter,navigateToChapter,openMobileNav,renderMobileNavContent,openMobileNavChapter,openMobileNavScene};

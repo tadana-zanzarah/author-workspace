@@ -682,3 +682,76 @@
     .app-shell{grid-template-columns:1fr}
     .project-sidebar{position:static;height:auto;max-height:260px}
   }
+
+
+  /* Stage E1: mobile workspace shell prototype (E0 audit:
+     docs/responsive-workspace-architecture.md). Scope: reprioritize the main
+     project screen on phone so scene work is reachable without scrolling
+     past the desktop sidebar/banner/stats first, and add a chapter/scene
+     Navigation entry point. Desktop (>760px) is untouched — everything here
+     is either default-inert (display:none) outside the media query below,
+     or lives entirely inside it. 760px reuses the existing breakpoint where
+     the header already stops being sticky (css/base.css) instead of adding
+     a new pixel value to an already fragmented breakpoint list.
+
+     Known tradeoff, deferred past E1: reordering storageBanner/
+     projectDashboard/statsStrip below the toolbar/board here is a CSS
+     `order` reorder, not a DOM move — visual order changes but DOM/tab
+     order does not, so a keyboard user still reaches those three before the
+     search/view-switch/board on this breakpoint. Acceptable for a
+     first-look prototype (none of the three is a primary interactive
+     control); revisit if the product owner's real-device review flags it. */
+  .mobile-nav-trigger{
+    display:none;position:fixed;bottom:20px;right:16px;z-index:40;
+    align-items:center;gap:6px;padding:10px 16px;border-radius:999px;
+    border:1px solid var(--border-subtle);background:var(--surface-elevated);
+    color:var(--text-primary);font-size:13px;font-weight:600;box-shadow:var(--shadow-md);
+  }
+  .mobile-nav-trigger:hover,.mobile-nav-trigger:focus-visible{background:var(--soft)}
+  .filter-toggle-btn{
+    display:none;flex:none;height:34px;padding:0 12px;border-radius:var(--radius-sm);
+    border:1px solid var(--border-subtle);background:var(--surface-elevated);
+    color:var(--text-primary);font-size:var(--text-xs);font-weight:600;
+  }
+  .filter-toggle-btn:hover,.filter-toggle-btn:focus-visible{border-color:#cfc3b4}
+  .mobile-nav-content{display:grid;gap:14px;margin-top:10px}
+  .mobile-nav-chapter-title{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
+    text-align:left;border:0;background:var(--soft);border-radius:var(--radius-sm);
+    padding:9px 10px;font-size:13px;font-weight:700;color:var(--text-primary);
+  }
+  .mobile-nav-scene-list{display:grid;gap:2px;margin-top:4px}
+  .mobile-nav-scene{
+    display:block;width:100%;text-align:left;border:0;background:transparent;
+    padding:9px 10px 9px 18px;border-radius:var(--radius-sm);font-size:13px;color:var(--text-primary);
+    min-height:40px;
+  }
+  .mobile-nav-scene:hover,.mobile-nav-scene:focus-visible{background:rgba(36,31,25,.05)}
+  .mobile-nav-empty{display:block;padding:4px 10px 0 18px}
+  @media(max-width:760px){
+    /* The desktop chapter/character/location sidebar is replaced on phone by
+       the Navigation drawer (chapters/scenes; js/chapters.js openMobileNav)
+       plus the existing header "Меню" for Characters/Locations (#manageChars/
+       #manageLocations already open their full galleries — see the E0 audit
+       doc §4) — not rebuilt as a second navigation system. */
+    .project-sidebar{display:none}
+    .mobile-nav-trigger{display:inline-flex}
+    /* Reprioritize: search/view-switch, then scenes, then the
+       banner/dashboard/stats strip that used to sit above everything. Pure
+       visual reorder of five existing direct children of .main-workspace —
+       no DOM change, no JS change. */
+    .main-workspace{display:flex;flex-direction:column}
+    .main-workspace > .toolbar-panel{order:1}
+    .main-workspace > .viewport.workspace-viewport{order:2}
+    .main-workspace > #storageBanner{order:3}
+    .main-workspace > #projectDashboard{order:4}
+    .main-workspace > #statsStrip{order:5}
+    /* Compact search: advanced filter dropdowns collapse behind the
+       "Фильтры" toggle (js/app.js); #activeFilterChips/#filterSummary
+       (render.js) are untouched by this rule and stay visible either way. */
+    .filter-toggle-btn{display:inline-flex;align-items:center}
+    .search-row .filter-dropdown{display:none}
+    .search-row .filter-field-tail{display:none}
+    .search-row.filters-expanded .filter-dropdown{display:flex}
+    .search-row.filters-expanded .filter-field-tail{display:flex}
+  }

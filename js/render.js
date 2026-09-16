@@ -139,7 +139,6 @@ function renderActiveFilterChips(){
   // EVERY growing field's width/position on that line, not just Reset's — the
   // "control I was about to click again just moved" bug local review reported.
   if(clearBtn)clearBtn.classList.toggle("filter-reset-inactive",!hasActiveFilters());
-  if(!el)return;
   const chips=[];
   if(filters.search.trim())chips.push(["search","Поиск",`«${filters.search.trim()}»`,undefined]);
   if(filters.chapter)chips.push(["chapter","Глава",chapterById(filters.chapter)?.title||"",undefined]);
@@ -148,7 +147,16 @@ function renderActiveFilterChips(){
   filterValues("tag").forEach(id=>chips.push(["tag","Тег","#"+(tagById(id)?.name||""),id]));
   if(filters.writing)chips.push(["writing","Статус",writingStatusById(filters.writing)?.label||"",undefined]);
   if(filters.placement)chips.push(["placement","Хронология",filters.placement==="fixed"?"На своём месте":"Нужно разместить",undefined]);
-  el.innerHTML=chips.map(([key,label,value,rawValue])=>`<span class="active-filter-chip">${esc(label)}: ${esc(value)}<button type="button" aria-label="Убрать фильтр «${esc(label)}: ${esc(value)}»" onclick="clearSingleFilter('${jsq(key)}'${rawValue!==undefined?`,'${jsq(rawValue)}'`:""})">×</button></span>`).join("");
+  // Stage E1: mobile advanced-filter toggle carries an active-filter count so
+  // collapsing the dropdown row (css/layout.css, ≤760px) never hides that
+  // filters are active — #activeFilterChips/#filterSummary below already stay
+  // visible either way; this just surfaces the same fact on the toggle itself.
+  const toggleBtn=document.getElementById("toggleAdvancedFilters");
+  if(toggleBtn){
+    const advancedCount=chips.filter(([key])=>key!=="search").length;
+    toggleBtn.textContent=advancedCount?`Фильтры (${advancedCount})`:"Фильтры";
+  }
+  if(el)el.innerHTML=chips.map(([key,label,value,rawValue])=>`<span class="active-filter-chip">${esc(label)}: ${esc(value)}<button type="button" aria-label="Убрать фильтр «${esc(label)}: ${esc(value)}»" onclick="clearSingleFilter('${jsq(key)}'${rawValue!==undefined?`,'${jsq(rawValue)}'`:""})">×</button></span>`).join("");
 }
 
 function renderFilterSummary(){

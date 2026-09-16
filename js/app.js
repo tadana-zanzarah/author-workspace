@@ -294,8 +294,21 @@ function setupOverflowSafeMenu(detailsId){
     const rect=summary.getBoundingClientRect();
     panel.style.position="fixed";
     panel.style.top=`${Math.round(rect.bottom+6)}px`;
-    panel.style.right=`${Math.round(window.innerWidth-rect.right)}px`;
     panel.style.left="auto";
+    let right=Math.round(window.innerWidth-rect.right);
+    panel.style.right=`${right}px`;
+    // Stage E1: a right-anchored panel is normally fine (the trigger sits
+    // near the header's right edge on desktop), but a wrapped mobile header
+    // (css/base.css, ≤760px) can leave the trigger near the LEFT edge —
+    // right-anchoring a fixed-width panel from there pushes most of it off
+    // the left edge of the viewport instead. Clamp so it never starts
+    // before an 8px margin, same margin this positioning already implies
+    // on the right.
+    const panelWidth=panel.getBoundingClientRect().width;
+    if(window.innerWidth-right-panelWidth<8){
+      right=Math.max(8,Math.round(window.innerWidth-8-panelWidth));
+      panel.style.right=`${right}px`;
+    }
   };
   const onResize=()=>reposition();
   const onKeydown=event=>{
@@ -362,6 +375,26 @@ document.getElementById("openInspector").onclick=()=>{
 };
 document.getElementById("closeInspector").onclick=()=>hideModal("inspectorModal");
 document.getElementById("inspectorModal").onclick=e=>{if(e.target.id==="inspectorModal")hideModal("inspectorModal")};
+
+// Stage E1: mobile chapter/scene Navigation drawer trigger — see openMobileNav
+// (js/chapters.js). Only visible ≤760px (css/layout.css); wiring it
+// unconditionally here is harmless at wider widths since the trigger button
+// stays display:none there.
+document.getElementById("mobileNavTrigger").onclick=openMobileNav;
+document.getElementById("closeMobileNav").onclick=()=>hideModal("mobileNavModal");
+document.getElementById("mobileNavModal").onclick=e=>{if(e.target.id==="mobileNavModal")hideModal("mobileNavModal")};
+
+// Stage E1: mobile compact search — advanced filter dropdowns are collapsed
+// by default ≤760px (css/layout.css); this only toggles visibility, the
+// filter state/logic (js/filters.js) is untouched, and #activeFilterChips /
+// #filterSummary (already rendered by renderActiveFilterChips/
+// renderFilterSummary in render.js) stay visible regardless of collapse
+// state so an active filter is never silently hidden.
+document.getElementById("toggleAdvancedFilters").onclick=()=>{
+  const row=document.querySelector(".search-row");
+  const expanded=row.classList.toggle("filters-expanded");
+  document.getElementById("toggleAdvancedFilters").setAttribute("aria-expanded",String(expanded));
+};
 
 document.querySelectorAll("#viewSwitch button").forEach(btn=>btn.onclick=()=>{currentView=btn.dataset.view;render()});
 

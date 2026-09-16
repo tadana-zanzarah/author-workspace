@@ -180,6 +180,7 @@
     </div>
   </aside>
   <main class="main-workspace">
+    <button type="button" id="mobileNavTrigger" class="mobile-nav-trigger" aria-haspopup="dialog">☰ Навигация</button>
     <div id="storageBanner" class="storage-banner" role="status" aria-live="polite"></div>
     <section id="projectDashboard" class="project-dashboard"></section>
     <div id="statsStrip" class="stats-strip"></div>
@@ -203,6 +204,7 @@
       </div>
       <div class="search-row">
         <label class="filter-field filter-field-search"><span class="visually-hidden">Поиск сцен</span><input id="projectSearch" class="search-input" placeholder="Поиск сцен: текст, персонаж, глава, локация, тег…"></label>
+        <button type="button" id="toggleAdvancedFilters" class="filter-toggle-btn" aria-expanded="false">Фильтры</button>
         <div class="filter-field filter-dropdown" data-filter-key="chapter">
           <button type="button" id="filterChapter" class="filter-trigger" aria-haspopup="listbox" aria-expanded="false"></button>
           <div class="filter-popover" id="filterChapterPopover" hidden>
@@ -263,6 +265,16 @@
     <div id="sceneInfoContent" class="scene-info-content">
       <p class="profile-note">Выберите сцену.</p>
     </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="mobileNavModal" role="dialog" aria-modal="true" aria-labelledby="mobileNavModalTitle">
+  <div class="modal" style="width:min(420px,100%);max-height:88vh">
+    <div class="info-panel-head">
+      <h2 id="mobileNavModalTitle" style="margin:0">Навигация</h2>
+      <button type="button" id="closeMobileNav">Закрыть</button>
+    </div>
+    <div id="mobileNavContent" class="mobile-nav-content"></div>
   </div>
 </div>
 
