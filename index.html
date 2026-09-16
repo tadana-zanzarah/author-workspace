@@ -139,6 +139,7 @@
       </div>
     </details>
     <button class="primary" id="addFirst">＋ Новая сцена</button>
+    <button id="quickSceneBtn">Быстрая сцена</button>
     <div class="hint" id="saveStatus" role="status" aria-live="polite"></div>
     <details class="account-menu" id="workspaceAccountMenu" hidden>
       <summary id="workspaceAccountSummary"><span id="workspaceAccountAvatar" class="account-avatar" aria-hidden="true"></span><span id="workspaceAccountName" class="account-name-text"></span></summary>
@@ -933,6 +934,43 @@
       <button id="closeText">Закрыть</button>
       <button id="saveTextAndClose">Сохранить и закрыть</button>
       <button class="primary" id="saveText">Сохранить текст</button>
+    </div>
+  </div>
+</div>
+
+<!-- Stage E2.2: Quick Scene — text-first scene capture, distinct from the
+     full Scene Editor (#sceneModal). Reuses .rte-editor/.rte-toolbar (see
+     css/editor.css) via the same mountSceneEditor() every other rich-text
+     surface uses (js/editor/scene-editor-controller.js) — no second editor
+     implementation. Two steps inside ONE modal (not two modals) so the
+     mounted editor/typed text is never destroyed or serialized across a
+     step change: #quickSceneWriteStep (write first) and
+     #quickSceneTitleStep (title confirmation before creating the Scene),
+     toggled via the native `hidden` attribute. `.mobile-fullscreen-modal`
+     is a small reusable phone-fullscreen shell (css/editor.css) — see that
+     file for why this is scoped, not a #textModal/E3.1 change. -->
+<div class="modal-backdrop mobile-fullscreen-modal" id="quickSceneModal" role="dialog" aria-modal="true" aria-label="Быстрая сцена">
+  <div class="modal">
+    <div class="quick-scene-step" id="quickSceneWriteStep">
+      <h2 id="quickSceneModalTitle">Быстрая сцена</h2>
+      <div id="quickSceneToolbar"></div>
+      <div id="quickSceneEditor" class="rte-editor" aria-label="Текст сцены"></div>
+      <p class="save-status" id="quickSceneWriteStatus" role="status" aria-live="polite"></p>
+      <div class="modal-actions sticky-modal-footer">
+        <button id="closeQuickScene">Закрыть</button>
+        <button class="primary" id="quickSceneSaveNext">Сохранить</button>
+      </div>
+    </div>
+    <div class="quick-scene-step" id="quickSceneTitleStep" hidden>
+      <h2 id="quickSceneTitleStepHeading">Название сцены</h2>
+      <p class="profile-note">Можно принять предложенное название или сразу ввести своё — сцена сохранится в «Без главы» и будет доступна для дальнейшей организации.</p>
+      <label class="field-caption" for="quickSceneTitleInput">Название сцены</label>
+      <input type="text" id="quickSceneTitleInput" class="scene-title-input" placeholder="Название сцены">
+      <p class="save-status" id="quickSceneTitleStatus" role="status" aria-live="polite"></p>
+      <div class="modal-actions">
+        <button id="quickSceneBackToWrite">Назад</button>
+        <button class="primary" id="quickSceneConfirm">Создать сцену</button>
+      </div>
     </div>
   </div>
 </div>

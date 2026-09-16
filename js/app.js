@@ -92,7 +92,12 @@ const editorTrackers={
   })),
   tagsModal:createDirtyTracker("tagsModal",()=>serializeForm("tagsModal")),
   quickFieldModal:createDirtyTracker("quickFieldModal",()=>serializeForm("quickFieldModal")),
-  recoveryModal:createDirtyTracker("recoveryModal",()=>serializeForm("recoveryModal"))
+  recoveryModal:createDirtyTracker("recoveryModal",()=>serializeForm("recoveryModal")),
+  // Stage E2.2: serializeForm's own native-control scan already picks up
+  // #quickSceneTitleInput (a real <input> inside #quickSceneModal); the
+  // ProseMirror doc is invisible to that scan, same reasoning as
+  // textModal's own `doc` extra above.
+  quickSceneModal:createDirtyTracker("quickSceneModal",()=>serializeForm("quickSceneModal",{doc:quickSceneEditor?.getDocJSON()||null}))
 };
 
 // Find/Replace Stage D2.1.2: project-wide Single Replace is now an ordinary
@@ -754,6 +759,15 @@ document.getElementById("board").addEventListener("click",event=>{
 // stale positional-insertion chapter left over from a cancelled Create Scene.
 // See the "positional" contract in openNewSceneAtNow (js/scenes.js).
 document.getElementById("addFirst").onclick=()=>openNewSceneAt(null,null);
+// Stage E2.2: Quick Scene — distinct fast-capture path, never replaces the
+// button above. See js/scenes.js's own "Stage E2.2" section for the full
+// write -> title-confirmation -> create flow.
+document.getElementById("quickSceneBtn").onclick=openQuickScene;
+document.getElementById("closeQuickScene").onclick=()=>requestCloseModal("quickSceneModal","button");
+document.getElementById("quickSceneModal").onclick=e=>{if(e.target.id==="quickSceneModal")requestCloseModal("quickSceneModal","backdrop")};
+document.getElementById("quickSceneSaveNext").onclick=handleQuickSceneSaveNext;
+document.getElementById("quickSceneBackToWrite").onclick=()=>showQuickSceneStep("write");
+document.getElementById("quickSceneConfirm").onclick=handleQuickSceneConfirm;
 // A positional create ("insert before scene X" in chapter A) carries insertBeforeSceneId
 // that only makes sense in chapter A. If the user then changes the chapter dropdown to B,
 // reusing that stale id would save a scene in B with a position derived from A's neighbors

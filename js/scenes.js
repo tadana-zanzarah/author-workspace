@@ -1,4 +1,5 @@
 import {mountSceneEditor} from "./editor/scene-editor-controller.js";
+import {segmentGraphemeClusters} from "./editor/find-replace-text.js";
 
 function sceneById(id){return data.scenes.find(s=>s.id===id)}
 
@@ -649,6 +650,216 @@ function openSceneTextNow(sceneId,extra){
   if(extra?.handoff)sceneTextEditor.applyHandoff(extra.handoff);
 }
 
+/* ---------- Stage E2.2: Quick Scene ---------- */
+// Fast, text-first capture path, distinct from "+ Новая сцена"
+// (openNewSceneAt/openNewSceneAtNow above, unchanged) -- write first, no
+// metadata form, a small title-confirmation step, then create ONE normal
+// Scene using the same canonical unassigned/unplaced defaults
+// openNewSceneAtNow already uses for a scene opened with no explicit
+// position (chapterId "chapter-unassigned", status "floating",
+// writingStatus "draft" -- see that function's own comment on why those
+// specific defaults, not new ones invented here).
+
+// quickSceneEditor itself lives in js/state.js (shared globalThis state,
+// same as sceneTextEditor/sceneModalTextEditor above -- app.js's own
+// quickSceneModal dirty tracker needs to read it too, exactly like it
+// already reads sceneModalTextEditor/sceneTextEditor for their own
+// trackers). quickSceneSaving is purely local to this module.
+let quickSceneSaving=false;
+
+function destroyQuickSceneEditor(){
+  if(quickSceneEditor){quickSceneEditor.destroy();quickSceneEditor=null}
+}
+
+function showQuickSceneStep(step){
+  const writeStep=document.getElementById("quickSceneWriteStep");
+  const titleStep=document.getElementById("quickSceneTitleStep");
+  writeStep.hidden=step!=="write";
+  titleStep.hidden=step!=="title";
+  if(step==="title"){
+    const input=document.getElementById("quickSceneTitleInput");
+    input.focus();input.select();
+  }else{
+    quickSceneEditor?.focus();
+  }
+}
+
+function openQuickScene(){
+  return requestEditorTransition(()=>openQuickSceneNow());
+}
+
+function openQuickSceneNow(){
+  // Same defensive destroy-before-create pattern as
+  // destroySceneTextEditor/destroySceneModalTextEditor above -- any stray
+  // instance from a non-save close is cleaned up before a new one mounts.
+  destroyQuickSceneEditor();
+  quickSceneEditor=mountSceneEditor({
+    editorContainer:document.getElementById("quickSceneEditor"),
+    toolbarContainer:document.getElementById("quickSceneToolbar"),
+    scene:null,
+    characters:data.characters
+    // No findReplaceContainer/surfaceId/revealSurface/onSwitchSurface: this
+    // is a single ephemeral pre-save capture, not a scene that exists yet
+    // for project-wide Find/Replace or the mounted-scene registry to know
+    // about, and there is no "other surface" to switch to from here --
+    // every one of mountSceneEditor's other dependencies degrades safely
+    // when omitted (see that function's own doc comments).
+  });
+  document.getElementById("quickSceneTitleInput").value="";
+  const writeStatus=document.getElementById("quickSceneWriteStatus");
+  if(writeStatus){writeStatus.textContent="";writeStatus.className="save-status"}
+  const titleStatus=document.getElementById("quickSceneTitleStatus");
+  if(titleStatus){titleStatus.textContent="";titleStatus.className="save-status"}
+  showQuickSceneStep("write");
+  showModal("quickSceneModal",{initialFocus:quickSceneEditor.view.dom});
+  trackerFor("quickSceneModal").captureInitialState();
+}
+
+// Deterministic, no AI: reuses the same canonical plain-text extraction
+// every editor's own serialize() already produces (docToPlainText, see
+// js/editor/scene-doc-convert.js -- the same helper word count/full-text
+// search/.doc export rely on) and the same grapheme-safe segmentation
+// Find/Replace already uses (segmentGraphemeClusters, js/editor/find-
+// replace-text.js) for truncation, so a generated title is never cut
+// mid-character (combining marks, astral code points, etc). First
+// non-blank line, internal whitespace collapsed, capped length.
+const QUICK_SCENE_TITLE_MAX_CLUSTERS=60;
+function deriveQuickSceneTitle(sceneText){
+  const firstLine=String(sceneText||"").split("\n").map(line=>line.trim()).find(line=>line.length>0)||"";
+  const normalized=firstLine.replace(/\s+/g," ");
+  const clusters=segmentGraphemeClusters(normalized);
+  if(clusters.length<=QUICK_SCENE_TITLE_MAX_CLUSTERS)return normalized;
+  return clusters.slice(0,QUICK_SCENE_TITLE_MAX_CLUSTERS).map(c=>c.text).join("").trimEnd()+"…";
+}
+
+// Write step's "Сохранить": not a persistence save -- advances to the
+// title-confirmation step, prefilled+selected so typing immediately
+// replaces the suggestion (no manual clear-first). Whitespace-only text
+// cannot advance (see AGENTS.md-aligned safeguards in the report/tests):
+// nothing is created merely because Quick Scene was opened or Save was
+// tapped with nothing meaningful written yet.
+function handleQuickSceneSaveNext(){
+  if(!quickSceneEditor)return;
+  const {sceneText}=quickSceneEditor.serialize();
+  const status=document.getElementById("quickSceneWriteStatus");
+  if(!sceneText.trim()){
+    if(status){status.textContent="Введите текст сцены, чтобы продолжить.";status.className="save-status error"}
+    quickSceneEditor.focus();
+    return;
+  }
+  if(status){status.textContent="";status.className="save-status"}
+  document.getElementById("quickSceneTitleInput").value=deriveQuickSceneTitle(sceneText);
+  showQuickSceneStep("title");
+}
+
+// Title step's "Создать сцену": the one actual persistence action.
+// quickSceneSaving guards against a double/repeated tap creating two
+// scenes (checked first, and the button itself is disabled for the
+// duration); the modal/editor are only closed/destroyed AFTER
+// createQuickScene resolves ok -- a failure leaves the modal open with the
+// typed text and title intact (dirty tracker still active, still guarding
+// against an accidental close) so nothing the user wrote is silently lost.
+async function handleQuickSceneConfirm(){
+  if(quickSceneSaving||!quickSceneEditor)return;
+  const {sceneText,sceneTextDoc}=quickSceneEditor.serialize();
+  if(!sceneText.trim()){
+    // Defensive only -- the write step already required non-empty text
+    // before advancing here; this guards the case where every character
+    // was deleted again while already on the title step.
+    showQuickSceneStep("write");
+    return;
+  }
+  const titleInput=document.getElementById("quickSceneTitleInput");
+  const title=titleInput.value.trim()||deriveQuickSceneTitle(sceneText);
+  const confirmBtn=document.getElementById("quickSceneConfirm");
+  const status=document.getElementById("quickSceneTitleStatus");
+  quickSceneSaving=true;confirmBtn.disabled=true;
+  const idleLabel=confirmBtn.textContent;confirmBtn.textContent="Создание…";
+  if(status){status.textContent="";status.className="save-status"}
+  try{
+    const result=await createQuickScene({title,sceneText,sceneTextDoc});
+    if(!result.ok){
+      if(status){status.textContent=result.userMessage||result.message||"Не удалось создать сцену.";status.className="save-status error"}
+      return;
+    }
+    forceHideModal("quickSceneModal");
+    destroyQuickSceneEditor();
+  }finally{
+    quickSceneSaving=false;confirmBtn.disabled=false;confirmBtn.textContent=idleLabel;
+  }
+}
+
+// Creates ONE normal Scene entity -- never a Draft/QuickScene/note entity.
+// Deliberately mirrors only the NEW-scene subset of app.js's
+// saveSceneModalOnlyInner (create + tags/participants/relations always
+// empty for Quick Scene + text) at the primitive level -- commitDataChange
+// for local, runCloudMutation+the same api calls for cloud -- rather than
+// calling that function directly (it reads #sceneModal's own DOM directly,
+// with no seam for a different caller) or refactoring it (that function is
+// sensitive, well-tested, shared production code; a broad refactor to
+// extract a shared core is out of scope for this stage). Both branches use
+// the exact same canonical shapes (sceneToCloud, chapter-unassigned
+// sentinel, position-at-append math) as the code they mirror.
+async function createQuickScene({title,sceneText,sceneTextDoc}){
+  const scene={
+    id:makeId("scene"),
+    date:"",
+    time:"",
+    title,
+    chapterId:"chapter-unassigned",
+    locationId:"",
+    tags:[],
+    writingStatus:"draft",
+    sceneText,
+    sceneTextDoc,
+    included:true,
+    status:"floating",
+    dateReview:false,
+    people:{}
+  };
+
+  if(isCloudWorkspace()){
+    // Same append-at-end position math as saveSceneModalOnlyInner's own
+    // sceneIndex===data.scenes.length case (Quick Scene never has an
+    // insertBeforeSceneId -- there is no positional "+" origin).
+    const previousPosition=data.scenes[data.scenes.length-1]?.position;
+    const createPosition=previousPosition==null?0:previousPosition+1000;
+    const created=await runCloudMutation("createScene",(api,revision)=>api.createScene(cloudProjectSync.projectId,revision,sceneToCloud(scene,createPosition)),{renderAfter:false});
+    if(!created.ok)return created;
+    const sceneId=created.data?.id;
+    if(sceneId){
+      // Empty tags/participants/relations, but still set explicitly --
+      // exactly what saveSceneModalOnlyInner's own new-scene path always
+      // does regardless of whether any of the three is non-empty.
+      const tagsResult=await runCloudMutation("setSceneTags",(api,revision)=>api.setSceneTags(cloudProjectSync.projectId,sceneId,revision,[]),{renderAfter:false});
+      if(!tagsResult.ok)return tagsResult;
+      const participantResult=await runCloudMutation("setSceneCharacters",(_api,revision)=>cloudState.characterApi.setSceneCharacters(cloudProjectSync.projectId,sceneId,revision,[]),{renderAfter:false});
+      if(!participantResult.ok)return participantResult;
+      const relationResult=await runCloudMutation("setSceneRelationChanges",(_api,revision)=>cloudState.characterApi.setSceneRelationChanges(cloudProjectSync.projectId,sceneId,revision,[]),{renderAfter:false});
+      if(!relationResult.ok)return relationResult;
+      // createScene's own sceneText field is plain text only -- the rich
+      // sceneTextDoc JSON needs this same follow-up RPC every new scene
+      // through the full Scene Editor already goes through.
+      const textResult=await runCloudMutation("updateSceneText",(api,revision)=>api.updateSceneText(cloudProjectSync.projectId,sceneId,revision,{sceneText,metadata:{richText:sceneTextDoc}}),{renderAfter:false});
+      if(!textResult.ok)return textResult;
+    }
+    data=cloudProjectSync.confirmedProject;
+    render();
+    return {ok:true};
+  }
+
+  const result=commitDataChange(next=>{
+    next.scenes.push(scene);
+    // Same chapter-order re-sort saveSceneModalOnlyInner's local branch
+    // applies after inserting a new scene.
+    const order=new Map(next.chapters.map((c,i)=>[c.id,i]));
+    next.scenes=next.scenes.map((item,i)=>({item,i})).sort((a,b)=>(order.get(a.item.chapterId)??9999)-(order.get(b.item.chapterId)??9999)||a.i-b.i).map(x=>x.item);
+  },{renderAfter:false});
+  if(!result.ok)return result;
+  render();
+  return {ok:true};
+}
+
 async function toggleIncluded(sceneId,checked){
   if(!sceneById(sceneId))return;
   if(isCloudWorkspace()){const scene={...sceneById(sceneId),included:checked};return runCloudMutation("updateScene",(api,revision)=>api.updateScene(cloudProjectSync.projectId,sceneId,revision,sceneToCloud(scene)))}
@@ -692,5 +903,5 @@ async function deleteScene(sceneId){
   render();
 }
 
-Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,isMobileShellViewport,handleCardPrimaryTap,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene});
-export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,isMobileShellViewport,handleCardPrimaryTap,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene};
+Object.assign(globalThis,{sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,isMobileShellViewport,handleCardPrimaryTap,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene,openQuickScene,showQuickSceneStep,handleQuickSceneSaveNext,handleQuickSceneConfirm,destroyQuickSceneEditor,deriveQuickSceneTitle,createQuickScene});
+export {sceneById,sceneIndexById,sceneCharacterIds,sceneCharacters,quickEditTitle,openQuickField,quickEditLocation,quickEditWriting,quickEditChapter,selectScene,isMobileShellViewport,handleCardPrimaryTap,insertBar,sceneReorderButtonsHtml,cardReorderButtonsHtml,normalizeSceneOrder,firstSceneIdAfterChapter,openNewSceneInChapter,openNewSceneAt,editScene,populateSceneSelectors,ensureTag,addTagToDraft,renderSceneTagDraft,removeSceneTag,buildPeopleForm,syncPeopleDraftFromDom,renderPeopleBlocks,renderSceneParticipantSelector,addSceneParticipant,removeSceneParticipant,resetSceneModalScroll,markRelationExplicit,relationEdited,resetToInherited,openSceneText,destroySceneTextEditor,destroySceneModalTextEditor,mountSceneModalTextEditor,toggleIncluded,confirmSceneDate,quickUpdate,deleteScene,openQuickScene,showQuickSceneStep,handleQuickSceneSaveNext,handleQuickSceneConfirm,destroyQuickSceneEditor,deriveQuickSceneTitle,createQuickScene};

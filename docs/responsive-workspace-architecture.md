@@ -522,3 +522,99 @@ query, touching only the Cards board at phone width. Matrix
 be panned at the same phone width). Confirmed this new check actually
 catches the bug by re-running it with the fix temporarily reverted before
 restoring it.
+
+## 15. Stage E2.2 — Quick Scene
+
+Fast, text-first scene capture (`#quickSceneBtn`, "Быстрая сцена"), a
+second header action distinct from and alongside "+ Новая сцена"
+(`#addFirst`, unchanged — still opens the full Scene Editor with its full
+metadata form). Creates a normal Scene, never a second entity type.
+
+**Reuse decisions** (see `js/scenes.js`'s own "Stage E2.2" section for the
+full comments):
+
+- **Editor**: the same `mountSceneEditor()` (`js/editor/scene-editor-
+  controller.js`) every other rich-text surface already uses, mounted with
+  `scene:null` — the same pattern `openNewSceneAtNow` already uses for
+  `#sceneModal`'s own inline editor before a scene exists. No second
+  ProseMirror integration. `findReplaceContainer`/`surfaceId`/
+  `onSwitchSurface`/etc. are all omitted — every one of them degrades
+  safely when absent (per that function's own doc comments), and none
+  makes sense for a scene that doesn't exist in `data.scenes` yet.
+- **Two steps, one modal**: `#quickSceneWriteStep` and
+  `#quickSceneTitleStep` toggle via the native `hidden` attribute inside
+  ONE `#quickSceneModal` — the mounted editor/typed doc is never
+  destroyed or serialized across the step change, and modal-manager's
+  existing focus-trap already excludes hidden content (`getFocusableElements`
+  checks `hidden`) with no extra code.
+- **Title generation**: reuses the canonical plain-text extraction every
+  editor's own `serialize()` already produces (`docToPlainText`,
+  `js/editor/scene-doc-convert.js` — the same helper word count/full-text
+  search/.doc export already rely on) and the canonical grapheme-safe
+  segmentation Find/Replace already uses (`segmentGraphemeClusters`,
+  `js/editor/find-replace-text.js`) for truncation, so a generated title
+  is never cut mid-character. First non-blank line, internal whitespace
+  collapsed, capped at 60 grapheme clusters. No new text-processing
+  utility was invented.
+- **Persistence**: mirrors only the NEW-scene subset of `js/app.js`'s
+  `saveSceneModalOnlyInner` (create + always-empty tags/participants/
+  relations + text) at the primitive level — `commitDataChange` for
+  local, `runCloudMutation` + the same `api.createScene`/`setSceneTags`/
+  `setSceneCharacters`/`cloudState.characterApi.setSceneRelationChanges`/
+  `updateSceneText` calls for cloud, same `sceneToCloud`/append-position
+  math — rather than calling that function directly (it reads
+  `#sceneModal`'s own DOM directly, no seam for a different caller) or
+  refactoring it (sensitive, well-tested, shared production code; a
+  broad extraction was judged out of scope for this stage). **No schema
+  or RPC change was needed or made.**
+- **Fullscreen mobile writing surface**: `.mobile-fullscreen-modal`
+  (`css/editor.css`) is a new, deliberately generic primitive — true
+  fullscreen on phone (`100dvh`, no border-radius/margin), an ordinary
+  centered modal on desktop. Introduced now because Quick Scene needed it,
+  consistent with the firm E3.1 requirement recorded in §11 above.
+  **`#textModal` itself was not touched** — adapting existing Text Scene
+  to this same shell is still E3.1's job.
+
+**Default scene semantics** (all read from the existing "+ Новая сцена"
+contract, not invented): `chapterId:"chapter-unassigned"`,
+`status:"floating"` (unplaced), `writingStatus:"draft"`, empty
+`locationId`/`tags`/`people`, `dateReview:false` — exactly what
+`openNewSceneAtNow` already uses when opened with no explicit position
+(header button, empty-project "Создать сцену").
+
+**Safety**: a shared `quickSceneSaving` flag + disabled confirm button
+guard against double/repeated taps creating duplicate scenes (verified:
+two concurrent `handleQuickSceneConfirm()` calls produce exactly one
+scene); the modal/editor are only closed/destroyed after creation
+resolves `ok:true` — a failure leaves the modal open with the typed text
+and confirmed title intact (verified with a monkey-patched
+`commitDataChange` forced to fail); whitespace-only content cannot
+advance past the writing step or create a scene; `quickSceneModal` is a
+fully AGENTS.md-compliant tracked/guarded modal (dirty-tracker
+registration in `js/app.js`'s `editorTrackers`, guarded close via
+`requestCloseModal` on the close button/backdrop, generic Escape handling
+via modal-manager).
+
+**A real bug found and fixed while implementing this** (not shipped):
+`quickSceneEditor` was first written as a module-local `let` in
+`js/scenes.js`. Since `js/app.js`'s dirty tracker needs to read it too
+(same reasoning as its existing `sceneModalTextEditor`/`sceneTextEditor`
+extras), a module-local binding is invisible outside `scenes.js` — the
+tracker would have silently always seen `doc:null`. Fixed by declaring it
+in `js/state.js`'s shared `initialState` (the codebase's existing
+convention for exactly this kind of cross-module mutable editor-instance
+state), alongside `sceneTextEditor`/`sceneModalTextEditor`.
+
+**Deferred to E3.1** (not touched here): full Text Scene mobile
+adaptation (`#textModal` itself), mobile toolbar treatment, on-screen-
+keyboard/visual-viewport behavior, Find/Replace integration on phone, POV
+controls on phone, full Scene Editor mobile adaptation.
+
+## 16. Explicit confirmation (E2.2)
+
+Quick Scene creates a normal Scene through the existing canonical
+persistence path (local `commitDataChange` / cloud RPCs) — no new
+database entity, no schema change, no migration. E3.1 (fullscreen Text
+Scene adaptation, mobile toolbar/keyboard), Table/Compact/Characters/
+Locations/header-IA redesign were not implemented. Supabase itself,
+migrations, `reference/`, and `backup/` were not touched.

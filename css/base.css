@@ -346,4 +346,8 @@
        flex-wrap on its children take effect within that bounded width. */
     header .header-actions{flex:1 1 100%;flex-wrap:wrap;margin-left:0}
     header #addFirst{order:-1}
+    /* Stage E2.2: Быстрая сцена is the second phone-priority action, right
+       after + Новая сцена — both get order:-1 (ties broken by DOM order,
+       #addFirst first), so both reach the wrapped header's first row. */
+    header #quickSceneBtn{order:-1}
   }

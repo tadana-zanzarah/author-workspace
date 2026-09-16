@@ -131,6 +131,33 @@
    scroll is specifically for long manuscript text. */
 #sceneModal .rte-editor{height:320px;overflow-y:auto}
 
+/* Stage E2.2: Quick Scene (#quickSceneModal) — reuses .rte-toolbar/
+   .rte-editor above exactly as-is; only this surrounding modal shell is
+   new. Two steps (#quickSceneWriteStep/#quickSceneTitleStep) share one
+   fixed-height flex column so whichever is visible (the other is
+   `[hidden]`) can size correctly; the write step stretches to fill it
+   (the editor needs the room), the title step just centers its own short
+   form instead of stretching to an empty page.
+   `.mobile-fullscreen-modal` is a small, deliberately generic primitive
+   (not #quickSceneModal-specific) for "this modal becomes a true
+   fullscreen phone writing surface, ordinary centered modal on desktop" —
+   introduced here because Quick Scene needs it now, matching the firm
+   product requirement already recorded for E3.1's own Text Scene
+   adaptation (docs/responsive-workspace-architecture.md). #textModal
+   itself is deliberately NOT touched here — adapting it to this same
+   shell is E3.1's own job, not this stage's. */
+#quickSceneModal .modal{display:flex;flex-direction:column;height:min(80vh,640px);overflow:hidden}
+.quick-scene-step{display:flex;flex-direction:column;flex:1;min-height:0}
+.quick-scene-step[hidden]{display:none}
+#quickSceneTitleStep{justify-content:center;gap:10px}
+@media(max-width:760px){
+  .mobile-fullscreen-modal.modal-backdrop{padding:0;align-items:stretch;justify-content:stretch}
+  .mobile-fullscreen-modal .modal{
+    width:100%;max-width:100%;margin:0;border-radius:0;
+    height:100vh;height:100dvh;max-height:100vh;max-height:100dvh;
+  }
+}
+
 /* Find/Replace Stage C: first working panel -- deliberately plain/functional
    (see docs/find-replace-architecture.md), not a final visual pass. Compact
    horizontal row rather than a modal, so it reads as part of the editor
