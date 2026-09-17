@@ -1161,3 +1161,151 @@ started. Scene Editor's information architecture, metadata semantics/
 defaults, and field taxonomy are unchanged — only phone-only fullscreen
 geometry and manuscript scroll ownership were adapted; desktop is
 byte-for-byte behaviorally identical to before this stage.
+
+## 28. Stage E3.2.1 — real-phone corrections (manuscript scroll hybrid + crypto.randomUUID fallback)
+
+Real Android validation of E3.2 found two independent issues: one UX
+regression in the Scene Editor's scroll model, and one functional bug
+(`crypto.randomUUID` unavailable) affecting character/location image and
+history-event id generation. Both are corrected here; both are unrelated
+to each other and touch different files.
+
+### Full Scene Editor — hybrid scroll model (corrects E3.2 §26)
+
+E3.2's conclusion — "nested manuscript scrolling is inherently a
+touch-scroll trap, remove it" — was too broad. Real-device use of a
+realistically long scene showed the opposite failure mode just as clearly:
+with the manuscript flowing unbounded inline in the outer modal scroll,
+reaching Characters/participants (below the manuscript) meant scrolling
+through the ENTIRE scene text first — for a novel-length scene, many
+screens. **Nested scrolling itself was never the defect; an unbounded
+nested-in-the-page manuscript is just as much a trap in the other
+direction.** The real requirement was always "make the inner scroll region
+deliberate and usable," not "eliminate the inner scroll region."
+
+**Corrected model (hybrid)**: the outer `#sceneModal .modal` remains the
+scroll owner for metadata/title/participants/footer (unchanged from E3.2).
+The manuscript editor (`#sceneModal .rte-editor`) becomes bounded and
+independently vertically scrollable again on phone —
+`height:45vh;height:45dvh;overflow-y:auto` (phone-only, same selector as
+the desktop rule, cascade order decides the winner, no `!important`) —
+but sized for phone, not the desktop-derived `320px` constant. `vh`/`dvh`
+was chosen deliberately over a fixed pixel value, consistent with this
+file's own `92vh`/`100vh`+`100dvh` precedent: it scales sensibly across
+phone screen sizes instead of being hardcoded, while still landing at a
+similar *absolute* size to the original 320px box on a typical phone
+viewport (measured: 365px at 812px viewport height) — generous enough to
+be a genuinely useful writing surface, deliberately small enough to leave
+participants/other fields visibly close by.
+
+Measured pre-fix (E3.2, unbounded): outer modal `scrollHeight:26854` for
+a 100-paragraph fixture — proportional to manuscript length, the actual
+defect. Measured post-fix (E3.2.1, hybrid): outer modal `scrollHeight:1785`
+(bounded, independent of manuscript length); manuscript editor
+`height:365px`, own `scrollHeight:31665`/`clientHeight:363` (genuinely
+bounded and independently scrollable). **Core proof**: scrolling the outer
+modal to its very end reaches the participants section and the sticky
+footer while the manuscript's own `scrollTop` remains exactly `0` — the
+user never has to advance the manuscript's internal scroll to reach
+content below it. Editing at a point deep in the manuscript (paragraph
+~60/100, reached via the manuscript's own internal scroll) still works
+correctly and does not move `window.scrollY`. Desktop is completely
+unaffected (unchanged `320px`/`overflow-y:auto`).
+
+### Landscape — documented, not solved (deferred to E6)
+
+Real Android landscape review found the interface not yet genuinely
+mobile-optimized in that orientation: at ~667px wide the Scene Editor's
+metadata starts resembling the desktop two-column form (confirmed here
+too: `.modal-grid-4` renders 2 columns, not 1, at 667px — the existing
+`@media(max-width:800px)` stacking rule engages at that width, but
+`@media(max-width:480px)`'s further single-column collapse does not), and
+with the Android on-screen keyboard open, browser chrome + keyboard leave
+a very shallow usable viewport — the editor is technically reachable but
+the writing area becomes extremely small. This is **now a concrete E6
+requirement**, explicitly recorded rather than patched here: **future
+mobile/responsive classification cannot rely on viewport WIDTH alone** —
+short-height, landscape, and keyboard-constrained viewport behavior need
+their own consideration, not an assumption that "phone" only ever means
+"narrow and tall." No landscape redesign was attempted in E3.2.1. The one
+change this stage DID make (the manuscript's `vh`-relative height) was
+checked specifically to confirm it does not make landscape worse: at
+667×375 the editor computes to `168.9px` (45% of the shorter landscape
+viewport) — smaller in absolute terms than portrait, but still a bounded,
+genuinely scrollable region, and strictly better than E3.2's unbounded
+model would have been in the same cramped landscape height. No further
+landscape-specific change was made.
+
+### `crypto.randomUUID` unavailable on real Android/LAN-HTTP (unrelated bug, same stage)
+
+**Root cause**: `crypto.randomUUID()` is part of the Web Crypto API's
+secure-context-gated surface — browsers only expose it on `https`,
+`localhost`, and `file://` origins. The phone reached this dev server over
+plain LAN HTTP (`http://172.22.x.x:8000`, not `localhost`), which is NOT a
+secure context, so `crypto.randomUUID` was simply `undefined` there,
+throwing "crypto.randomUUID is not a function" the moment character image
+upload (`js/characters.js`'s `readOriginalImage`, the `isCloudWorkspace()`
+branch) ran. Desktop testing never caught this because
+`http://localhost:8000` IS special-cased as a secure context by every
+major browser even without TLS — the exact same code, unmodified, behaves
+differently purely because of the origin.
+
+**Other call sites found with the same fragile pattern** (grepped for
+every `crypto.randomUUID()` call in `js/`): `js/locations.js`'s location
+media upload (`createDraftMediaItem`) and location history event creation
+(`addLocationHistoryEventDraft`) — both would fail identically on the same
+real-device condition; and `js/local-to-cloud-migration-ui.js`'s migration
+attempt id. All four were routed through one new centralized helper rather
+than four separate ad-hoc fixes.
+
+**Fix**: new `js/id-generator.js`, exporting `generateUuid()`:
+1. Uses `crypto.randomUUID()` when available (unchanged native behavior).
+2. Otherwise, if `crypto.getRandomValues()` is available — the OLDER,
+   broader-support half of the Web Crypto API, NOT secure-context-gated,
+   and present on the exact same insecure origin where `randomUUID` is
+   missing — builds a proper RFC 4122 version-4 UUID by hand from 16
+   cryptographically random bytes (the standard, well-known technique).
+3. Only if `crypto`/`getRandomValues` is entirely absent (no known case in
+   this app's supported browsers, a defensive last resort only) falls back
+   further to a `Math.random()`-seeded but still properly v4-SHAPED
+   (versioned/varianted) UUID string — never a bare timestamp or raw
+   random number, since these ids become actual storage path segments /
+   database keys (see `js/locations.js`'s own existing comment on
+   `createDraftMediaItem`), so collision-resistance matters even in this
+   last-resort tier.
+
+All four existing call sites now call `generateUuid()` instead of
+`crypto.randomUUID()` directly; no other behavior changed.
+
+**Tests**: `tools/id-generator.test.mjs` (new, added to the `npm run
+test:unit` chain) — pure unit test proving `generateUuid()` delegates to
+the native function when present, produces a correctly-shaped, collision-
+free (500 calls, no duplicates) v4 UUID via the `getRandomValues` fallback
+when `randomUUID` is explicitly stubbed absent, and still produces a valid
+v4-shaped id in the defensive last-resort tier with `crypto` itself
+removed entirely. `tools/character-image-uuid-fallback-browser.test.mjs`
+(new) drives the REAL reported user flow end-to-end: opens a character's
+profile editor, stubs `crypto.randomUUID` absent (shadowing the inherited
+`Crypto.prototype` method with an own `undefined` property, since a plain
+`delete` silently no-ops on an inherited property), stubs
+`cloudProjectSync.projectId` to reach the affected `isCloudWorkspace()`
+branch without needing real Supabase credentials (that branch is pure
+client-side — object URL + id generation only; the actual upload RPC
+happens later, at Save, which this test does not reach), and drives a real
+file selection through `#profilePhotosInput`'s actual `onchange` handler.
+Confirmed via reverting only `js/characters.js` that this test correctly
+times out/fails against the original bug (the photo is never added, since
+the unhandled exception is caught and surfaces only as an `alert()`).
+With the fix: no error dialog, the photo is added, and its id matches a
+proper v4 UUID shape. A second scenario in the same file confirms the
+native `crypto.randomUUID()` path is unaffected when actually available.
+
+## 29. Explicit confirmation (E3.2.1)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E4 and E6 were not started — the landscape finding is recorded as a
+requirement for E6, not implemented. Quick Scene and Text Scene were not
+modified (their own regressions re-run and confirmed green). Characters
+and location media/history architecture were not redesigned — only the
+id-generation call itself was made robust, routed through one new small
+helper, with normal native behavior fully preserved when available.

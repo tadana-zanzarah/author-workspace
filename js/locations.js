@@ -1,4 +1,5 @@
 import {validateLocationMediaFile} from "./cloud-location-media-api.js";
+import {generateUuid} from "./id-generator.js";
 
 /* Location Gallery + Location Profile.
  *
@@ -473,7 +474,7 @@ function handleLocationMediaFileChosen(event){
   // (profileDraftPrimaryPhotoId ||= photo.id on the first photo) -- so a Location with exactly one
   // photo/map/floorplan never needs an extra explicit "make primary" click before it can act as
   // that kind's cover.
-  const draftItem=createDraftMediaItem({id:crypto.randomUUID(),mediaKind:kind,objectUrl,sortOrder:sameKind.length,isPrimary:!primaryOfKind(locationProfileMediaDraft,kind)});
+  const draftItem=createDraftMediaItem({id:generateUuid(),mediaKind:kind,objectUrl,sortOrder:sameKind.length,isPrimary:!primaryOfKind(locationProfileMediaDraft,kind)});
   locationMediaDraftFiles.set(draftItem.id,file);
   locationProfileMediaDraft=[...locationProfileMediaDraft,draftItem];
   renderLocationProfileMediaEditor();
@@ -1840,7 +1841,7 @@ function renderLocationHistoryEventCard(item,index,total){
 }
 
 function addLocationHistoryEventDraft(){
-  const item=createDraftHistoryEvent({id:crypto.randomUUID(),sortOrder:locationProfileHistoryEventsDraft.length});
+  const item=createDraftHistoryEvent({id:generateUuid(),sortOrder:locationProfileHistoryEventsDraft.length});
   locationProfileHistoryEventsDraft=[...locationProfileHistoryEventsDraft,item];
   locationHistoryEventEditingId=item.id;
   renderLocationHistoryEventsEditor();

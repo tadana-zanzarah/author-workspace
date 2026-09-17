@@ -93,27 +93,45 @@ try{
     const gridColumns=await page.$eval(".modal-grid-4",el=>getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length);
     if(gridColumns>2)throw new Error(`Metadata grid should have stacked down from its 4-column desktop layout at phone width, found ${gridColumns} columns`);
 
-    // G. Scroll ownership: `#sceneModal .modal` is the ONE primary vertical
-    // scroll surface (metadata -> title -> manuscript -> participants ->
-    // footer, all one linear flow); the manuscript editor must NOT be an
-    // independently-scrolling nested box any more (the legacy 320px trap).
-    const editorGeometry=await page.$eval("#sceneTextEditor",el=>({overflowY:getComputedStyle(el).overflowY,height:getComputedStyle(el).height,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight}));
-    if(editorGeometry.overflowY==="auto"||editorGeometry.overflowY==="scroll")throw new Error(`The manuscript editor must not be an independently-scrolling nested region on phone any more: overflow-y=${editorGeometry.overflowY}`);
-    if(Math.abs(editorGeometry.scrollHeight-editorGeometry.clientHeight)>2)throw new Error(`The manuscript editor's own box must size to its content (no internal overflow) on phone: ${JSON.stringify(editorGeometry)}`);
+    // G. Stage E3.2.1 corrected scroll-ownership contract: real-device
+    // review of E3.2's original fix (manuscript flowing unbounded inline
+    // in the outer modal scroll) found the OPPOSITE problem -- reaching
+    // participants below a realistically long manuscript meant scrolling
+    // through the entire scene text first. The manuscript editor is now a
+    // bounded, independently-scrolling region again (HYBRID model): the
+    // outer `#sceneModal .modal` remains scrollable for metadata/title/
+    // participants/footer, AND the manuscript owns its own separate
+    // vertical scroll, sized well under its full content height.
+    const editorGeometry=await page.$eval("#sceneTextEditor",el=>({overflowY:getComputedStyle(el).overflowY,clientHeight:el.clientHeight,scrollHeight:el.scrollHeight}));
+    if(editorGeometry.overflowY!=="auto"&&editorGeometry.overflowY!=="scroll")throw new Error(`The manuscript editor must be its own independent vertical scroll owner on phone: overflow-y=${editorGeometry.overflowY}`);
+    if(editorGeometry.clientHeight>=editorGeometry.scrollHeight*0.5)throw new Error(`The manuscript editor's rendered height must be substantially smaller than its full content height (bounded, not flowing inline): ${JSON.stringify(editorGeometry)}`);
     const modalScrollGeometry=await page.$eval("#sceneModal .modal",el=>({scrollHeight:el.scrollHeight,clientHeight:el.clientHeight}));
-    if(modalScrollGeometry.scrollHeight<=modalScrollGeometry.clientHeight)throw new Error(`The modal itself must be the one genuinely scrollable surface for this long-manuscript fixture: ${JSON.stringify(modalScrollGeometry)}`);
+    if(modalScrollGeometry.scrollHeight<=modalScrollGeometry.clientHeight)throw new Error(`The outer modal must still be vertically scrollable for metadata/title/participants/footer: ${JSON.stringify(modalScrollGeometry)}`);
+    if(modalScrollGeometry.scrollHeight>=editorGeometry.scrollHeight*0.5)throw new Error(`The outer modal's scroll length must NOT be proportional to the manuscript's own huge content -- the manuscript's length must stay contained inside its own bounded box: outer=${modalScrollGeometry.scrollHeight}, manuscript=${editorGeometry.scrollHeight}`);
 
-    // F/H. Long manuscript is reachable/editable near its end, and the
-    // sticky footer stays reachable regardless of how far the scroll goes.
-    await page.$eval("#sceneModal .modal",el=>{el.scrollTop=el.scrollHeight*0.7});
+    // Core proof: participants/fields below the manuscript are reachable by
+    // scrolling ONLY the outer modal, WITHOUT ever advancing the
+    // manuscript's own internal scroll position.
+    await page.$eval("#sceneModal .modal",el=>{el.scrollTop=el.scrollHeight});
     await page.waitForTimeout(50);
+    const manuscriptScrollTopStillZero=await page.$eval("#sceneTextEditor",el=>el.scrollTop);
+    if(manuscriptScrollTopStillZero!==0)throw new Error(`Reaching the end of the outer form must not require advancing the manuscript's own scroll: manuscript scrollTop=${manuscriptScrollTopStillZero}`);
+    const participantsVisible=await page.$eval(".scene-participant-selector",el=>{const r=el.getBoundingClientRect();return r.bottom>0&&r.top<window.innerHeight});
+    if(!participantsVisible)throw new Error("Participants section must be reachable at the bottom of the outer modal's own scroll");
     const midScrollWindowY=await page.evaluate(()=>window.scrollY);
     if(midScrollWindowY!==0)throw new Error(`Scrolling the Scene Editor must not move the page itself: windowScrollY=${midScrollWindowY}`);
     const footerVisibleMidScroll=await page.$eval("#sceneModal .modal-actions",el=>{const r=el.getBoundingClientRect();return r.bottom>0&&r.top<window.innerHeight});
-    if(!footerVisibleMidScroll)throw new Error("Save/Cancel footer must remain reachable (sticky) while scrolled deep into a long manuscript");
-    // Type at a point genuinely deep in the manuscript's rendered content.
+    if(!footerVisibleMidScroll)throw new Error("Save/Cancel footer must remain reachable (sticky) after scrolling to the bottom of the outer form");
+    await page.$eval("#sceneModal .modal",el=>{el.scrollTop=0});
+
+    // F/H. Long manuscript is reachable/editable near its end via the
+    // manuscript's OWN internal scroll (Playwright's scrollIntoViewIfNeeded
+    // scrolls whichever ancestor scroll container is actually needed --
+    // confirmed below to be the editor itself, not the outer modal).
     const deepParagraph=await page.locator("#sceneTextEditor .ProseMirror p").nth(60);
     await deepParagraph.scrollIntoViewIfNeeded();
+    const editorScrollTopAfterScrollIntoView=await page.$eval("#sceneTextEditor",el=>el.scrollTop);
+    if(editorScrollTopAfterScrollIntoView<=0)throw new Error("Reaching a deep paragraph must scroll the manuscript's own internal scroll region");
     await deepParagraph.click();
     await page.keyboard.press("End");
     await page.keyboard.type(" ГЛУБОКАЯПРАВКА.");
@@ -121,6 +139,7 @@ try{
     if(!deepEditReflected)throw new Error("Typing near the end of a long manuscript must reach the live editor doc");
     const afterTypeWindowY=await page.evaluate(()=>window.scrollY);
     if(afterTypeWindowY!==0)throw new Error(`Typing deep in the manuscript must not move the page itself: windowScrollY=${afterTypeWindowY}`);
+    if(await page.evaluate(()=>document.documentElement.scrollWidth>document.documentElement.clientWidth+2))throw new Error("Long-manuscript editing must not introduce page-level horizontal overflow");
 
     // I. Close/discard guard -- existing dirty-state contract, unchanged.
     await page.tap("#cancelScene");

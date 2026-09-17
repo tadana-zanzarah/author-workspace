@@ -1,3 +1,5 @@
+import {generateUuid} from "./id-generator.js";
+
 function characterById(id){return data.characters.find(c=>c.id===id)}
 
 function cropImageStyle(crop){
@@ -402,7 +404,7 @@ async function readOriginalImage(file){
     const objectUrl=URL.createObjectURL(file);
     try{await new Promise((resolve,reject)=>{const image=new Image();image.onload=resolve;image.onerror=()=>reject(new Error("Файл не является корректным изображением."));image.src=objectUrl})}
     catch(error){URL.revokeObjectURL(objectUrl);throw error}
-    const id=crypto.randomUUID(),photo=normalizePhoto({id,source:{kind:"pending",value:objectUrl},crop:{x:.5,y:.5,zoom:1},alt:"",caption:""},profileEditingId,profileDraftPhotos.length);profileDraftPhotoFiles.set(id,file);return photo;
+    const id=generateUuid(),photo=normalizePhoto({id,source:{kind:"pending",value:objectUrl},crop:{x:.5,y:.5,zoom:1},alt:"",caption:""},profileEditingId,profileDraftPhotos.length);profileDraftPhotoFiles.set(id,file);return photo;
   }
   const dataUrl=await new Promise((resolve,reject)=>{
     const reader=new FileReader();

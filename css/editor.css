@@ -131,32 +131,41 @@
    scroll is specifically for long manuscript text. */
 #sceneModal .rte-editor{height:320px;overflow-y:auto}
 
-/* Stage E3.2 real-phone microfix: the fixed 320px box above, sized for a
-   desktop form, becomes a severe nested-scroll trap on phone -- a
-   realistically long manuscript's OWN scrollHeight can be tens of
-   thousands of pixels while this box shows only 320px of it, and every
-   touch swipe must precisely target this small internal box vs. the
-   surrounding form to scroll the intended thing (exactly the kind of
-   competing-scroll-region confusion Stage E2.1's Cards/`.board` fix and
-   E3.1's whole fullscreen-vs-nested-scroll investigation were about).
-   The comment above explains why a bounded box was chosen over letting the
-   editor grow with content: doing so used to push Save/Close "arbitrarily
-   far away". That concern no longer applies -- `.sticky-modal-footer`
-   (added later, css/modals.css) already keeps Save/Cancel pinned to the
-   bottom of the modal's own scroll viewport regardless of how tall the
-   manuscript is, on every width, so nothing further is needed for that.
-   On phone, `height:auto` lets the manuscript flow as normal content in
-   `#sceneModal .modal`'s own single `overflow:auto` scroll (already the
-   one thing that scrolls metadata/title/participants) instead of a second,
-   independently-scrolling box: metadata -> manuscript -> participants ->
-   footer become ONE continuous swipe gesture, with no ambiguity about
-   which region a touch will scroll. `min-height` keeps a comfortable
-   writing area for a short/empty scene instead of collapsing to a couple
-   of lines. Same selector as the rule above (not a lower-specificity
-   class), placed later in the file -- normal cascade order decides the
-   winner, no `!important` needed. Desktop is completely unaffected. */
+/* Stage E3.2 real-phone microfix (revised by E3.2.1 below): the fixed
+   320px box above, sized for a desktop form, becomes a severe nested-
+   scroll trap on phone for a very long manuscript -- every touch swipe
+   must precisely target the small internal box vs. the surrounding form
+   to scroll the intended thing. E3.2's first fix removed the nested box
+   entirely (`height:auto`, manuscript flows inline in the outer modal
+   scroll). Real-device review of THAT found a different problem: for a
+   realistically long scene, the unbounded manuscript became a wall of
+   many screens' worth of text between metadata and participants --
+   reaching participants/fields below the manuscript required scrolling
+   through the ENTIRE scene text first. Nested scrolling per se was never
+   the actual defect; an UNBOUNDED nested-in-the-page manuscript is just as
+   much a trap in the other direction.
+
+   Stage E3.2.1: restores a bounded, independently-scrolling manuscript box
+   on phone -- but sized for phone, not the desktop-derived 320px constant.
+   `45vh`/`45dvh` (not a fixed pixel count) is deliberately viewport-
+   relative, consistent with this file's own `92vh`/`100vh`+`100dvh`
+   precedent elsewhere: generous enough to be a genuinely useful writing
+   surface (comparable to or larger than the original 320px on a typical
+   phone viewport), while deliberately leaving visible room below the
+   editor's own box so participants/other fields are never more than a
+   short scroll away, regardless of how long the manuscript's OWN content
+   is (`overflow-y:auto` keeps that internal length off the outer scroll
+   entirely, exactly like desktop's own 320px box already does). The outer
+   `#sceneModal .modal` remains the single scroll owner for metadata/title/
+   participants/footer, unchanged from E3.2 -- only the manuscript itself
+   goes back to owning its own bounded vertical scroll on phone. `.sticky-
+   modal-footer` (css/modals.css) is unaffected either way -- it already
+   keeps Save/Cancel reachable regardless of the manuscript's own length.
+   Same selector as the desktop rule above, placed later in the file --
+   normal cascade order decides the winner, no `!important` needed.
+   Desktop is completely unaffected (unchanged 320px box). */
 @media(max-width:760px){
-  #sceneModal .rte-editor{height:auto;min-height:40vh;overflow-y:visible}
+  #sceneModal .rte-editor{height:45vh;height:45dvh;overflow-y:auto}
 }
 
 /* Stage E2.2: Quick Scene (#quickSceneModal) — reuses .rte-toolbar/
