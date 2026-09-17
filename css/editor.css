@@ -319,6 +319,20 @@
   background:var(--surface-elevated);border-bottom:1px solid var(--border-faint);
   touch-action:none;
 }
+/* Stage E3.2.5: see js/editor/find-replace-panel.js's
+   revealResizerPastStickyFooter() for why this exists -- on #sceneModal/
+   #allScenesModal, `.sticky-modal-footer` (css/modals.css) stays pinned
+   over roughly the last 75px of the modal's own scroll viewport at nearly
+   any scroll depth. Without this, the browser's native scrollIntoView
+   (used to reveal this resizer the first time results appear) would
+   consider the resizer "already visible" as soon as it is geometrically
+   inside that viewport, even though the footer visually/functionally
+   covers it there -- this margin tells scrollIntoView to keep scrolling
+   until the resizer clears that reserved strip. Phone-only: desktop's
+   modal has no such squeeze and must not change. */
+@media(max-width:760px){
+  .rte-project-results-resizer{scroll-margin-bottom:84px}
+}
 .rte-project-results-resizer::after{
   content:"";width:32px;height:3px;border-radius:2px;background:var(--border-subtle);
 }

@@ -1660,3 +1660,163 @@ redesign was attempted (sanity-checked only). Find/Replace semantics,
 search/replace logic, and project-results horizontal scrolling
 (E3.1.2/E3.1.3) are unchanged. Quick Scene was not touched. Text Scene
 was not touched (it was never affected by E3.2.3 in the first place).
+
+## 36. Stage E3.2.5 — results-splitter resizer born occluded under the sticky footer
+
+E3.2.4's independent-manuscript model was partially accepted on real-
+phone testing: manuscript height/scroll behavior, the results-only
+splitter, and the `crypto.randomUUID` fallback were all confirmed good
+and preserved unchanged by this stage. One remaining defect was
+reported: enlarging the project-results pane with the splitter appeared
+to push the upper Find/Replace area upward/out of the viewport.
+
+### Diagnosis (measured, not guessed)
+
+Synthetic `PointerEvent` dispatch (used to sanity-check the resizer
+element directly) reproduced *nothing* — zero scroll/anchor movement —
+confirming again (as in E3.2.2/E3.2.3) that it does not exercise the
+same native touch/scroll/gesture pipeline as a real touch. Switching to
+genuine CDP `Input.dispatchTouchEvent` drags (a fresh Playwright/CDP
+session, not the shared browser pane) did reproduce scroll changes, but
+`document.elementFromPoint()` hit-testing at the exact computed resizer
+coordinates revealed the touch was landing on
+`.modal-actions.sticky-modal-footer`, not the resizer, at the scroll
+position the Scene Editor lands on immediately after opening
+Find/Replace and switching to project scope — **before the user ever
+touches the resizer, with no resize attempted yet**. Direct rect
+comparison confirmed physical overlap: resizer `top:738/bottom:746` vs.
+footer `top:737/bottom:812` (`position:sticky;z-index:5`, pre-existing
+`css/modals.css` rule, unrelated to any Stage E CSS). `#textModal`
+(Text Scene) overrides this footer to `position:static` (see
+`editor.css`'s own comment on `#textModal .modal-actions.sticky-modal-
+footer`), so it was never exposed to this defect; `#sceneModal` and
+`#allScenesModal` both still use the single-big-scroll pattern with the
+genuinely sticky footer, so both were exposed to it.
+
+A second, cleaner reproduction — first manually scrolling the resizer
+clear of the footer, confirmed via `elementFromPoint` — showed a
+touch that genuinely lands on and drives the resizer (12 pointer events
+fired, results correctly grew `140→240px` matching the drag) produces
+**zero** change in the outer modal's `scrollTop` or in a stable anchor's
+viewport position. This directly contradicts the originally-hypothesized
+mechanism ("a successful resize itself causes scroll-anchor drift, needs
+compensation") and instead confirms: the resizer starting life hidden
+under the sticky footer, causing the touch to miss it entirely and fall
+through to an ordinary native scroll of the outer modal, **is** the
+mechanism — not anything to compensate for during a genuinely successful
+drag.
+
+### Fix
+
+`js/editor/find-replace-panel.js`'s `revealResizerPastStickyFooter()`:
+called once, from `renderProjectResults`, exactly on the
+`resultsWrapper.hidden` **true→false** transition (i.e. the first time
+project-scope results appear for this open/scope-switch), and only
+under the phone shell breakpoint (`matchMedia("(max-width:760px)")`) —
+desktop gains no new scroll behavior at all, per the explicit no-desktop-
+jumps requirement. It calls `resizer.scrollIntoView({block:"nearest"})`
+on the next animation frame. `css/editor.css` adds
+`.rte-project-results-resizer{scroll-margin-bottom:84px}` (phone-only,
+rounded up from the measured ~75px footer height) so the browser's own
+native `scrollIntoView` algorithm treats the footer's reserved strip as
+"not sufficiently visible," rather than requiring any manual pixel-
+compensation logic here.
+
+Deliberately **not** also re-run after a completed resize: growing the
+results pane can itself push the resizer below the fold (confirmed: a
+single +100px grow was enough), but re-revealing it there would require
+scrolling the outer modal further, which would disturb the very anchor-
+stability contract this fix exists to guarantee. A resizer that ends up
+off-screen after a resize is not something this stage needed to solve —
+like any other control that scrolls out of view, the user scrolls a
+little to reach it again.
+
+### Verified geometry (measured live, genuine CDP touch drag)
+
+Before fix (unmodified `9c5ef64`, out-of-the-box: open scene, open
+Find/Replace, switch to project, type a query, no manual scroll):
+resizer `top:738/bottom:746` fully inside the footer's `737–812` strip;
+`elementFromPoint` at the resizer's own center resolves to the footer,
+not the resizer. A genuine CDP touch drag of `+100` there: 0 pointer
+events reached the resizer, results height unchanged (`140→140`), but
+the outer modal's `scrollTop` still moved substantially (`475→385`,
+Δ90) and the anchor (`#sceneTextFindReplace`'s own viewport top) shifted
+by the same ~90px — a real, severe break: the drag fails silently and
+the view reflows unexpectedly, which is what real-phone testing
+described as the Find/Replace area shifting.
+
+After fix: at the same starting point, the reveal nudges the outer
+modal's `scrollTop` from `475→493` (an 18px settle, run once, before the
+user's first touch), leaving the resizer clear of the footer
+(`elementFromPoint` now resolves to the resizer itself). A genuine CDP
+`+100` touch drag from there: `modalScrollTop` unchanged (`493→493`),
+anchor viewport top unchanged (Δ0), results height `140→240` (matches
+the drag exactly), manuscript height unchanged (`406→406`px), manuscript
+top moved down by exactly the results growth (Δ100, matching Δresults).
+A `-60` reverse drag (after `scrollIntoViewIfNeeded()` re-locates the
+now-lower resizer, itself a settle step, not part of the drag) proved
+the exact inverse: results `240→180`, anchor Δ0, manuscript height
+unchanged, manuscript top moved back up by the shrink amount. `+2000`/
+`-2000` extreme drags still clamp to `MAX_RESULTS_HEIGHT`(420)/
+`MIN_RESULTS_HEIGHT`(90) with the anchor still stable at each extreme.
+`window.scrollY` stayed exactly `0` throughout every drag in both
+directions — the outer `#sceneModal .modal` remained the sole scroll
+owner, never the page itself.
+
+**Baseline-failure proof**: `tools/mobile-scene-editor-browser.test.mjs`
+now asserts (a) the resizer is genuinely hit-testable
+(`elementFromPoint` resolves to it, not the footer) as soon as it first
+appears, and (b) the anchor's viewport position stays stable (±4px)
+across a grow drag, a shrink drag, and both extreme clamped drags —
+plus that content below the results pane (the manuscript's own top)
+moves down/up roughly matching the results' growth/shrinkage. Confirmed
+by temporarily stashing only the `css/editor.css`/`find-replace-
+panel.js` fix (keeping the extended test) and re-running: it fails at
+the `elementFromPoint` assertion, for the real measured reason above —
+not a fabricated one. Restoring the fix passes cleanly. Note: at this
+test's normal `390×844` phone viewport, this specific fixture's own
+content happens to leave a ~7px gap that narrowly avoids the defect (the
+exact overlap is inherently viewport/content-height sensitive, which is
+also why the fix targets "never born occluded" generically rather than
+one fixed geometry) — the Find/Replace sub-test temporarily uses
+`390×812` instead (still comfortably phone-width, confirmed by direct
+measurement to reproduce the overlap with this exact fixture), restored
+to `390×844` immediately after that sub-test closes.
+
+### Text Scene / desktop / landscape
+
+Text Scene's own splitter regression
+(`tools/mobile-text-scene-browser.test.mjs`) passes unchanged — its
+footer is `position:static` (not sticky), so it was never exposed to
+this defect, and nothing in this stage's fix touches `#textModal`-
+specific code (the fix lives in the shared `find-replace-panel.js`
+function used by all three surfaces, gated purely by whether the
+resizer is actually hidden-under-the-footer at reveal time — a no-op
+where it already isn't). Desktop: `#sceneModal .rte-editor` remains
+exactly `320px`/`overflow-y:auto`; `revealResizerPastStickyFooter()`'s
+`matchMedia` guard means it never runs at desktop widths at all, so no
+new scroll behavior was introduced there. Landscape (667×375): sanity-
+checked only via the existing landscape assertions in `tools/mobile-
+scene-editor-browser.test.mjs`, unchanged from E3.2.4 — no landscape
+redesign attempted.
+
+**Files changed:** `js/editor/find-replace-panel.js`
+(`revealResizerPastStickyFooter()` + the `wasHidden` reveal-trigger in
+`renderProjectResults`), `css/editor.css` (phone-only `scroll-margin-
+bottom` on the resizer), `tools/mobile-scene-editor-browser.test.mjs`
+(anchor-stability + resizer-reachability assertions for grow/shrink/
+min/max, baseline-failure-proof confirmed).
+
+## 37. Explicit confirmation (E3.2.5)
+
+No Supabase changes, no migrations, `reference/` and `backup/`
+untouched. E4, E6, and tablet work were not started. No landscape
+redesign was attempted (sanity-checked only, unchanged from E3.2.4).
+Find/Replace search/replace semantics, the toolbar, and project-results
+horizontal scrolling (E3.1.2/E3.1.3) are unchanged. Quick Scene was not
+touched (it has no Find/Replace panel at all). Text Scene's own code was
+not touched — inspection proved its footer is not sticky, so it was
+never exposed to this defect. The manuscript's independent ~50dvh phone
+height and desktop's 320px height (E3.2.4's accepted model) are
+unchanged; this stage did not touch manuscript geometry at all, per its
+explicit guard.

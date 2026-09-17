@@ -418,6 +418,52 @@ export function createFindReplacePanel(container,controller){
   // anything inside this panel itself.
   container.addEventListener("find-replace-escape",()=>controller.close());
 
+  // Stage E3.2.5 real-phone corrective fix: #sceneModal/#allScenesModal (any
+  // surface still using the shared `.modal-actions.sticky-modal-footer`,
+  // css/modals.css -- #textModal opts out of it, see editor.css's own
+  // comment on `#textModal .modal-actions.sticky-modal-footer`) keep that
+  // footer pinned via `position:sticky` over the LAST ~75px of the modal's
+  // own scroll viewport at essentially any scroll depth. The project-results
+  // pane (and its resizer) can land there the very first time it appears --
+  // e.g. right after opening Find/Replace and switching to "Весь проект",
+  // the browser's own native "scroll the newly-focused find input into
+  // view" behavior can leave the resizer sitting exactly under that footer,
+  // BEFORE the user ever touches it. A touch aimed at the (visually hidden)
+  // resizer then lands on the footer instead, so no resize happens at all --
+  // instead the touch falls through to an ordinary native scroll of the
+  // outer modal, which is what real-phone testing actually saw as "the
+  // upper Find/Replace area shifts upward/out of view" (confirmed via
+  // elementFromPoint hit-testing + a CDP touch-drag reproduction: with the
+  // resizer genuinely reachable, a correctly-captured drag showed ZERO
+  // scroll/anchor movement at all -- see docs/responsive-workspace-
+  // architecture.md's E3.2.5 section for the measured before/after). The fix
+  // is therefore not "compensate scroll during a successful resize" (nothing
+  // to compensate there) but "make sure the resizer is not born unreachable
+  // in the first place": once it first becomes visible, nudge it clear of
+  // the footer's reserved strip. `scroll-margin-bottom` on the resizer
+  // (css/editor.css, phone-only) tells the browser's own scrollIntoView
+  // algorithm to treat that reserved strip as insufficient, so this native
+  // call does the right thing with no manual pixel math here. Runs once per
+  // hidden->visible transition only (never on every keystroke's re-render,
+  // which would otherwise yank the user's scroll position while they read
+  // results) and only on the phone shell breakpoint (desktop's modal has no
+  // such squeeze and must not gain any new scroll behavior, per the
+  // explicit desktop-no-jumps requirement for this stage). Deliberately
+  // NOT also re-run after a completed resize: growing the results pane can
+  // itself push the resizer below the fold, and re-revealing it there would
+  // require scrolling the outer modal further -- which would disturb the
+  // very anchor-stability contract this stage's fix exists to guarantee.
+  // A resizer that ends up off-screen after a resize is not a regression
+  // this stage needs to solve: exactly like any other control that scrolls
+  // out of view, the user can scroll a little to reach it again, the same
+  // way they would for any other affordance below the fold.
+  function revealResizerPastStickyFooter(){
+    if(typeof matchMedia!=="function"||!matchMedia("(max-width:760px)").matches)return;
+    requestAnimationFrame(()=>{
+      if(!resultsWrapper.hidden)resizer.scrollIntoView({block:"nearest"});
+    });
+  }
+
   // Rebuilds the project-results list from scratch on every relevant
   // snapshot -- simplest correct approach for a "practical first version"
   // (see docs/find-replace-architecture.md's own Stage D1 product brief,
@@ -433,7 +479,9 @@ export function createFindReplacePanel(container,controller){
     replaceStatusEl.hidden=true;replaceStatusEl.textContent="";
     resultsRoot.innerHTML="";
     if(!snapshot.open||snapshot.scope!=="project"){resultsWrapper.hidden=true;return}
+    const wasHidden=resultsWrapper.hidden;
     resultsWrapper.hidden=false;
+    if(wasHidden)revealResizerPastStickyFooter();
     if(!snapshot.query){
       const hint=document.createElement("div");
       hint.className="rte-project-results-hint";
