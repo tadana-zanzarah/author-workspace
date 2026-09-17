@@ -91,14 +91,7 @@ export function excludedScenesClause(excludedSceneCount){
   return ` · ${excludedSceneCount} ${noun} ${verb} в общий текст`;
 }
 
-// Stage E3.2.3: `manuscriptElement` (optional -- only the full Scene
-// Editor's own mount passes it, see scene-editor-controller.js's own
-// comment on why) is the manuscript editor container that shares a
-// bounded flex region with the results pane on phone, ONLY for that one
-// surface. Passing it lets the resizer's own max-height clamp become
-// geometry-aware there instead of a single flat constant -- see
-// effectiveMaxResultsHeight below.
-export function createFindReplacePanel(container,controller,{manuscriptElement=null}={}){
+export function createFindReplacePanel(container,controller){
   container.innerHTML="";
   container.classList.add("rte-find-replace");
   container.hidden=true;
@@ -294,72 +287,15 @@ export function createFindReplacePanel(container,controller,{manuscriptElement=n
     container.appendChild(resultsWrapper);
   }
 
-  // Stage E3.2.3: on the full Scene Editor's phone-only bounded flex
-  // region (css/editor.css's own comment on `.scene-section:has(
-  // #sceneTextEditor)`), the flat `MAX_RESULTS_HEIGHT` constant alone
-  // would let the results pane claim more height than the shared region
-  // actually has room for, crushing the manuscript past its own
-  // `min-height` floor and forcing the (now `overflow:hidden`) section to
-  // clip content instead of the two regions trading space correctly.
-  // Deliberately NOT a fixed arithmetic guess at "how much is reserved
-  // for title/toolbar/find-row" (that would be exactly the fragile
-  // viewport-arithmetic this stage was told to avoid, and would drift out
-  // of sync the moment any of that content's own height changes) --
-  // instead measured LIVE from actual current geometry: "however much
-  // slack the manuscript currently has above its own floor is exactly how
-  // much more the results pane may take," recomputed fresh on every call
-  // so it stays correct across resizes/rotation without polling a
-  // hardcoded breakpoint number. Gated on the manuscript's PARENT actually
-  // being the phone-only flex column right now (not a width check) --
-  // `#sceneModal .rte-editor` also participates in this SAME shared base
-  // `.rte-editor{flex:1 1 auto}` rule on desktop, but its parent stays an
-  // ordinary block there (this bounded-flex model is phone-only), so this
-  // correctly falls through to the unchanged flat constant on desktop,
-  // and is a no-op entirely for Text Scene/"Весь текст" (`manuscriptElement`
-  // is only ever passed for the Scene Editor's own mount -- see
-  // scene-editor-controller.js), preserving both exactly as before.
-  function effectiveMaxResultsHeight(currentHeight){
-    if(!manuscriptElement)return MAX_RESULTS_HEIGHT;
-    if(getComputedStyle(manuscriptElement.parentElement).display!=="flex")return MAX_RESULTS_HEIGHT;
-    const editorRect=manuscriptElement.getBoundingClientRect();
-    // The very first `setResultsHeight(...)` call below
-    // happens synchronously while this mount is still building the modal's
-    // contents, BEFORE showModal() makes it visible -- every geometry read
-    // on a `display:none` ancestor reports 0, which would otherwise compute
-    // a bogus negative "slack" and wrongly floor the very first open at
-    // MIN_RESULTS_HEIGHT instead of the intended default. Fall back to the
-    // flat constant whenever the manuscript isn't actually laid out yet;
-    // the live-measured clamp only makes sense once it is.
-    if(editorRect.height<=0)return MAX_RESULTS_HEIGHT;
-    const editorMinHeight=parseFloat(getComputedStyle(manuscriptElement).minHeight)||0;
-    const editorSlack=editorRect.height-editorMinHeight;
-    return Math.min(MAX_RESULTS_HEIGHT,Math.max(MIN_RESULTS_HEIGHT,currentHeight+editorSlack));
-  }
   function clampResultsHeight(height){
-    const currentHeight=resultsRoot.getBoundingClientRect().height||DEFAULT_RESULTS_HEIGHT;
-    return Math.min(effectiveMaxResultsHeight(currentHeight),Math.max(MIN_RESULTS_HEIGHT,height));
+    return Math.min(MAX_RESULTS_HEIGHT,Math.max(MIN_RESULTS_HEIGHT,height));
   }
   function setResultsHeight(height){
     const clamped=clampResultsHeight(height);
     resultsRoot.style.height=`${clamped}px`;
     resizer.setAttribute("aria-valuenow",String(Math.round(clamped)));
   }
-  // Stage E3.2.3: measured live geometry on the full Scene Editor's phone-
-  // only bounded region -- title + the rich-text toolbar + the Find/
-  // Replace row (all fixed/non-shrinking overhead there) already consume
-  // more than half of the shared 50dvh budget on a narrow phone column
-  // (both wrap to multiple rows). Starting the results pane at the same
-  // flat DEFAULT_RESULTS_HEIGHT used everywhere else would leave the
-  // manuscript with only a few unusable pixels the INSTANT project-scope
-  // Find/Replace opens, before the user ever touches the resizer -- for
-  // this one bounded surface, start at MIN_RESULTS_HEIGHT instead (results
-  // still fully functional/scrollable at its own floor), which leaves the
-  // manuscript a genuinely usable starting size; dragging down still
-  // reaches the same MAX_RESULTS_HEIGHT ceiling as everywhere else,
-  // whenever the manuscript's own slack actually allows it. Text Scene/
-  // "Весь текст" (`manuscriptElement` not passed) are completely
-  // unaffected -- still start at the unchanged flat default.
-  setResultsHeight(manuscriptElement?MIN_RESULTS_HEIGHT:DEFAULT_RESULTS_HEIGHT);
+  setResultsHeight(DEFAULT_RESULTS_HEIGHT);
 
   let resizePointerId=null,resizeStartY=0,resizeStartHeight=0;
   resizer.addEventListener("pointerdown",event=>{

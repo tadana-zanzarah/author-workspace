@@ -99,16 +99,7 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
   const doc=loadSceneDocument(sceneDocSchema,scene);
   const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,commitProjectReplaceAll,rebaseSceneDirtyBaseline,confirmProjectReplaceAll})):null;
   findReplace?.adoptProjectSession(projectSession);
-  // Stage E3.2.3: `manuscriptElement` is only passed for the full Scene
-  // Editor (`surfaceId==="sceneModal"`) -- the one surface with a
-  // phone-only bounded flex region sharing height with the results pane
-  // (see css/editor.css's own comment on `.scene-section:has(
-  // #sceneTextEditor)` and find-replace-panel.js's `effectiveMaxResults
-  // Height`). Text Scene and "Весь текст" already redistribute space
-  // correctly via their own unconditional flex-column modal and need no
-  // change here -- omitting it for them keeps their behavior, desktop and
-  // phone alike, byte-for-byte identical to before this stage.
-  const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace,surfaceId==="sceneModal"?{manuscriptElement:editorContainer}:undefined):null;
+  const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{
     characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined,
     // Editor-handoff Stage D2.1.4 (Finding 2) / D2.1.5 (position handoff):

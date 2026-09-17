@@ -1550,3 +1550,113 @@ beyond the graceful-degradation check above. Find/Replace semantics
 layout geometry. Quick Scene was not touched. Text Scene's own behavior
 was not changed — inspection proved it was never broken, so nothing there
 needed fixing.
+
+## 34. Stage E3.2.4 — E3.2.3 REJECTED; independent manuscript height restored
+
+Real-phone testing of E3.2.3 rejected its entire premise. Observed: with
+Find/Replace closed, the manuscript had its useful ~50dvh height as
+expected — but simply *opening* Find/Replace (even current-scene mode,
+with no results pane visible at all) already collapsed the manuscript to
+a few lines, and project mode could make it disappear almost entirely.
+This is unacceptable, and traces directly to §32's own design: E3.2.3
+made the manuscript and the results pane trade space within one bounded
+50dvh region, so *any* Find/Replace UI taking up room — not just a grown
+results pane — ate directly into the manuscript's share.
+
+**Corrected product requirement, restated:** the project-results splitter
+was never supposed to redistribute height between results and the
+manuscript. Its only job is resizing the results pane. The manuscript
+keeps its own independently-bounded ~50dvh phone height regardless of
+whether Find/Replace is open, current-scene, or project-scope.
+
+### What was reverted
+
+`.scene-section:has(#sceneTextEditor){display:flex;flex-direction:column;
+height:50vh;height:50dvh;overflow:hidden}` (§32's bounded flex
+sub-region) — removed entirely. `#sceneModal .rte-editor` reverts from
+`flex:1 1 auto;min-height:20px;overflow-y:auto` back to its exact E3.2.2
+form: `height:50vh;height:50dvh;overflow-y:auto` (a plain, independent
+height, not flex-based, not sharing anything). `js/editor/find-replace-
+panel.js`'s `effectiveMaxResultsHeight` (the dynamic geometry-aware
+clamp) and the `manuscriptElement`-based "start results at MIN instead of
+DEFAULT for Scene Editor" logic — both removed; `clampResultsHeight` is
+back to the plain `Math.min(MAX_RESULTS_HEIGHT,Math.max(
+MIN_RESULTS_HEIGHT,height))` used everywhere. `js/editor/scene-editor-
+controller.js`'s conditional `manuscriptElement:editorContainer` argument
+to `createFindReplacePanel` — removed; the call is back to
+`createFindReplacePanel(findReplaceContainer,findReplace)`, exactly as
+before E3.2.3, for every surface. All three files were reverted to their
+exact E3.2.2 (`7defb47`) content via `git checkout 7defb47 -- <file>`,
+confirmed identical (zero remaining `manuscriptElement` references
+anywhere), then a historical-record comment was added explaining what was
+tried and why it was rejected, so the same idea isn't attempted again.
+
+**Explicitly preserved, unchanged:** phone fullscreen Scene Editor;
+`#sceneModal` manuscript's own `~50dvh` independent height;
+`overflow-y:auto`; the outer `#sceneModal .modal` scroll model (E3.2.1);
+sticky footer; E3.2.2's `touch-action:none` splitter fix (still present,
+untouched by this revert — confirmed the resizer's own CSS rule is
+identical to the pre-E3.2.3 state plus the new fix, not the E3.2.2
+state alone); Pointer Events/pointer capture/`pointercancel` (unchanged,
+was never part of E3.2.3's change); `MIN_RESULTS_HEIGHT`(90)/
+`MAX_RESULTS_HEIGHT`(420) (back to their original flat, unconditional
+values everywhere); the shared horizontal project-results scroll model
+(E3.1.2/E3.1.3, untouched by any of E3.2.2/E3.2.3/E3.2.4); Text Scene;
+Quick Scene; the `crypto.randomUUID` fallback (E3.2.1); desktop's
+`320px`/`overflow-y:auto` manuscript.
+
+### Verified geometry (375×812 portrait)
+
+Measured live, fresh scene, fresh mount:
+- **Find/Replace closed**: manuscript `406px` (exactly 50% of 812px).
+- **Find/Replace open, current-scene mode** (no results pane at all):
+  manuscript still `406px` — unchanged.
+- **Switched to project mode** (results pane now exists at its default
+  `140px`): manuscript still `406px` — unchanged. The outer
+  `#sceneModal .modal`'s own `scrollHeight` grew from `1903` to
+  account for the newly-visible Find/Replace UI, as expected — the outer
+  form got taller, exactly the accepted "these elements may make the
+  outer form taller, that's fine" contract.
+- **Touch-dragging the splitter +100px**: results grew `140→240px`
+  (matches the drag distance); manuscript stayed at **exactly `406px`,
+  unchanged**; the outer modal's own `scrollHeight` grew a further
+  `1903→2003px` (+100, absorbing the results growth) — confirming growth
+  is redirected to the outer scroll, never taken from the manuscript.
+- **Outer scroll to the very end**: participants became visible in the
+  viewport while the manuscript's own `scrollTop` stayed exactly `0` —
+  participants are reached without ever traversing the manuscript.
+- **Desktop**: `#sceneModal .rte-editor` computed exactly `320px`/
+  `overflow-y:auto`, fully unaffected.
+
+**Baseline-failure proof**: temporarily restoring E3.2.3's rejected code
+(`css/editor.css`/`find-replace-panel.js`/`scene-editor-controller.js`
+from `b14c44d`) and re-running the new regression fails immediately —
+even with Find/Replace closed, the manuscript's own rendered height
+(`261px`) falls below the required useful-height threshold, reproducing
+the exact real-device collapse. Restoring the E3.2.4 fix passes cleanly.
+
+### Automated vs. real-device scope
+
+This is geometry proof, not final UX acceptance — as with every other
+Stage E geometry fix, real-phone review remains the actual acceptance
+gate. Landscape (667×375) was re-verified for basic sanity only (opening
+project Find/Replace there does not materially change the manuscript's
+own height either) — no landscape redesign was attempted, matching this
+stage's explicit scope guard.
+
+**Files changed:** `css/editor.css` (revert + historical-record
+comments), `js/editor/find-replace-panel.js` (revert),
+`js/editor/scene-editor-controller.js` (revert),
+`tools/mobile-scene-editor-browser.test.mjs` (E3.2.3's shared-space
+assertions replaced with the corrected independent-height contract;
+confirmed the new assertions fail against `b14c44d` and pass with the
+fix).
+
+## 35. Explicit confirmation (E3.2.4)
+
+No Supabase changes, no migrations, `reference/` and `backup/`
+untouched. E4, E6, and tablet work were not started. No landscape
+redesign was attempted (sanity-checked only). Find/Replace semantics,
+search/replace logic, and project-results horizontal scrolling
+(E3.1.2/E3.1.3) are unchanged. Quick Scene was not touched. Text Scene
+was not touched (it was never affected by E3.2.3 in the first place).

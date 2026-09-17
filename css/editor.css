@@ -169,64 +169,27 @@
    short as a writing surface -- bumped to 50vh/50dvh. Same mechanism,
    same tradeoffs, just a larger fraction of the viewport.
 
-   Stage E3.2.3: real-phone review of the project-results resizer (below)
-   found that on THIS surface -- unlike Text Scene's own flex-column
-   modal, where the editor's shared `flex:1 1 auto` already lets it
-   absorb/give back space as the results pane resizes -- dragging the
-   splitter only grew the results pane; the editor's height above was a
-   plain, independent `50vh`/`50dvh` figure with no relationship to it at
-   all, so the two regions' combined content just got taller and taller,
-   pushing everything below down (E3.2.1's own outer-modal-scroll model
-   absorbed that growth, which is exactly why it read as "the modal gets
-   pushed/scrolled" instead of "the editor shrinks"). Fixed by making THIS
-   ONE SUB-REGION (title + toolbar + Find/Replace row + results pane +
-   manuscript, not the whole `#sceneModal .modal`) its own small bounded
-   flex column -- exactly Text Scene's own already-correct mechanism, just
-   scoped to a sub-region instead of the whole modal, since Scene Editor
-   (unlike Text Scene) has real content both above (primary metadata/
-   title) and below (participants) this region that must stay in the
-   outer modal's own single linear scroll (E3.2.1's own decision,
-   unchanged).
-
-   The editor's `min-height:20px` (below) is deliberately small, not a
-   comfortable writing size -- measured live: with the rich-text toolbar
-   (wraps to ~3 rows on a narrow phone column) and the Find/Replace row
-   (wraps to several rows of its own: scope toggle, find/replace inputs,
-   prev/next, case toggle, close) both fully expanded, they alone already
-   consume MORE than half of the shared 50dvh budget, leaving only
-   roughly 20-30px of genuinely available space for editor+results
-   together even with results at its own MIN_RESULTS_HEIGHT floor. A
-   taller editor floor here would force the flex layout to exceed the
-   section's fixed height with no safe place for the overflow to go
-   (`overflow:hidden` would silently clip the editor's own bottom edge;
-   `overflow:visible` would let it bleed into the Participants section
-   below) -- so the floor is intentionally kept at/under that true
-   measured minimum instead. This is this stage's own concrete instance
-   of "the shared-space model must fail gracefully at short height": the
-   moment a user deliberately opens project-wide Find/Replace while
-   editing (a occasional, deliberate action, not the default state --
-   Find/Replace closed or scene-only scope still gives the editor nearly
-   the whole 50dvh, unchanged), the manuscript genuinely has very little
-   room to spare, and this floor keeps it a non-zero, still-interactive
-   sliver rather than 0/clipped/overflowing. Confirmed via live
-   measurement across a grow-then-shrink drag: the section's own rendered
-   height stays exactly 50dvh throughout (no overflow, no clipping) in
-   every state tested.
-
-   `#sceneModal .rte-editor`'s init default now starts the results pane at
-   MIN_RESULTS_HEIGHT rather than the shared DEFAULT_RESULTS_HEIGHT the
-   moment project scope activates (js/editor/find-replace-panel.js) --
-   given how little natural room there is, starting at the taller shared
-   default would leave the editor already crushed to its floor before the
-   user ever touches the resizer. `.rte-project-results-resizer`'s own
-   dynamic max-height clamp (same file) is the other half of the same
-   guarantee: it stops a drag from claiming more of the results pane than
-   the editor can structurally spare, computed from THIS section's live
-   geometry -- see that file's own comment for why a fixed number here
-   wouldn't have been enough on its own. */
+   Stage E3.2.3 (tried and REJECTED after real-phone testing -- recorded
+   here so the same idea isn't tried again): made the manuscript share
+   this same 50dvh budget with the project-results pane via a bounded flex
+   sub-region (`.scene-section:has(#sceneTextEditor){display:flex;
+   height:50dvh}` + `#sceneModal .rte-editor{flex:1 1 auto;
+   min-height:20px}`), so opening Find/Replace or growing results
+   correspondingly shrank the manuscript. Real-device testing rejected
+   this: opening Find/Replace alone (even in current-scene mode, with no
+   results pane at all) already collapsed the manuscript to a few lines,
+   and project mode could make it disappear almost entirely -- the
+   product requirement was never "trade space with the manuscript," only
+   "the results pane itself should be resizable." E3.2.4 reverts this
+   rule back to exactly its E3.2.2 form below -- the manuscript's own
+   ~50dvh height is independent of whether Find/Replace is open at all;
+   see `.rte-project-results-resizer`'s own comment for how the splitter
+   now only resizes the results pane, letting the outer `#sceneModal
+   .modal` scroll (already its job since E3.2.1) absorb any extra height
+   that creates, exactly like growing manuscript content itself already
+   does. */
 @media(max-width:760px){
-  .scene-section:has(#sceneTextEditor){display:flex;flex-direction:column;height:50vh;height:50dvh;overflow:hidden}
-  #sceneModal .rte-editor{flex:1 1 auto;min-height:20px;overflow-y:auto}
+  #sceneModal .rte-editor{height:50vh;height:50dvh;overflow-y:auto}
 }
 
 /* Stage E2.2: Quick Scene (#quickSceneModal) — reuses .rte-toolbar/
@@ -343,7 +306,13 @@
    is scoped to only this narrow handle (not the results list, not the
    page) -- the same precedent already used for `.photo-crop-viewport`
    elsewhere in this codebase (css/profiles.css) for the identical class
-   of custom-drag-surface problem. */
+   of custom-drag-surface problem.
+
+   Stage E3.2.4: reconfirmed this resizer's own job is unchanged and
+   narrow -- resize `.rte-project-results` (the results pane) only. The
+   E3.2.3 attempt to ALSO make it indirectly resize the manuscript (by
+   sharing a bounded flex region) was rejected on real-device testing and
+   reverted -- see `#sceneModal .rte-editor`'s own comment above. */
 .rte-project-results-resizer{
   height:8px;margin:0 18px;cursor:ns-resize;
   display:flex;align-items:center;justify-content:center;
