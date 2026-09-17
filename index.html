@@ -801,7 +801,17 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="sceneModal" role="dialog" aria-modal="true" aria-labelledby="sceneModalTitle">
+<!-- Stage E3.2: `.mobile-fullscreen-modal` (css/editor.css) is the same
+     reusable phone-fullscreen shell Quick Scene and Text Scene already
+     use. Unlike those two, #sceneModal's own `.modal` sets no conflicting
+     width/height of its own (only the generic `.modal` base rule applies),
+     so the primitive's existing !important phone overrides take effect
+     with no further changes here. Scroll ownership stays exactly what it
+     already was (the base `.modal{overflow:auto}` rule) -- see
+     css/editor.css's own comment on `#sceneModal .rte-editor` for the one
+     substantive phone-only change this stage makes (the manuscript's
+     legacy fixed 320px nested scroll). -->
+<div class="modal-backdrop mobile-fullscreen-modal" id="sceneModal" role="dialog" aria-modal="true" aria-labelledby="sceneModalTitle">
   <div class="modal">
     <h2 id="sceneModalTitle">Новая сцена</h2>
 

@@ -46,6 +46,7 @@
     "test:mobile-cards-browser": "node tools/mobile-cards-browser.test.mjs",
     "test:quick-scene-browser": "node tools/quick-scene-browser.test.mjs",
     "test:mobile-text-scene-browser": "node tools/mobile-text-scene-browser.test.mjs",
+    "test:mobile-scene-editor-browser": "node tools/mobile-scene-editor-browser.test.mjs",
     "test:scene-participants-browser": "node tools/scene-participants-browser.test.mjs",
     "test:scene-modal-scroll-browser": "node tools/scene-modal-scroll-browser.test.mjs",
     "test:scene-rich-text-editor-browser": "node tools/scene-rich-text-editor-browser.test.mjs",

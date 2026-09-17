@@ -1003,3 +1003,161 @@ search mode was implemented; desktop Find/Replace is unchanged. This
 stage only corrected `.rte-project-result-row`'s phone-only box sizing so
 painted and interactive geometry agree with the shared horizontal scroll
 surface introduced in E3.1.2.
+
+## 26. Stage E3.2 — mobile full Scene Editor (`#sceneModal`)
+
+Adapted the existing full Scene Editor into a genuinely usable phone
+surface: true fullscreen, and — the actual substance of this stage — a
+deliberately different scroll-ownership model from Text Scene's, chosen
+because the two surfaces are structurally different (Text Scene is
+manuscript-only; the full editor has metadata both above AND below the
+manuscript).
+
+### Pre-fix diagnosis (phone, 375×812)
+
+Verified live with a realistic fixture (metadata, one participant, a
+100-paragraph manuscript): `#sceneModal` was an ordinary centered desktop
+modal even at phone width (335×747, 14px radius, margin around it,
+underlying workspace visible) — `#sceneModal .modal` had no fullscreen
+treatment at all (unlike Text Scene/Quick Scene). `#sceneModal .modal`
+(the base `.modal{overflow:auto}` rule, no ID-specific override) was
+already the outer scroll owner for metadata/title/participants/footer —
+confirmed via `resetSceneModalScroll()` in js/scenes.js, which already
+scrolls exactly this element on every open. Nested inside it,
+`#sceneModal .rte-editor{height:320px;overflow-y:auto}` (css/editor.css)
+was a SECOND, independently-scrolling box: for the 100-paragraph fixture,
+`scrollHeight:25324` vs `clientHeight:319` — a real manuscript needed
+~79 "screens" of internal scroll inside a box a phone thumb could barely
+distinguish from the surrounding form. This is the nested-scroll trap the
+brief anticipated.
+
+### Fullscreen (reused primitive, no new architecture)
+
+`#sceneModal` gained the `mobile-fullscreen-modal` class (index.html) —
+the exact same primitive Quick Scene and Text Scene already use
+(css/editor.css). Unlike those two surfaces, `#sceneModal .modal` sets no
+width/height of its own beyond the generic `.modal` base rule, so the
+primitive's existing phone-only `!important` overrides took effect with
+**zero additional CSS** for the shell itself. Verified: fullscreen
+geometry exact on all four edges, no border-radius, no margin, underlying
+workspace unreachable (`elementFromPoint` probe), no page-level horizontal
+overflow, in both portrait (375×812) and landscape (667×375, the same
+phone-landscape reference size E3.1 used — note a WIDER landscape size
+like 844×390 exceeds the 760px breakpoint entirely and is correctly NOT
+fullscreen, a viewport-choice detail worth remembering for future tests
+of this surface).
+
+### Scroll ownership — the core decision, and why it differs from Text Scene
+
+**Chosen model: `#sceneModal .modal` remains the single primary vertical
+scroll surface for the WHOLE form on phone — metadata → title →
+manuscript → participants → footer, one continuous swipe gesture — and
+the manuscript no longer has its own independently-scrolling nested box.**
+
+This is deliberately NOT Text Scene's model (a flex column with the
+manuscript as a `flex:1` region filling remaining space after fixed
+toolbar/footer children). That model doesn't fit here: Text Scene has
+nothing besides the manuscript, so "give the editor all remaining flex
+space" is unambiguous. The full editor has substantial content both
+ABOVE (primary metadata, title) and BELOW (participants, which can itself
+be long — multiple characters, each with an action field and a relations
+editor) the manuscript. A flex-column-with-flex:1-editor model would
+still leave participants needing its OWN separate scroll region below the
+fixed-remaining-space editor — reintroducing exactly the competing-scroll-
+region problem this stage exists to remove, just relocated.
+
+Treating the whole form as ONE linear scroll — the manuscript flowing as
+normal content (`height:auto`, `overflow-y:visible`, phone-only) instead
+of a second scrolling box — means any touch swipe anywhere in the visible
+content (metadata, manuscript text, participants) scrolls the same one
+thing, with zero ambiguity about which region a gesture will affect. The
+existing `#sceneModal .rte-editor{height:320px;overflow-y:auto}` rule's
+own comment explains why a bounded box was originally chosen: an
+unbounded editor "made a long scene's Save/Close/other fields scroll
+arbitrarily far away." **That concern is already solved by something
+added later and unrelated to this stage**: `.sticky-modal-footer`
+(css/modals.css, `position:sticky;bottom:-18px`) already pins Save/Cancel
+to the bottom of `#sceneModal .modal`'s own scroll viewport regardless of
+manuscript length, on every width — confirmed live: it stays visible even
+scrolled to the very top of a 26,854px-tall form. The one genuine
+trade-off is that reaching participants (below a very long manuscript)
+now takes a longer single scroll instead of "exhaust the small nested box,
+then continue the outer scroll" — a wash at best, arguably simpler, since
+it's one continuous gesture instead of two different ones.
+
+`min-height:40vh` (not the removed `height:320px`) keeps a comfortable
+initial writing area for a short/empty scene instead of collapsing to one
+or two visible lines.
+
+Verified live: typing at a point genuinely deep in a 100-paragraph
+manuscript (paragraph ~60) reaches the live ProseMirror doc correctly,
+does not move `window.scrollY` (only the modal's own scroll moves), and
+the manuscript's own box has `scrollHeight === clientHeight` (no residual
+internal overflow) while `#sceneModal .modal` itself is the one with
+`scrollHeight > clientHeight`.
+
+### Legacy 320px height — exact treatment
+
+`#sceneModal .rte-editor{height:320px;overflow-y:auto}` (css/editor.css)
+is **completely unchanged for desktop**. A new phone-only
+(`@media(max-width:760px)`) rule using the SAME selector, placed later in
+the file, overrides it to `height:auto;min-height:40vh;overflow-y:visible`
+— normal cascade order (not `!important`) decides the winner, since both
+rules share identical specificity, avoiding the ID-vs-class specificity
+trap Quick Scene's own fullscreen fix had to work around with `!important`
+(css/editor.css's own §17 comment).
+
+### Metadata / toolbar
+
+No new responsive work was needed: `.modal-grid`/`.modal-grid-4`/
+`.relation-row` already had phone-appropriate stacking rules from before
+this stage (css/modals.css, `@media(max-width:800px)`/`@media(max-width:
+480px)`) — verified live that the 4-column metadata row correctly renders
+as a single column at 375px width with no control overflowing the
+viewport. The rich-text toolbar reuses `.rte-toolbar`'s existing
+`flex-wrap` behavior, proven in Quick Scene/Text Scene — verified
+reachable (formatting, alignment, undo/redo, scene-break, POV insert,
+Find/Replace entry, and the Text Scene switch-surface control) after
+scrolling/editing a long manuscript.
+
+### Keyboard / focus
+
+No focus-lifecycle change was made or needed. A normal open (`+ Новая
+сцена`, editing an existing scene) keeps its existing default: the title
+field (`data-initial-focus`) autofocuses, unchanged — this stage did not
+touch or need to touch that. The Text Scene → Scene Editor handoff's
+existing `focusTarget==="editor"` mechanism (mousedown-based capture, see
+js/editor/scene-editor-controller.js's `captureFocusAtMousedown`) is
+unchanged and confirmed still working with a genuine tap. One test-
+methodology finding worth recording: this mousedown-based capture does
+NOT engage from a synthetic `element.click()` call (which fires only the
+`click` event, not `mousedown`) — automated verification of this handoff
+must use a real tap/click (Playwright's `page.tap()`/`page.click()`, or a
+real OS-level click), not a raw DOM `.click()` call, or the check silently
+observes the wrong (non-)behavior. As with Text Scene, real Android
+on-screen-keyboard-visible layout remains a real-device-only
+confirmation — Playwright cannot drive it.
+
+### Portrait / landscape / desktop
+
+Portrait: verified full metadata → manuscript → participants → footer
+flow reachable, long-text editing/save works, no page-level scroll, no
+horizontal overflow. Landscape (667×375): fullscreen holds, no clipping,
+no horizontal overflow. Desktop: completely unaffected — ordinary
+centered/rounded modal, `#sceneModal .rte-editor` keeps its exact
+pre-existing `height:320px;overflow-y:auto` nested scroll.
+
+### Deferred (unchanged from earlier stages)
+
+E6 compact mobile Find/Replace / landscape (§20), E4 broader modal work,
+Characters/Locations redesign — none touched. Quick Scene and Text Scene
+were not modified.
+
+## 27. Explicit confirmation (E3.2)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+Quick Scene, Text Scene, and Find/Replace were not changed. E4/E6 were not
+started. Scene Editor's information architecture, metadata semantics/
+defaults, and field taxonomy are unchanged — only phone-only fullscreen
+geometry and manuscript scroll ownership were adapted; desktop is
+byte-for-byte behaviorally identical to before this stage.
