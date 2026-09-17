@@ -147,14 +147,14 @@
 
    Stage E3.2.1: restores a bounded, independently-scrolling manuscript box
    on phone -- but sized for phone, not the desktop-derived 320px constant.
-   `45vh`/`45dvh` (not a fixed pixel count) is deliberately viewport-
-   relative, consistent with this file's own `92vh`/`100vh`+`100dvh`
-   precedent elsewhere: generous enough to be a genuinely useful writing
-   surface (comparable to or larger than the original 320px on a typical
-   phone viewport), while deliberately leaving visible room below the
-   editor's own box so participants/other fields are never more than a
-   short scroll away, regardless of how long the manuscript's OWN content
-   is (`overflow-y:auto` keeps that internal length off the outer scroll
+   `vh`/`dvh` (not a fixed pixel count) is deliberately viewport-relative,
+   consistent with this file's own `92vh`/`100vh`+`100dvh` precedent
+   elsewhere: generous enough to be a genuinely useful writing surface
+   (comparable to or larger than the original 320px on a typical phone
+   viewport), while deliberately leaving visible room below the editor's
+   own box so participants/other fields are never more than a short scroll
+   away, regardless of how long the manuscript's OWN content is
+   (`overflow-y:auto` keeps that internal length off the outer scroll
    entirely, exactly like desktop's own 320px box already does). The outer
    `#sceneModal .modal` remains the single scroll owner for metadata/title/
    participants/footer, unchanged from E3.2 -- only the manuscript itself
@@ -163,9 +163,13 @@
    keeps Save/Cancel reachable regardless of the manuscript's own length.
    Same selector as the desktop rule above, placed later in the file --
    normal cascade order decides the winner, no `!important` needed.
-   Desktop is completely unaffected (unchanged 320px box). */
+   Desktop is completely unaffected (unchanged 320px box).
+
+   Stage E3.2.2: real-phone review found 45vh/45dvh felt slightly too
+   short as a writing surface -- bumped to 50vh/50dvh. Same mechanism,
+   same tradeoffs, just a larger fraction of the viewport. */
 @media(max-width:760px){
-  #sceneModal .rte-editor{height:45vh;height:45dvh;overflow-y:auto}
+  #sceneModal .rte-editor{height:50vh;height:50dvh;overflow-y:auto}
 }
 
 /* Stage E2.2: Quick Scene (#quickSceneModal) — reuses .rte-toolbar/
@@ -270,10 +274,24 @@
   background:var(--surface-elevated);border-bottom:1px solid var(--border-faint);
   overflow-y:auto;font-size:var(--text-sm);
 }
+/* Stage E3.2.2 real-phone microfix: the resizer's own JS (below) already
+   used Pointer Events end-to-end (pointerdown/pointermove/pointerup/
+   pointercancel) with setPointerCapture -- a real touch drag still didn't
+   move it. Root cause: `touch-action` was unset (`auto`), so the browser
+   was free to interpret the vertical drag as a native scroll/pan gesture
+   on this element -- `event.preventDefault()` inside the pointerdown
+   handler is NOT a reliable substitute for this; touch-action is decided
+   by the compositor before a touch's scroll/gesture role is committed,
+   independent of JS handler timing. `touch-action:none` is the fix, and
+   is scoped to only this narrow handle (not the results list, not the
+   page) -- the same precedent already used for `.photo-crop-viewport`
+   elsewhere in this codebase (css/profiles.css) for the identical class
+   of custom-drag-surface problem. */
 .rte-project-results-resizer{
   height:8px;margin:0 18px;cursor:ns-resize;
   display:flex;align-items:center;justify-content:center;
   background:var(--surface-elevated);border-bottom:1px solid var(--border-faint);
+  touch-action:none;
 }
 .rte-project-results-resizer::after{
   content:"";width:32px;height:3px;border-radius:2px;background:var(--border-subtle);

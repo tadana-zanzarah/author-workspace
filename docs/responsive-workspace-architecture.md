@@ -1309,3 +1309,98 @@ modified (their own regressions re-run and confirmed green). Characters
 and location media/history architecture were not redesigned — only the
 id-generation call itself was made robust, routed through one new small
 helper, with normal native behavior fully preserved when available.
+
+## 30. Stage E3.2.2 — real-phone writing microfix (manuscript height + splitter touch drag)
+
+Real Android phone testing of E3.2.1 (over LAN HTTP) accepted the hybrid
+scroll model, participants reachability, sticky footer, and the
+`crypto.randomUUID` fallback. Two smaller issues remained.
+
+### Full Scene Editor manuscript height: 45vh/45dvh → 50vh/50dvh
+
+Real-device feedback: the bounded manuscript felt slightly too short.
+Bumped `#sceneModal .rte-editor`'s phone-only height from `45vh`/`45dvh`
+to `50vh`/`50dvh` (css/editor.css) — same mechanism, same tradeoffs
+described in §28, just a larger fraction of the viewport. Measured at the
+existing 375×812 portrait test viewport: rendered editor height is
+**406px** (exactly 50% of 812px), `overflow-y:auto` unchanged. All E3.2.1
+guarantees reverified unchanged at the new height: independent manuscript
+scroll, outer-modal scroll for metadata/title/participants/footer,
+participants reachable without traversing manuscript text, sticky footer,
+portrait fullscreen geometry, desktop's unmodified 320px behavior.
+
+### Project/global Find/Replace results-resizer: touch drag did not work
+
+**Symptom**: the draggable splitter between the project-search result list
+and the manuscript visibly reacted to a press on a real Android
+touchscreen, but dragging the finger did not resize it.
+
+**Pre-fix event model**: already Pointer Events end-to-end
+(`pointerdown`/`pointermove`/`pointerup`/`pointercancel` with
+`resizer.setPointerCapture(event.pointerId)`,
+js/editor/find-replace-panel.js) — NOT a mouse-only or touch-only
+implementation, and not something needing unification; the interaction
+model was already the single coherent one this stage would otherwise have
+had to introduce.
+
+**Actual root cause**: `.rte-project-results-resizer` had no `touch-action`
+declared (default `auto`), so the browser was free to interpret the
+vertical drag as a native scroll/pan gesture on the handle instead of
+delivering it as continuous `pointermove` events to the JS handler.
+`event.preventDefault()` inside the existing `pointerdown` listener is
+*not* a reliable substitute for this — `touch-action` is resolved by the
+browser's compositor before the touch's scroll-vs-gesture role is
+committed, independent of JS handler timing. This is the exact same class
+of problem this codebase already has one precedent for:
+`.photo-crop-viewport` (css/profiles.css) sets `touch-action:none` for the
+identical reason on its own custom drag surface.
+
+**Fix**: `touch-action:none` added to `.rte-project-results-resizer` only
+(css/editor.css) — scoped to the narrow handle itself, not the results
+list, not the page. No JS changes were needed: `setPointerCapture` and the
+`pointermove`-based resize math were already correct and needed no pointer
+capture/pointercancel handling added, since both were already present.
+Keyboard operability (`ArrowUp`/`ArrowDown` on the resizer, already
+present) is untouched.
+
+**Verification fidelity, and why**: a plain
+`element.dispatchEvent(new TouchEvent(...))` only fires JS listeners and
+does not exercise the browser's real touch/gesture/scroll pipeline that
+`touch-action` governs — it would pass identically with or without the
+fix, proving nothing about the actual defect. Instead, this stage used
+Chromium DevTools Protocol's `Input.dispatchTouchEvent` (via
+`page.context().newCDPSession(page)`) to drive a genuine synthetic touch
+sequence through the browser's real touch input pipeline — the same one a
+physical touchscreen feeds, and the closest this sandboxed environment can
+get to a real device without one. Confirmed this CDP-driven drag produces
+the correct ~100px resize with the fix present, and — reverting only the
+CSS fix — the identical sequence produces just 140→160px (a 20px change,
+mostly scroll-intercepted) instead of the expected ~240px, precisely
+reproducing the reported "responds to press but doesn't drag" symptom.
+Final acceptance nonetheless remains a real Android device, as it has for
+every other Stage E geometry/interaction fix in this doc.
+
+**Confirmed unaffected**: min/max clamping (`MIN_RESULTS_HEIGHT=90`,
+`MAX_RESULTS_HEIGHT=420`) still applies to a touch-driven drag; the shared
+horizontal project-results scroll model from §22/§24 (E3.1.2/E3.1.3) is
+completely unaffected after a resize (`.rte-project-result-row` still
+`overflow-x:visible`, `.rte-project-results` still the shared horizontal
+scroll owner); vertical result-list browsing still works after a resize;
+desktop mouse dragging is unaffected (`touch-action` governs touch/pen
+input only, never mouse) — confirmed with a real `page.mouse` down/move/up
+sequence at desktop viewport, resizing by the expected ~80px.
+
+**Files changed**: `css/editor.css` (both fixes — manuscript height bump,
+resizer `touch-action:none`); `tools/mobile-text-scene-browser.test.mjs`
+(new splitter assertions, added to the existing project-search test block
+rather than new test infrastructure, per this stage's own scope
+guidance).
+
+## 31. Explicit confirmation (E3.2.2)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E4 and E6 were not started. Landscape and tablet behavior were not
+redesigned. Find/Replace search/replace semantics are unchanged — only the
+existing resizer's touch responsiveness and the manuscript's phone height
+were adjusted. Quick Scene was not touched; Text Scene's own unrelated
+behavior was not changed (only the shared results-resizer it hosts).

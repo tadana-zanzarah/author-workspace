@@ -275,6 +275,68 @@ try{
     const editorScrollProbe=await page.$eval("#fullSceneTextEditor",el=>{const before=el.scrollTop;el.scrollTop=el.scrollHeight;const after=el.scrollTop;el.scrollTop=before;return {before,after}});
     if(editorScrollProbe.after<0)throw new Error("Editor vertical scroll should be unaffected by the results-surface horizontal scroll fix");
 
+    // Stage E3.2.2 real-phone microfix: the results/manuscript resizer
+    // handle already used Pointer Events end-to-end (pointerdown/
+    // pointermove/pointerup/pointercancel, setPointerCapture) -- real
+    // Android touch still didn't drag it. Root cause: `touch-action` was
+    // unset, so the browser was free to treat the vertical drag as a
+    // native scroll/pan gesture on the handle instead of delivering clean
+    // pointermove deltas; `event.preventDefault()` in the pointerdown
+    // handler is not a reliable substitute (touch-action is resolved by
+    // the compositor before JS runs). Fixed with `touch-action:none`,
+    // scoped to only the handle (css/editor.css).
+    //
+    // Honesty note on fidelity: a plain `element.dispatchEvent(new
+    // TouchEvent(...))` would only fire JS listeners and would NOT
+    // exercise the browser's actual touch/gesture/scroll pipeline that
+    // `touch-action` governs -- it would pass identically whether or not
+    // the CSS fix was present, proving nothing about the real defect. The
+    // CDP `Input.dispatchTouchEvent` sequence below instead drives
+    // Chromium's real touch input pipeline (the same one a physical
+    // touchscreen feeds), which is the closest this environment can get to
+    // a genuine touch drag without an actual device -- confirmed by
+    // reverting only the CSS fix and observing this exact sequence produce
+    // a partial, scroll-intercepted resize (140->160px for a 100px drag)
+    // instead of the full expected delta; final acceptance is still a real
+    // Android device, as it was for every other Stage E geometry fix.
+    const resizerTouchAction=await page.$eval(".rte-project-results-resizer",el=>getComputedStyle(el).touchAction);
+    if(resizerTouchAction!=="none")throw new Error(`Results resizer must disable native touch gestures so a drag isn't intercepted as a scroll: touch-action=${resizerTouchAction}`);
+
+    const cdp=await page.context().newCDPSession(page);
+    const dragTouch=async(startY,deltaY,steps=10)=>{
+      const box=await page.$eval(".rte-project-results-resizer",el=>{const r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}});
+      await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:box.x,y:startY??box.y,id:1}]});
+      const baseY=startY??box.y;
+      for(let i=1;i<=steps;i++){
+        await cdp.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x:box.x,y:baseY+(deltaY*i)/steps,id:1}]});
+        await page.waitForTimeout(16);
+      }
+      await cdp.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
+      await page.waitForTimeout(50);
+    };
+
+    const heightBeforeDrag=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
+    await dragTouch(undefined,100);
+    const heightAfterDrag=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
+    if(Math.abs(heightAfterDrag-heightBeforeDrag-100)>10)throw new Error(`A genuine touch drag on the resizer must resize the results pane by roughly the drag distance: before=${heightBeforeDrag}, after=${heightAfterDrag}`);
+
+    // Min/max clamping still applies to a touch drag.
+    await dragTouch(undefined,2000,20);
+    const heightAfterMaxDrag=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
+    if(heightAfterMaxDrag>420+2)throw new Error(`Touch drag must still respect the max results height: ${heightAfterMaxDrag}`);
+    await dragTouch(undefined,-2000,20);
+    const heightAfterMinDrag=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
+    if(heightAfterMinDrag<90-2)throw new Error(`Touch drag must still respect the min results height: ${heightAfterMinDrag}`);
+
+    // The resizer's own drag must not disturb the shared horizontal
+    // project-results scroll model (E3.1.2/E3.1.3) or vertical browsing.
+    const rowOverflowXAfterResize=await page.$eval(".rte-project-result-row",el=>getComputedStyle(el).overflowX);
+    if(rowOverflowXAfterResize!=="visible")throw new Error(`Individual rows must still not be independent scroll owners after a resize: overflow-x=${rowOverflowXAfterResize}`);
+    const listOverflowXAfterResize=await page.$eval(".rte-project-results",el=>getComputedStyle(el).overflowX);
+    if(listOverflowXAfterResize==="hidden")throw new Error(`The shared results surface must still be horizontally scrollable after a resize: overflow-x=${listOverflowXAfterResize}`);
+    const verticalScrollAfterResize=await page.$eval(".rte-project-results",el=>{const before=el.scrollTop;el.scrollTop=999;const after=el.scrollTop;return {before,after}});
+    if(verticalScrollAfterResize.after<=verticalScrollAfterResize.before)throw new Error(`Vertical result-list browsing must still work after a resize: ${JSON.stringify(verticalScrollAfterResize)}`);
+
     await page.tap("#fullSceneTextFindReplace .rte-find-close");
     await page.tap("#closeText");
     await page.waitForFunction(()=>document.getElementById("textModal").style.display==="none");
@@ -351,6 +413,19 @@ try{
     if(desktopRowStyle.overflow!=="hidden"||desktopRowStyle.textOverflow!=="ellipsis")throw new Error(`Desktop result rows must keep their existing clip/ellipsis presentation, unchanged by Stage E3.1.2: ${JSON.stringify(desktopRowStyle)}`);
     const desktopListOverflow=await page.$eval(".rte-project-results",el=>({scrollWidth:el.scrollWidth,clientWidth:el.clientWidth}));
     if(desktopListOverflow.scrollWidth>desktopListOverflow.clientWidth)throw new Error(`Desktop results surface should have no horizontal overflow to scroll: ${JSON.stringify(desktopListOverflow)}`);
+
+    // Stage E3.2.2: desktop mouse dragging of the results resizer must not
+    // be regressed by the touch-action:none fix (touch-action only governs
+    // touch/pen gesture handling, never mouse input).
+    const resizerBox=await page.$eval(".rte-project-results-resizer",el=>{const r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}});
+    const desktopHeightBefore=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
+    await page.mouse.move(resizerBox.x,resizerBox.y);
+    await page.mouse.down();
+    await page.mouse.move(resizerBox.x,resizerBox.y+80,{steps:8});
+    await page.mouse.up();
+    const desktopHeightAfter=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
+    if(Math.abs(desktopHeightAfter-desktopHeightBefore-80)>10)throw new Error(`Desktop mouse drag on the resizer must still work: before=${desktopHeightBefore}, after=${desktopHeightAfter}`);
+
     await page.click("#fullSceneTextFindReplace .rte-find-close");
 
     await page.click("#closeText");
