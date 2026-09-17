@@ -148,6 +148,115 @@ try{
     await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="none");
     if(await page.evaluate(()=>data.scenes.find(s=>s.id==="scene-a").sceneText.includes("ГЛУБОКАЯПРАВКА")))throw new Error("Discarding must not persist the unsaved deep edit");
 
+    // Stage E3.2.3: real-phone review found that E3.2.2's touch-action fix
+    // made the results/manuscript splitter genuinely draggable, but
+    // exposed a deeper geometry bug -- growing the results pane did NOT
+    // correspondingly shrink the manuscript; the two were unrelated
+    // fixed-size siblings, so the combined content just grew taller,
+    // pushing the outer modal's scroll (read as "the modal gets pushed").
+    // Reopen the scene and project-search Find/Replace fresh to verify the
+    // CORRECTED shared-space contract with real rendered geometry, not
+    // just that the splitter moves (which E3.2.2's own regression already
+    // proved and is not sufficient here).
+    await page.locator('[data-scene-id="scene-a"] .row-action-icon[title="Изменить сцену"]').tap();
+    await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="flex");
+    await page.waitForSelector("#sceneTextEditor .ProseMirror");
+    await page.tap("#sceneTextToolbar .rte-btn-find");
+    await page.tap('#sceneTextFindReplace .rte-scope-btn:not(.active)');
+    await page.locator("#sceneTextFindReplace .rte-find-input").fill("такого текста в этой сцене нет чтобы результатов не было");
+    await page.waitForSelector(".rte-project-results-resizer");
+
+    const sharedGeometry=()=>page.evaluate(()=>{
+      const editor=document.getElementById("sceneTextEditor");
+      const results=document.querySelector(".rte-project-results");
+      const section=editor.parentElement;
+      const metadata=document.querySelector(".scene-section-primary");
+      return {
+        editorHeight:editor.getBoundingClientRect().height,
+        resultsHeight:results.getBoundingClientRect().height,
+        sectionHeight:section.getBoundingClientRect().height,
+        metadataTop:metadata.getBoundingClientRect().top,
+        modalScrollTop:document.querySelector("#sceneModal .modal").scrollTop
+      };
+    });
+
+    const beforeDrag=await sharedGeometry();
+    // Fixture-sanity: this bounded region only has real slack to trade
+    // when project scope's results pane genuinely participates in the
+    // section's flex layout (`manuscriptElement`'s parent must be the
+    // phone-only flex column -- see css/editor.css's own comment).
+    const parentIsFlex=await page.$eval("#sceneTextEditor",el=>getComputedStyle(el.parentElement).display==="flex");
+    if(!parentIsFlex)throw new Error("Test fixture invalid: the manuscript's parent section must be the phone-only bounded flex column");
+
+    // A genuine touch drag on the resizer (Chromium's real touch input
+    // pipeline via CDP -- see the E3.2.2 test lesson on why a plain
+    // dispatchEvent would not prove anything about touch-action).
+    const dragResizerTouch=async(deltaY,steps=10)=>{
+      const box=await page.$eval(".rte-project-results-resizer",el=>{const r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}});
+      const cdp=await page.context().newCDPSession(page);
+      await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:box.x,y:box.y,id:1}]});
+      for(let i=1;i<=steps;i++){
+        await cdp.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x:box.x,y:box.y+(deltaY*i)/steps,id:1}]});
+        await page.waitForTimeout(16);
+      }
+      await cdp.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
+      await page.waitForTimeout(100);
+    };
+
+    await dragResizerTouch(80);
+    const afterGrow=await sharedGeometry();
+
+    // Core proof: results grew, manuscript shrank -- the OPPOSITE
+    // direction, not "unrelated" (the exact defect being fixed).
+    if(afterGrow.resultsHeight<=beforeDrag.resultsHeight)throw new Error(`Dragging the splitter down must grow the results pane: before=${beforeDrag.resultsHeight}, after=${afterGrow.resultsHeight}`);
+    if(afterGrow.editorHeight>=beforeDrag.editorHeight)throw new Error(`Dragging the splitter down must correspondingly SHRINK the manuscript, not leave it unrelated (the exact E3.2.2 defect): before=${beforeDrag.editorHeight}, after=${afterGrow.editorHeight}`);
+    // The bounded shared region itself must not grow -- proves the
+    // redistribution is real, not just extra height being added.
+    if(Math.abs(afterGrow.sectionHeight-beforeDrag.sectionHeight)>2)throw new Error(`The bounded shared region's own height must stay stable, not grow with the results pane: before=${beforeDrag.sectionHeight}, after=${afterGrow.sectionHeight}`);
+    // Upper modal controls (metadata) must not be displaced by a resize
+    // that happens entirely below them.
+    if(Math.abs(afterGrow.metadataTop-beforeDrag.metadataTop)>2)throw new Error(`Metadata controls above the Find/Replace region must not move as a result of resizing it: before=${beforeDrag.metadataTop}, after=${afterGrow.metadataTop}`);
+    if(Math.abs(afterGrow.modalScrollTop-beforeDrag.modalScrollTop)>2)throw new Error(`Dragging the splitter must not itself scroll the outer modal: before=${beforeDrag.modalScrollTop}, after=${afterGrow.modalScrollTop}`);
+
+    // Min constraint: the manuscript never crushes below its own floor.
+    const editorMinHeight=await page.$eval("#sceneTextEditor",el=>parseFloat(getComputedStyle(el).minHeight));
+    if(afterGrow.editorHeight<editorMinHeight-1)throw new Error(`The manuscript must never shrink below its own min-height floor: height=${afterGrow.editorHeight}, floor=${editorMinHeight}`);
+    await dragResizerTouch(600,20); // drag far past any reasonable limit
+    const afterMaxDrag=await sharedGeometry();
+    if(afterMaxDrag.editorHeight<editorMinHeight-1)throw new Error(`An extreme drag must still respect the manuscript's min-height floor: height=${afterMaxDrag.editorHeight}, floor=${editorMinHeight}`);
+    if(Math.abs(afterMaxDrag.sectionHeight-beforeDrag.sectionHeight)>2)throw new Error(`Even an extreme drag must not grow the bounded shared region: before=${beforeDrag.sectionHeight}, after=${afterMaxDrag.sectionHeight}`);
+    // Min constraint the other direction: dragging back up must respect
+    // the results pane's own existing MIN_RESULTS_HEIGHT floor (90).
+    await dragResizerTouch(-600,20);
+    const afterMinDrag=await sharedGeometry();
+    if(afterMinDrag.resultsHeight<90-2)throw new Error(`Dragging back up must still respect the results pane's existing min height: ${afterMinDrag.resultsHeight}`);
+
+    // Manuscript remains genuinely editable and internally scrollable, and
+    // project results remain their own scrollable region, after resizing.
+    const editableAfterResize=await page.evaluate(()=>{
+      const view=sceneModalTextEditor.view;
+      view.dispatch(view.state.tr.insertText("ПОСЛЕRESIZE"));
+      return sceneModalTextEditor.serialize().sceneText.includes("ПОСЛЕRESIZE");
+    });
+    if(!editableAfterResize)throw new Error("Manuscript must remain editable after resizing the shared region");
+    const resultsScrollAfterResize=await page.$eval(".rte-project-results",el=>{const before=el.scrollTop;el.scrollTop=999;const after=el.scrollTop;return {before,after,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight}});
+    if(resultsScrollAfterResize.scrollHeight>resultsScrollAfterResize.clientHeight&&resultsScrollAfterResize.after<=resultsScrollAfterResize.before)throw new Error(`Project results must remain their own scrollable region after resizing: ${JSON.stringify(resultsScrollAfterResize)}`);
+
+    // Shared horizontal project-results scroll (E3.1.2/E3.1.3) is
+    // completely unrelated to this vertical splitter and must remain
+    // intact after a resize.
+    const rowOverflowXAfterResize=await page.$$eval(".rte-project-result-row",els=>els.length?getComputedStyle(els[0]).overflowX:"visible");
+    if(rowOverflowXAfterResize==="hidden")throw new Error(`Individual result rows must not become independent horizontal scroll owners: overflow-x=${rowOverflowXAfterResize}`);
+
+    await page.tap("#sceneTextFindReplace .rte-find-close");
+    await page.tap("#cancelScene");
+    // The manuscript was edited (ПОСЛЕRESIZE) during the editability check
+    // above, so this close is expected to hit the same dirty-state guard
+    // as I. -- discard it to return to a clean state for J.
+    await page.waitForFunction(()=>document.getElementById("discardChangesModal").style.display==="flex");
+    await page.tap("#discardChanges");
+    await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="none");
+
     // J. Save an existing scene -- metadata + manuscript together.
     await page.locator('[data-scene-id="scene-a"] .row-action-icon[title="Изменить сцену"]').tap();
     await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="flex");
@@ -230,6 +339,21 @@ try{
     if(Math.abs(landscapeModalRect.right-667)>geometryTolerance||Math.abs(landscapeModalRect.bottom-375)>geometryTolerance)throw new Error(`Scene Editor must remain fullscreen in landscape: ${JSON.stringify(landscapeModalRect)}`);
     const landscapeOverflow={scrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),clientWidth:await page.evaluate(()=>document.documentElement.clientWidth)};
     if(landscapeOverflow.scrollWidth>landscapeOverflow.clientWidth+geometryTolerance)throw new Error(`Scene Editor introduced page-level horizontal overflow in landscape: ${JSON.stringify(landscapeOverflow)}`);
+
+    // Stage E3.2.3: the shared-space model must fail gracefully at short
+    // height -- open project Find/Replace here too and confirm the bounded
+    // region still holds its own height (no runaway growth/overflow) even
+    // though 50dvh of a 375px-tall landscape viewport is very little room.
+    await page.tap("#sceneTextToolbar .rte-btn-find");
+    await page.tap('#sceneTextFindReplace .rte-scope-btn:not(.active)');
+    await page.locator("#sceneTextFindReplace .rte-find-input").fill("текст");
+    await page.waitForSelector(".rte-project-results-resizer");
+    const landscapeSectionHeight=await page.$eval("#sceneTextEditor",el=>el.parentElement.getBoundingClientRect().height);
+    const landscapeExpected=375*0.5;
+    if(Math.abs(landscapeSectionHeight-landscapeExpected)>4)throw new Error(`The bounded shared region must still hold its own 50dvh height in short landscape, not overflow: ${landscapeSectionHeight}, expected ~${landscapeExpected}`);
+    const landscapeOverflowWithResults={scrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),clientWidth:await page.evaluate(()=>document.documentElement.clientWidth)};
+    if(landscapeOverflowWithResults.scrollWidth>landscapeOverflowWithResults.clientWidth+geometryTolerance)throw new Error(`Project results in short landscape must not introduce page-level horizontal overflow: ${JSON.stringify(landscapeOverflowWithResults)}`);
+    await page.tap("#sceneTextFindReplace .rte-find-close");
     await page.evaluate(()=>document.getElementById("cancelScene").click());
 
     if(pageErrors.length)throw new Error(`Unexpected page errors: ${pageErrors.join("; ")}`);

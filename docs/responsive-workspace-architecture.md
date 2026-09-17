@@ -1404,3 +1404,149 @@ redesigned. Find/Replace search/replace semantics are unchanged — only the
 existing resizer's touch responsiveness and the manuscript's phone height
 were adjusted. Quick Scene was not touched; Text Scene's own unrelated
 behavior was not changed (only the shared results-resizer it hosts).
+
+## 32. Stage E3.2.3 — mobile Find/Replace splitter geometry correction (shared vertical space)
+
+E3.2.2 fixed the splitter's touch-drag responsiveness, but real-phone
+testing exposed a deeper geometry bug underneath: growing the results pane
+did not correspondingly shrink the manuscript.
+
+### Which surface is actually affected (inspected, not assumed)
+
+The report described "the mobile Text Scene / project-global Find/Replace
+surface," but **the two surfaces that host this same results+resizer
+component behave completely differently**, and only one of them was
+broken:
+
+- **Text Scene (`#textModal`)**: already correct, unconditionally. Its
+  modal is `display:flex;flex-direction:column` (E3.1's own model), and
+  the manuscript editor already has `flex:1 1 auto;min-height:0` from the
+  shared base `.rte-editor` rule — dragging the splitter there already
+  redistributes space correctly, confirmed live: results 140→240px,
+  manuscript 244.09→144.09px, combined stayed exactly 384.09px before and
+  after. **This stage made zero changes to Text Scene's behavior.**
+- **Full Scene Editor (`#sceneModal`)**: genuinely broken. `#sceneModal
+  .modal` is NOT a flex column (E3.2.1's own linear-scroll model, by
+  design, for metadata/title/participants/footer reachability) — the
+  manuscript had a plain, independent `height:50vh;50dvh` (E3.2.2) with no
+  relationship whatsoever to the results pane's own JS-managed height.
+  Confirmed live: dragging the splitter +100px grew results 240→340px
+  while the manuscript stayed at EXACTLY 406px, unchanged — the two
+  regions' combined content simply grew taller, which the outer modal's
+  own scroll (E3.2.1) absorbed, reading as "the modal gets pushed."
+
+**Only `#sceneModal` needed a fix.** Text Scene's own resizer/test
+(E3.2.2, §30) is unaffected and still passes unchanged.
+
+### The shared-space layout model
+
+`.scene-section:has(#sceneTextEditor)` (the `<section>` that already
+contains the title, rich-text toolbar, Find/Replace row, and manuscript —
+no new wrapper element needed) becomes its own small bounded flex column
+on phone: `display:flex;flex-direction:column;height:50vh;height:50dvh;
+overflow:hidden`. This is **the exact same mechanism Text Scene already
+uses**, just scoped to a sub-region instead of the whole modal — the
+outer `#sceneModal .modal` keeps its own separate, unrelated linear scroll
+for metadata/title/participants/footer, E3.2.1's decision, completely
+unchanged. `#sceneModal .rte-editor` changes from a fixed `50vh`/`50dvh`
+to `flex:1 1 auto;min-height:20px;overflow-y:auto` (phone-only) — the
+manuscript now absorbs/gives back space exactly as the results pane's own
+explicit height changes, bounded by the section's fixed total.
+
+### Why the editor's floor is only 20px (measured, not guessed)
+
+Live measurement on a 390px-wide phone column: the rich-text toolbar
+wraps to ~3 rows (115px) and the Find/Replace row (scope toggle, find/
+replace inputs, prev/next, case toggle, close) wraps to several rows of
+its own (114px); together with the title (24px), fixed overhead alone is
+~253px — **more than half** of the 422px (50dvh) budget — before the
+results pane or manuscript get anything. With results at its own
+`MIN_RESULTS_HEIGHT` (90px), the manuscript's true natural leftover space
+measured only ~21-29px. A taller floor would force the flex layout to
+need more than the section's fixed height, with no safe place for the
+overflow to go (`overflow:hidden` would clip the editor's own bottom edge;
+`overflow:visible` would let it bleed into Participants below) — so the
+floor is deliberately kept at/under that measured true minimum (`20px`)
+instead of inventing more room that doesn't exist. This is this stage's
+own concrete instance of "must fail gracefully at short height": opening
+project-wide Find/Replace while editing is a deliberate, occasional
+action (Find/Replace closed or scene-only scope still gives the editor
+nearly the whole 50dvh, completely unchanged), and in that one deliberate
+state the manuscript genuinely has very little room to spare — this floor
+keeps it a real, still-interactive sliver rather than 0/clipped/
+overflowing. `#sceneModal .rte-editor`'s results pane was also changed to
+start at `MIN_RESULTS_HEIGHT` (not the taller shared `DEFAULT_RESULTS_
+HEIGHT`) the moment project scope activates, specifically for this one
+surface — starting at the taller default would leave the manuscript
+already crushed to its floor before the user ever touches the resizer.
+
+### The dynamic max-height clamp (why not a fixed arithmetic guess)
+
+`js/editor/find-replace-panel.js`'s `effectiveMaxResultsHeight` computes,
+live on every resize call, "however much slack the manuscript currently
+has above its own floor is exactly how much more the results pane may
+take" — deliberately NOT a fixed guess at "how much is reserved for
+title/toolbar/find-row" (fragile, and would drift the moment that
+content's own height changes for any reason). `createFindReplacePanel`
+now accepts an optional `manuscriptElement` — passed ONLY by the full
+Scene Editor's own `mountSceneEditor` call (`surfaceId==="sceneModal"`),
+never by Text Scene's or "Весь текст"'s, so this entire mechanism is a
+complete no-op for both of them, at every width, exactly preserving their
+existing behavior. The clamp itself is gated on the manuscript's *parent*
+currently being the phone-only flex column (`getComputedStyle(...).
+display==="flex"`), not a duplicated width-breakpoint number in JS — on
+desktop, `#sceneModal .rte-editor` still participates in the same shared
+base `.rte-editor{flex:1 1 auto}` rule, but its parent stays an ordinary
+block there (this bounded-flex model is phone-only), so the clamp
+correctly falls through to the unchanged flat `MAX_RESULTS_HEIGHT`
+constant, preserving desktop exactly as before. One real bug found and
+fixed during this stage's own verification: the very first `setResults
+Height(...)` call happens synchronously while the modal is still
+`display:none` (before `showModal()`), so every geometry read at that
+instant reports 0 — without an explicit guard, this computed a bogus
+negative "slack" and wrongly floored the very first open at
+`MIN_RESULTS_HEIGHT`; fixed by falling back to the flat constant whenever
+the manuscript isn't actually laid out yet.
+
+### Verified
+
+Live, with a genuine CDP touch drag (Chromium's real touch input
+pipeline, per the E3.2.2 test lesson): dragging down grows results and
+shrinks the manuscript in the *opposite* direction (confirmed both ways:
+grow then shrink back); the section's own rendered height stays exactly
+50dvh throughout every state tested (no overflow, no clipping); the
+manuscript never drops below its `min-height` floor even under an
+extreme drag; results never drops below its existing `MIN_RESULTS_HEIGHT`
+(90) floor; metadata controls above this region do not move as a result
+of resizing it; the drag itself does not scroll the outer modal; the
+manuscript remains editable and results remain independently vertically
+scrollable after a resize; the shared horizontal project-results scroll
+model (§22/§24, E3.1.2/E3.1.3) is completely unaffected. Short landscape
+(667×375): the bounded region still holds its own 50dvh height with
+project results open, no page-level horizontal overflow. Desktop:
+untouched (`#sceneModal .rte-editor` keeps its exact 320px/`overflow-y:
+auto` box; the dynamic clamp never engages there).
+
+**Files changed:** `css/editor.css` (the bounded flex region + editor
+floor); `js/editor/find-replace-panel.js` (dynamic max clamp + smaller
+initial default for the bounded surface); `js/editor/scene-editor-
+controller.js` (threads `manuscriptElement` through only for
+`surfaceId==="sceneModal"`); `tools/mobile-scene-editor-browser.test.mjs`
+(new shared-space geometry regression — added here, not to `tools/
+mobile-text-scene-browser.test.mjs` as originally suggested, once
+inspection proved the defect is specific to the Scene Editor surface that
+file already covers; confirmed to fail against the pre-fix E3.2.2 state
+for the exact reported symptom — results grew while the manuscript stayed
+at an unchanged, unrelated height — both via an early fixture-sanity
+check and, with that check disabled, via the deeper "manuscript must
+shrink" assertion independently).
+
+## 33. Explicit confirmation (E3.2.3)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E4 and E6 were not started; landscape and tablet were not redesigned
+beyond the graceful-degradation check above. Find/Replace semantics
+(search/replace logic) are completely unchanged — only shared vertical
+layout geometry. Quick Scene was not touched. Text Scene's own behavior
+was not changed — inspection proved it was never broken, so nothing there
+needed fixing.
