@@ -1820,3 +1820,367 @@ never exposed to this defect. The manuscript's independent ~50dvh phone
 height and desktop's 320px height (E3.2.4's accepted model) are
 unchanged; this stage did not touch manuscript geometry at all, per its
 explicit guard.
+
+## 38. Stage E3.2.6 — restore desktop splitter semantics on mobile
+
+Real-phone validation REJECTED E3.2.5. Even with the sticky-footer
+occlusion fixed, the underlying model — the outer `#sceneModal .modal`
+absorbing results growth while the manuscript stayed at an independent
+fixed ~50dvh — was itself the problem: it meant the outer modal's own
+scrollable length (and therefore where focusing the find input naturally
+scrolled to) changed unpredictably every time Find/Replace opened or the
+splitter moved, which read on a real phone as content shifting/expanding/
+collapsing for no clear reason. The user clarified the intended contract
+by reference to DESKTOP's own already-working behavior: results,
+splitter, and manuscript share ONE bounded region; dragging the splitter
+exchanges height between results and manuscript in opposite directions;
+the region's own total stays stable; the outer modal never moves.
+
+### A. Desktop splitter model, as actually measured (not assumed)
+
+Two candidate desktop surfaces exist. Direct measurement (real mouse
+drag, `#sceneModal` vs `#textModal`, both centered 1280×800 modals) found
+they behave DIFFERENTLY:
+
+- **`#sceneModal` (Full Scene Editor) desktop**: `.rte-editor{height:
+  320px}` is a flat, non-flex height; `#sceneModal .modal{overflow:auto}`
+  is NOT a flex container. Dragging the splitter +100px: `editorHeight`
+  stayed exactly `320→320`; `resultsHeight` grew `140→240`; the outer
+  `.modal`'s own `scrollHeight` grew `1356→1456` to absorb it. Desktop
+  Scene Editor does NOT exchange height with the manuscript at all — it
+  behaves exactly like E3.2.4/E3.2.5's mobile model (outer scroll
+  absorbs growth). This is NOT the "already-working" behavior the user
+  was describing.
+- **`#textModal` (Text Scene) desktop**: `.modal{display:flex;
+  flex-direction:column;height:92vh;overflow:hidden}` (a FIXED-height
+  flex column) + `.rte-editor{flex:1 1 auto;min-height:0;overflow-y:
+  auto}` (the SAME generic rule, but now inside an actual flex parent).
+  Dragging the splitter +100px: `editorHeight` shrank exactly
+  `320.09→220.09` (−100, matching the drag); `resultsHeight` grew
+  `140→240`; the modal's own height never changed (`736px` before and
+  after). This IS the desktop mechanism the user meant — pure CSS
+  flexbox, zero JS coupling between the resizer and the editor: the
+  resizer's existing JS only ever sets `resultsRoot.style.height`; the
+  editor's shrink/grow is a flexbox side effect of a fixed-size column
+  redistributing space among its children.
+
+### B. Mobile DOM relationship (before this stage)
+
+`#sceneModal`'s "Текст сцены" section (index.html): `<h3>`, `#sceneText
+Toolbar`, `#sceneTextFindReplace` (the compact Find/Replace control row),
+then `#sceneTextEditor.rte-editor` — all plain siblings inside one
+`<section class="scene-section">`, itself a plain (non-flex) block.
+`find-replace-panel.js` inserted the project-results wrapper (`.rte-
+project-results-wrapper`, containing the results list + resizer) as
+`#sceneTextFindReplace`'s own next DOM sibling — i.e. also a plain
+sibling of the toolbar/find-replace row AND of the editor, all four
+elements flat in the same non-flex parent. `.sticky-modal-footer`
+(css/modals.css) sits at the very end of `#sceneModal .modal`, pinned via
+`position:sticky` over roughly the last 75px of the modal's own scroll
+viewport.
+
+### C. Why desktop `#textModal` can exchange height with zero outer movement
+
+Because its flex column has a FIXED total height (`92vh`, `overflow:
+hidden` — the column itself never grows or scrolls) and the editor is
+the ONLY child with `flex-grow:1` and `min-height:0` (opting out of the
+browser's default "never shrink below my own content size" flex
+protection) — every OTHER sibling (toolbar `flex:none`, the results
+wrapper `flex:none`) keeps its own natural/explicit size, so ANY space
+those siblings claim is taken directly and ENTIRELY from the editor's
+own share, automatically, via the flex algorithm alone. Nothing about the
+outer modal (its own fixed 92vh box) is aware this redistribution is even
+happening.
+
+### D. Why E3.2.3's attempt at the same idea on mobile was rejected, and the corrected boundary
+
+E3.2.3 (see §32 for the full historical record) tried to reproduce this
+same mechanism on `#sceneModal` phone, but bounded the WRONG scope:
+`.scene-section:has(#sceneTextEditor){display:flex;height:50dvh}`,
+i.e. toolbar + Find/Replace controls + results + editor ALL sharing one
+50dvh budget. On a real phone, subtracting the toolbar's and Find/
+Replace row's own chrome left only ~20-30px for the manuscript —
+rejected. Measured directly THIS stage: even `#textModal`'s own EXISTING
+(never-reported-broken, currently accepted) desktop-proven mechanism has
+this same latent risk on mobile if dragged to `MAX_RESULTS_HEIGHT` — its
+own toolbar+Find/Replace DO live inside the SAME shared flex column,
+and at 375×812 its editor measured **26px** at max results height (worse
+than E3.2.3's reported 20-30px). This is flagged separately as an
+out-of-scope finding (`#textModal` is intentionally NOT touched by this
+stage — no task instruction named it as an implementation target, only
+Text Scene's EXISTING regression, which this stage must not break).
+
+The corrected boundary (this stage): reproduce the SAME desktop
+mechanism, but scope the bounded flex column to ONLY [project-results
+pane, splitter, manuscript] — never the toolbar or Find/Replace controls,
+which stay completely outside it and never compete for its budget at
+all. Smallest structural change to achieve this: a new wrapper element,
+`.rte-manuscript-region` (index.html, wraps ONLY `#sceneTextEditor`),
+with `find-replace-panel.js` inserting the results wrapper as ITS first
+child (ahead of the manuscript) instead of as `#sceneTextFindReplace`'s
+sibling, via a new optional `manuscriptRegion` parameter to
+`createFindReplacePanel` (`js/editor/scene-editor-controller.js`'s
+`mountSceneEditor` derives it from `editorContainer.parentElement`,
+`null` everywhere else — `#textModal`/"Весь текст" keep their exact
+pre-existing insertion behavior, completely untouched).
+
+### E. E3.2.5 auto-scroll workaround: removed, and why
+
+`revealResizerPastStickyFooter()` (E3.2.5) proactively `scrollIntoView`-d
+the resizer clear of the sticky footer the first time results appeared.
+Real-phone verdict on E3.2.5 was explicit: automatic outer-modal
+repositioning is itself undesirable. With `.rte-manuscript-region`'s
+total height now invariant across all Find/Replace states, the
+motivating SYMPTOM (outer scrollHeight shifting unpredictably) is gone —
+but measured directly, the sticky-footer occlusion ITSELF was NOT fixed
+by that alone: the scroll position that lands the resizer under the
+footer is driven entirely by the browser's native "scroll the newly-
+focused find input into view" behavior, which depends only on content
+ABOVE the region (title/metadata/toolbar), completely unrelated to
+anything the region itself changed. Reproduced directly: hit-testing the
+resizer at the exact post-focus-scroll position resolved to `.modal-
+actions.sticky-modal-footer`, not the resizer — same defect, unrelated to
+and unfixed by the region change alone.
+
+The REAL structural fix, in place of any auto-scroll compensation
+(`css/editor.css`, phone-only):
+```css
+#sceneModal:has(.rte-project-results-wrapper:not([hidden]))
+  .modal-actions.sticky-modal-footer{position:static;bottom:auto}
+```
+This is the EXACT SAME precedent `#textModal` already uses
+UNCONDITIONALLY (`#textModal .modal-actions.sticky-modal-footer{
+position:static}`, present since before Stage E) — while project results
+are visible, the footer simply stops being sticky, so there is nothing
+left for the resizer to ever be occluded BY, regardless of scroll
+position, viewport width, or how many rows the Find/Replace controls
+wrap to. Save/Cancel remain reachable at the natural end of the outer
+scroll. `:has()` is an already-established technique in this codebase
+(css/modals.css, css/profiles.css, css/timeline.css), not introduced
+here. Verified via a genuine CDP touch reproduction: `elementFromPoint`
+at the resizer's exact rendered center resolves to the resizer itself,
+with zero auto-scroll involved at any point.
+
+Both `revealResizerPastStickyFooter()` (js/editor/find-replace-panel.js)
+and its paired `scroll-margin-bottom` CSS rule were REMOVED entirely (not
+kept as dead/defensive code), per the explicit "don't keep dead
+corrective machinery" instruction.
+
+### F. Corrected shared-space architecture
+
+```css
+@media(max-width:760px){
+  #sceneModal .rte-manuscript-region{
+    display:flex;flex-direction:column;
+    height:50vh;height:50dvh;
+    overflow:hidden;
+  }
+  #sceneModal .rte-manuscript-region .rte-editor{height:auto;min-height:140px}
+  #sceneModal:has(.rte-project-results-wrapper:not([hidden]))
+    .modal-actions.sticky-modal-footer{position:static;bottom:auto}
+}
+```
+`flex:1 1 auto` for `.rte-editor` already comes from its own generic base
+rule (shared with `#textModal`); only `height`/`min-height` needed
+overriding for the region context. `.rte-project-results-wrapper{flex:
+none}` (unconditional, pre-existing) means it never grows/shrinks beyond
+its own JS-managed height — exactly mirroring `#textModal`'s `.rte-
+toolbar{flex:none}`. The results-height clamp
+(`js/editor/find-replace-panel.js`) became geometry-aware:
+`effectiveMaxResultsHeight()` reads the region's live height and the
+editor's own CSS `min-height` (a single source of truth, read via
+`getComputedStyle` rather than duplicated as a second JS constant) to
+cap how tall results can be dragged, falling back to the flat
+`MAX_RESULTS_HEIGHT`(420) whenever there is no `manuscriptRegion` (every
+other surface) or at desktop widths (desktop keeps its own separate,
+untouched, flat-320px geometry).
+
+`MANUSCRIPT_MIN_HEIGHT=140` (find-replace-panel.js): the practical
+mobile floor, replacing E3.2.3's rejected 20px "technical floor." 140px
+minus `.rte-editor`'s own 12px+12px vertical padding leaves ~116px of
+visible text at this app's manuscript line-height (1.55×16px ≈ 24.8px/
+line) — roughly 4-5 whole lines, genuinely readable/editable, not a
+sliver. Deliberately the SAME number as `DEFAULT_RESULTS_HEIGHT`: when
+both panes contend for the same budget, neither pane's own comfortable
+default is allowed to crush the other below ITS comfortable default.
+
+### G. Measured geometry (375×812 portrait, genuine CDP touch drags)
+
+- **Find/Replace closed**: `editorHeight=406`, `regionHeight=406` — the
+  manuscript claims the entire shared-region budget (no results pane to
+  share it with).
+- **Find/Replace open, current-scene mode**: `editorHeight=406`
+  unchanged — the toolbar/Find/Replace row is outside the region and
+  never consumes its budget, exactly the required boundary.
+- **Project mode, before a query is typed**: `editorHeight=248`,
+  `regionHeight=406` (unchanged) — the results pane (default 140px)
+  already claims its share; the manuscript already shrank correspondingly
+  even before any query/results content exists.
+- **Project mode, with results populated**: identical to the pre-query
+  state (`editorHeight=248`, `resultsHeight=140`) — resultsRoot's
+  explicit JS-managed height doesn't depend on content, so typing a query
+  changes nothing about the split.
+- **Resizer reachability**: `elementFromPoint` at the resizer's exact
+  rendered center resolves to the resizer itself the very first time it
+  appears — no occlusion, no auto-scroll performed.
+
+### H. Measured geometry after grow/shrink drags
+
+A genuine CDP touch drag `+100px`: `resultsHeight` `140→240` (+100);
+`editorHeight` `248→148` (−100, the exact desktop-style exchange);
+`regionHeight` `406→406` (**exactly unchanged**); `modalScrollTop`
+`475→475` (**exactly unchanged**, no compensation needed at all);
+`windowScrollY` stayed `0`; the anchor ABOVE the region
+(`#sceneTextFindReplace`'s own viewport top) stayed exactly unchanged;
+the anchor BELOW the region (`.scene-participant-selector`'s own
+viewport top) also stayed exactly unchanged, since the region's total
+footprint in the document never changed at all.
+
+A reverse `-60px` drag (after `scrollIntoViewIfNeeded()` — a realistic
+"the user scrolls a little to find the now-lower handle again" step,
+since growing pushed the resizer below the fold; this settle step is
+NOT part of the drag contract, and itself caused zero anchor drift once
+settled) proved the exact inverse: `resultsHeight` `240→180` (−60);
+`editorHeight` `148→208` (+60, returned to the manuscript); region/
+scrollTop/window-scroll/both anchors all unchanged again.
+
+Five repeated `+50/-50` grow-then-shrink cycles returned to EXACTLY the
+same `resultsHeight`/`editorHeight`/`regionHeight` every single cycle —
+zero accumulated drift, directly disproving the real-phone "results
+sometimes expand/collapse in ways that don't correspond to the finger
+drag" symptom for this reproduction.
+
+### I. Proof: total shared height stable; manuscript/results exchange in opposite directions
+
+Every measurement above: `regionHeight` invariant at `406px` across
+closed/current-scene/project-before-query/project-with-results/grow/
+shrink/5 repeated cycles/scope-toggling/close-reopen — never drifted by
+more than floating-point/border rounding (<1px). `editorHeight +
+resultsHeight` (+ the fixed resizer/margin chrome) always sums back to
+the same region total; every `+N` results delta paired with an
+`-N` editor delta (and vice versa) within a 4px tolerance across every
+drag tested, including the extreme `MAX`/`MIN` clamp cases.
+
+### J. Practical manuscript minimum and rationale
+
+`MANUSCRIPT_MIN_HEIGHT=140px` (see §F above for the full line-count
+derivation). Verified live: dragging to an extreme `+2000px` clamps
+`resultsHeight` to `258px` (NOT the flat 420 max — the dynamic clamp
+correctly stopped short to protect the floor) and `editorHeight` to
+exactly `140px`, never below it. A naive hand-computed estimate
+(`406(region) − 140(editorMin) − 8(resizer) − 10(wrapper margin) = 248`)
+undershoots the measured `258` by 10px — the actual overhead the resizer
++margin+padding claim is a few pixels less than that estimate assumes,
+which is exactly why `effectiveMaxResultsHeight()` reads `chromeOverhead`
+live from the DOM (`resultsWrapper` minus `resultsRoot`'s own rendered
+height) instead of hardcoding a second, easily-stale copy of this
+arithmetic.
+
+### K. Outer modal / window scroll / anchor measurements
+
+`modalScrollTop`: **unchanged** (not merely "stable within tolerance" —
+literally identical before/after) across every single drag tested: the
+initial +100 grow, the -60 reverse, all 5 repeated cycles, the extreme
+MAX drag, and the extreme MIN drag. `window.scrollY`: `0` throughout,
+confirmed via both per-drag checks and one final whole-sequence check.
+Anchor above (`#sceneTextFindReplace`) and anchor below (`.scene-
+participant-selector`): both within 4px (effectively 0px) of their
+pre-drag position across every drag, including both extreme clamped
+drags.
+
+### L. Splitter hit-testing / sticky-footer result
+
+`elementFromPoint` at the resizer's exact center resolves to the resizer
+itself (not `.sticky-modal-footer` or anything else) as soon as it first
+becomes visible in project mode — with genuinely zero auto-scroll
+performed at any point (confirmed by removing E3.2.5's
+`revealResizerPastStickyFooter()` entirely and re-measuring). Root cause
+fully resolved structurally via the `:has()`-based conditional
+`position:static` on the footer (§E above), not by chasing the
+occlusion with scroll compensation.
+
+### M. Repeated state-transition results
+
+current-scene → project → current-scene → project: each transition
+restores the manuscript to its full shared-region height on leaving
+project scope, and to the identical previous split on re-entering it
+(no drift). Close Find/Replace entirely, then reopen: manuscript
+restores to full height on close, and the previously-active project
+scope (with its results pane) is correctly restored on reopen, region
+total unchanged throughout. Combined with the 5-cycle grow/shrink drift
+check (§H), this directly addresses the real-phone "results sometimes
+appear to expand/collapse in ways that do not correspond to the finger
+drag" report: no such divergence was reproduced anywhere in this
+instrumented sequence.
+
+### N. Portrait / short-landscape / desktop
+
+**Portrait** (375×812): all invariants above hold exactly. **Short
+landscape** (667×375, sanity only, no redesign attempted): the shared
+region's own budget there is only `~187.5px` (50dvh of 375px) — smaller
+than results' own default (140px, `flex:none`, never shrinks) plus the
+manuscript's practical 140px floor combined (~298px+chrome). Measured
+directly: both the results pane and the manuscript still each claim
+their own full requested height from the flex algorithm; `.rte-
+manuscript-region{overflow:hidden}` clips whatever doesn't fit rather
+than forcing an ugly negative/zero size. This is a genuine, honest
+degraded state in this one cramped orientation — NOT a crash (zero page
+errors), NOT a horizontal-overflow regression, and the manuscript
+remains genuinely editable throughout (confirmed live). Explicitly NOT
+redesigned for this stage, matching the scope guard; landscape/tablet
+work remains deferred to E6 (consistent with every earlier stage's own
+landscape notes).
+
+**Desktop** (1280×800): re-measured `#sceneModal` after this stage's
+changes — byte-identical to before: `editorHeight` stays exactly `320px`
+before and after a +100px drag; `.modal`'s own `scrollHeight` still
+absorbs the growth (`1356→1456`); `elementFromPoint` still resolves to
+the resizer. `effectiveMaxResultsHeight()`'s `matchMedia("(max-width:
+760px)")` guard means the dynamic clamp never runs at desktop widths at
+all. `#textModal` desktop: untouched, unmeasured-as-changed (out of
+scope for this stage's edits).
+
+### O. Out-of-scope finding (flagged, not fixed)
+
+`#textModal` (Text Scene) shares the SAME "everything in one flex
+column, including toolbar+Find/Replace" structure as desktop's own
+accepted mechanism, and measured directly to also collapse its editor to
+~26px at `MAX_RESULTS_HEIGHT` on phone (375×812) — a latent instance of
+the same class of defect E3.2.3 was rejected for, never yet reported
+because (evidently) no real-device test dragged its results pane all the
+way to its max. This stage does not touch `#textModal` at all — no task
+instruction named it as an implementation target, and Text Scene's own
+existing regression (`tools/mobile-text-scene-browser.test.mjs`) passes
+unchanged, confirming this stage introduced no NEW regression there.
+Flagged as a separate follow-up rather than fixed inline, per scope
+discipline.
+
+**Files changed:** `index.html` (`.rte-manuscript-region` wrapper around
+`#sceneTextEditor`), `js/editor/scene-editor-controller.js`
+(`manuscriptRegion` derivation + threading into `createFindReplacePanel`),
+`js/editor/find-replace-panel.js` (`manuscriptRegion` parameter,
+region-aware insertion point, `MANUSCRIPT_MIN_HEIGHT` constant,
+geometry-aware `effectiveMaxResultsHeight()`, removed
+`revealResizerPastStickyFooter()`), `css/editor.css`
+(`.rte-manuscript-region` flex rules, `:has()`-based sticky-footer fix,
+removed `scroll-margin-bottom` workaround), `tools/mobile-scene-editor-
+browser.test.mjs` (full rewrite of the Find/Replace resizer section:
+shared-region invariants, opposite-direction exchange, repeated-cycle
+drift check, state-transition checks, reachability, extreme-drag
+practical-minimum checks, updated landscape sanity; baseline-failure
+proof confirmed against unmodified `c2dcc39`).
+
+## 39. Explicit confirmation (E3.2.6)
+
+No Supabase changes, no migrations, `reference/` and `backup/`
+untouched. E4, E6, and tablet work were not started. No landscape
+redesign was attempted (sanity-checked only, per §N above). Find/Replace
+search/replace semantics, the toolbar, and project-results horizontal
+scrolling (E3.1.2/E3.1.3) are unchanged. Quick Scene was not touched (it
+has no Find/Replace panel at all). Text Scene's own regression
+(`tools/mobile-text-scene-browser.test.mjs`) passes unchanged, confirming
+no new regression was introduced there — its own existing latent
+collapse-at-MAX defect (§O) was found, not fixed, and is flagged
+separately. Desktop's existing `#sceneModal` geometry (flat 320px,
+outer-modal-absorbs-growth model) is fully preserved, confirmed via
+direct before/after measurement.

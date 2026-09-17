@@ -148,107 +148,146 @@ try{
     await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="none");
     if(await page.evaluate(()=>data.scenes.find(s=>s.id==="scene-a").sceneText.includes("ГЛУБОКАЯПРАВКА")))throw new Error("Discarding must not persist the unsaved deep edit");
 
-    // Stage E3.2.4: E3.2.3's "shared bounded region" model was REJECTED on
-    // real-device testing -- opening Find/Replace alone (even with no
-    // results pane visible at all) already collapsed the manuscript to a
-    // few lines, and project mode could make it disappear almost entirely.
-    // The correct, restored contract: the manuscript keeps its own
-    // independent ~50dvh height regardless of Find/Replace state; the
-    // splitter resizes ONLY the results pane; the outer #sceneModal
-    // .modal (already the scroll owner since E3.2.1) simply absorbs
-    // whatever extra height that creates, exactly like a long manuscript
-    // itself already does.
-    // Stage E3.2.5: a slightly shorter viewport height than the rest of
-    // this test block's 390x844 (still comfortably under the 760px phone
-    // breakpoint by width) -- confirmed by direct measurement that AT
-    // 390x844, this fixture's natural post-open-Find/Replace scroll
-    // position leaves a ~7px gap between the resizer and
-    // `.sticky-modal-footer`, narrowly missing the real-phone defect this
-    // stage exists to fix, while 390x812 (an equally realistic phone
-    // height) reliably reproduces it: the exact real cause is inherently
-    // this sensitive to available vertical space, which is exactly why the
-    // fix targets "the resizer must never be born occluded" generically
-    // rather than special-casing one viewport size. Restored to 844 after
-    // this Find/Replace sub-test closes below.
-    await page.setViewportSize({width:390,height:812});
+    // Stage E3.2.4: E3.2.3's original "shared bounded region" attempt was
+    // REJECTED on real-device testing -- it bounded the TOOLBAR, the
+    // Find/Replace controls, results, AND the manuscript together in one
+    // 50dvh budget, leaving only ~20-30px for the manuscript once the
+    // chrome above it was subtracted. E3.2.4 reverted to "manuscript
+    // independent of Find/Replace state, outer modal absorbs results
+    // growth" -- itself later found incomplete (E3.2.5/E3.2.6): letting
+    // the outer modal absorb growth meant its own scrollable length (and
+    // therefore where focusing the find input naturally scrolled to)
+    // changed unpredictably every time Find/Replace opened or resized,
+    // which read on a real phone as content shifting for no clear reason.
+    //
+    // Stage E3.2.6 (current, corrected architecture): reproduces DESKTOP's
+    // own `#textModal` mechanism (pure flexbox -- `.modal{display:flex;
+    // flex-direction:column;height:92vh;overflow:hidden}` +
+    // `.rte-editor{flex:1 1 auto;min-height:0}`, confirmed by direct
+    // measurement to shrink its editor by exactly the same amount results
+    // grows, with the modal's own height never changing) but scoped
+    // NARROWLY: on `#sceneModal`, ONLY [project-results pane, splitter,
+    // manuscript] share a bounded flex region (`.rte-manuscript-region`,
+    // css/editor.css) -- the toolbar and Find/Replace controls stay
+    // OUTSIDE it entirely, never competing for that budget, which is the
+    // actual fix over E3.2.3's too-broad boundary. The region's own total
+    // height is now INVARIANT regardless of Find/Replace state: results
+    // growth is paid for by the manuscript shrinking WITHIN that same
+    // fixed budget, never by the outer modal. This also structurally
+    // resolves E3.2.5's sticky-footer-occlusion defect: with the outer
+    // modal's scrollable length no longer changing between Find/Replace
+    // states, and `.sticky-modal-footer` now made non-sticky (`position:
+    // static`) whenever the results pane is visible (css/editor.css,
+    // `:has()`-based, same precedent `#textModal` already uses
+    // unconditionally) -- E3.2.5's `revealResizerPastStickyFooter()`
+    // auto-scroll workaround was removed as no longer needed, confirmed by
+    // the reachability assertion below finding the resizer reachable with
+    // zero auto-scroll at all.
     await page.locator('[data-scene-id="scene-a"] .row-action-icon[title="Изменить сцену"]').tap();
     await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="flex");
     await page.waitForSelector("#sceneTextEditor .ProseMirror");
 
+    // Baseline-failure proof (must fail against pre-E3.2.6 HEAD c2dcc39 for
+    // the real reason): `.rte-manuscript-region` does not exist before this
+    // stage -- surfaced as an explicit assertion message here rather than a
+    // bare null-dereference crash, so a failed run is legible as "the
+    // shared-region architecture is missing," not a confusing stack trace.
     const geometry=()=>page.evaluate(()=>{
       const editor=document.getElementById("sceneTextEditor");
+      const region=document.querySelector("#sceneModal .rte-manuscript-region");
+      if(!region)throw new Error("#sceneModal .rte-manuscript-region does not exist -- pre-E3.2.6 architecture");
       const modal=document.querySelector("#sceneModal .modal");
       const results=document.querySelector(".rte-project-results");
-      // Stage E3.2.5: `#sceneTextFindReplace` (the Find/Replace toolbar row
-      // itself) is the closest stable control that sits directly ABOVE the
-      // results pane/splitter -- exactly the "stable anchor above the
-      // results pane" the real-phone report described as visually shifting
-      // out of view during a resize. `.rte-find-replace` is a class on this
-      // SAME element (see createFindReplacePanel), never a descendant, so
-      // getElementById is the correct/only way to reach it directly.
-      const anchor=document.getElementById("sceneTextFindReplace");
+      // Stage E3.2.5/E3.2.6: `#sceneTextFindReplace` (the Find/Replace
+      // toolbar row itself) is the closest stable control ABOVE the
+      // shared region -- it lives outside `.rte-manuscript-region`
+      // entirely, so it must never move as a consequence of the splitter.
+      // `.scene-participant-selector` is the closest stable control BELOW
+      // the shared region -- also outside it, must also never move.
+      // `.rte-find-replace` is a class on `#sceneTextFindReplace` itself,
+      // never a descendant, so getElementById is the correct/only way to
+      // reach it directly (see createFindReplacePanel's own comment).
+      const anchorAbove=document.getElementById("sceneTextFindReplace");
+      const anchorBelow=document.querySelector(".scene-participant-selector");
       return {
         editorHeight:editor.getBoundingClientRect().height,
         editorTop:editor.getBoundingClientRect().top,
+        regionHeight:region.getBoundingClientRect().height,
         modalScrollHeight:modal.scrollHeight,
         modalScrollTop:modal.scrollTop,
         resultsHeight:results?results.getBoundingClientRect().height:null,
-        anchorTop:anchor.getBoundingClientRect().top,
+        anchorAboveTop:anchorAbove.getBoundingClientRect().top,
+        anchorBelowTop:anchorBelow?anchorBelow.getBoundingClientRect().top:null,
         windowScrollY:window.scrollY
       };
     });
     const heightTolerance=4;
-    // Stage E3.2.5: how far the stable anchor above the results pane is
-    // allowed to drift in the viewport during a resize -- must stay tight
-    // enough to actually prove the reported defect (baseline drifted 90px
-    // for a 100px drag) without being so strict it chases sub-pixel layout
-    // noise unrelated to the real behavior under test.
+    // How far the region total / manuscript-minimum / stable anchors are
+    // allowed to drift -- tight enough to actually prove the invariants
+    // (a broken model would drift by the FULL drag distance, e.g. ~90-
+    // 100px) without chasing sub-pixel layout noise.
     const anchorTolerance=4;
 
-    // A. Find/Replace closed: baseline manuscript height.
+    // A. Find/Replace closed: baseline manuscript height -- the full
+    // shared-region budget, since results isn't competing for it at all.
     const closedGeometry=await geometry();
     if(closedGeometry.editorHeight<300)throw new Error(`Manuscript must have a genuinely useful ~50dvh height with Find/Replace closed: ${closedGeometry.editorHeight}`);
+    if(Math.abs(closedGeometry.regionHeight-closedGeometry.editorHeight)>heightTolerance)throw new Error(`With no results pane, the manuscript must claim the ENTIRE shared region: region=${closedGeometry.regionHeight}, editor=${closedGeometry.editorHeight}`);
 
     // B. Find/Replace open, current-scene mode (no results pane at all):
-    // manuscript height must stay approximately the same.
+    // manuscript height must stay approximately the same -- the toolbar/
+    // Find/Replace controls are outside the shared region and must not
+    // consume any of its budget.
     await page.tap("#sceneTextToolbar .rte-btn-find");
     await page.waitForSelector("#sceneTextFindReplace .rte-find-input",{state:"visible"});
     const currentSceneGeometry=await geometry();
     if(Math.abs(currentSceneGeometry.editorHeight-closedGeometry.editorHeight)>heightTolerance)throw new Error(`Opening current-scene Find/Replace must not materially change the manuscript height: closed=${closedGeometry.editorHeight}, open=${currentSceneGeometry.editorHeight}`);
+    if(Math.abs(currentSceneGeometry.regionHeight-closedGeometry.regionHeight)>heightTolerance)throw new Error(`The shared region's own total height must stay stable regardless of Find/Replace state: closed=${closedGeometry.regionHeight}, current-scene=${currentSceneGeometry.regionHeight}`);
 
-    // C. Switch to project mode: manuscript height must still stay
-    // approximately the same, even though the results pane now exists.
+    // C. Switch to project mode BEFORE typing a query: the results pane
+    // (default height, hint content only) already exists and already
+    // claims its share -- the manuscript must already have shrunk to make
+    // room, and the region's total must still be exactly the same.
     await page.tap('#sceneTextFindReplace .rte-scope-btn:not(.active)');
-    await page.locator("#sceneTextFindReplace .rte-find-input").fill("такого текста в этой сцене нет чтобы результатов не было");
-    await page.waitForSelector(".rte-project-results-resizer");
-    // Stage E3.2.5: let revealResizerPastStickyFooter()'s rAF-scheduled
-    // scrollIntoView settle before measuring the "before" baseline -- this
-    // proves that fix (not a mid-drag compensation) is what should already
-    // have the resizer clear of `.sticky-modal-footer` at this point.
     await page.waitForTimeout(80);
-    const projectModeGeometry=await geometry();
-    if(Math.abs(projectModeGeometry.editorHeight-closedGeometry.editorHeight)>heightTolerance)throw new Error(`Switching to project search must not materially change the manuscript height: closed=${closedGeometry.editorHeight}, project=${projectModeGeometry.editorHeight}`);
-    if(projectModeGeometry.resultsHeight==null)throw new Error("Project mode must show a results pane");
+    const beforeQueryGeometry=await geometry();
+    if(beforeQueryGeometry.resultsHeight==null)throw new Error("Project mode must show a results pane even before a query is typed");
+    if(Math.abs(beforeQueryGeometry.regionHeight-closedGeometry.regionHeight)>heightTolerance)throw new Error(`Switching to project mode must not change the shared region's own total height: closed=${closedGeometry.regionHeight}, project-before-query=${beforeQueryGeometry.regionHeight}`);
+    if(beforeQueryGeometry.editorHeight>=currentSceneGeometry.editorHeight-20)throw new Error(`The manuscript must visibly shrink once the results pane claims its share of the shared region: current-scene=${currentSceneGeometry.editorHeight}, project-before-query=${beforeQueryGeometry.editorHeight}`);
 
-    // Stage E3.2.5 root-cause proof: the resizer must be genuinely
-    // touchable (elementFromPoint resolves to it, not to the sticky footer
-    // or anything else) the very first time it appears -- this is the exact
-    // real-phone defect (confirmed against unmodified 9c5ef64: the touch
-    // resolved to `.modal-actions.sticky-modal-footer` instead).
+    // Stage E3.2.6 root-cause proof: the resizer must be genuinely
+    // touchable (elementFromPoint resolves to it, not to the sticky
+    // footer or anything else) the very first time it appears, with NO
+    // auto-scroll of any kind (E3.2.5's revealResizerPastStickyFooter()
+    // was removed -- this proves the structural `:has()` footer fix
+    // (css/editor.css) makes it unnecessary).
+    await page.waitForSelector(".rte-project-results-resizer");
     const resizerReachable=await page.evaluate(()=>{
       const resizer=document.querySelector(".rte-project-results-resizer");
       const r=resizer.getBoundingClientRect();
       const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
       return hit===resizer||resizer.contains(hit);
     });
-    if(!resizerReachable)throw new Error("The results-pane resizer must be genuinely touchable (not occluded by the sticky footer) as soon as it first appears");
+    if(!resizerReachable)throw new Error("The results-pane resizer must be genuinely touchable (not occluded by the sticky footer) as soon as it first appears, with no auto-scroll needed");
 
-    // D. A genuine touch drag on the resizer (Chromium's real touch input
+    // D. Now type a query -- real results replace the hint, but the
+    // resultsRoot's own explicit JS-managed height (and therefore the
+    // manuscript/region split) does not depend on content, so nothing
+    // about the shared-region geometry should change here.
+    await page.locator("#sceneTextFindReplace .rte-find-input").fill("такого текста в этой сцене нет чтобы результатов не было");
+    await page.waitForTimeout(80);
+    const projectModeGeometry=await geometry();
+    if(Math.abs(projectModeGeometry.editorHeight-beforeQueryGeometry.editorHeight)>heightTolerance)throw new Error(`Typing a query must not itself change the manuscript/results split: before=${beforeQueryGeometry.editorHeight}, after=${projectModeGeometry.editorHeight}`);
+    if(Math.abs(projectModeGeometry.regionHeight-closedGeometry.regionHeight)>heightTolerance)throw new Error(`The shared region's own total height must stay stable once results are populated: closed=${closedGeometry.regionHeight}, with-results=${projectModeGeometry.regionHeight}`);
+
+    // E. A genuine touch drag on the resizer (Chromium's real touch input
     // pipeline via CDP -- see the E3.2.2 test lesson on why a plain
     // dispatchEvent would not prove anything about touch-action) must
-    // change results height substantially while leaving the manuscript
-    // approximately unchanged; the outer modal's own scroll length may
-    // grow to absorb it.
+    // grow results substantially while shrinking the manuscript by
+    // APPROXIMATELY THE SAME AMOUNT -- the desktop-style exchange this
+    // stage's whole point is to reproduce -- with the shared region's own
+    // total height staying exactly stable (never "paid for" by the outer
+    // modal any more).
     const dragResizerTouch=async(deltaY,steps=10)=>{
       const box=await page.$eval(".rte-project-results-resizer",el=>{const r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}});
       const cdp=await page.context().newCDPSession(page);
@@ -263,68 +302,108 @@ try{
 
     await dragResizerTouch(100);
     const afterGrow=await geometry();
-    if(afterGrow.resultsHeight-projectModeGeometry.resultsHeight<50)throw new Error(`Dragging the splitter down must grow the results pane substantially: before=${projectModeGeometry.resultsHeight}, after=${afterGrow.resultsHeight}`);
-    if(Math.abs(afterGrow.editorHeight-projectModeGeometry.editorHeight)>heightTolerance)throw new Error(`Dragging the splitter must NOT materially change the manuscript height (this is the exact E3.2.3 defect that was reverted): before=${projectModeGeometry.editorHeight}, after=${afterGrow.editorHeight}`);
-    if(afterGrow.modalScrollHeight<=projectModeGeometry.modalScrollHeight)throw new Error(`Growing the results pane is allowed -- expected -- to increase the outer modal's own scrollable content height: before=${projectModeGeometry.modalScrollHeight}, after=${afterGrow.modalScrollHeight}`);
-
-    // Stage E3.2.5 real-phone regression: dragging the results splitter
-    // taller must NOT push the Find/Replace controls above it upward/out of
-    // the viewport. Reproduced against unmodified HEAD 9c5ef64 (before the
-    // sticky-footer-occlusion fix): a genuine CDP touch drag missed the
-    // resizer entirely (it started life hidden under `.sticky-modal-footer`,
-    // confirmed via elementFromPoint), the results pane did NOT grow at all,
-    // and the outer modal instead scrolled natively -- the anchor moved
-    // ~90px, far outside this tolerance. See
-    // js/editor/find-replace-panel.js's revealResizerPastStickyFooter() and
-    // docs/responsive-workspace-architecture.md's E3.2.5 section for the
-    // full measured root cause.
-    if(Math.abs(afterGrow.anchorTop-projectModeGeometry.anchorTop)>anchorTolerance)throw new Error(`Growing the results pane must keep the Find/Replace controls above it anchored in the viewport: before=${projectModeGeometry.anchorTop}, after=${afterGrow.anchorTop}`);
+    const growResultsDelta=afterGrow.resultsHeight-projectModeGeometry.resultsHeight;
+    const growEditorDelta=afterGrow.editorHeight-projectModeGeometry.editorHeight;
+    if(growResultsDelta<50)throw new Error(`Dragging the splitter down must grow the results pane substantially: before=${projectModeGeometry.resultsHeight}, after=${afterGrow.resultsHeight}`);
+    if(Math.abs(growEditorDelta+growResultsDelta)>heightTolerance)throw new Error(`Results growth must be paid for by the manuscript shrinking by approximately the SAME amount, not by the outer modal: resultsDelta=${growResultsDelta}, editorDelta=${growEditorDelta}`);
+    if(Math.abs(afterGrow.regionHeight-projectModeGeometry.regionHeight)>heightTolerance)throw new Error(`The shared region's own total height must stay stable across a drag: before=${projectModeGeometry.regionHeight}, after=${afterGrow.regionHeight}`);
+    if(afterGrow.modalScrollTop!==projectModeGeometry.modalScrollTop)throw new Error(`The outer modal's own scrollTop must not move as a consequence of the splitter drag: before=${projectModeGeometry.modalScrollTop}, after=${afterGrow.modalScrollTop}`);
     if(afterGrow.windowScrollY!==0)throw new Error(`Resizing the results pane must never scroll the page itself: windowScrollY=${afterGrow.windowScrollY}`);
-    const growAmount=afterGrow.resultsHeight-projectModeGeometry.resultsHeight;
-    const editorTopShift=afterGrow.editorTop-projectModeGeometry.editorTop;
-    if(Math.abs(editorTopShift-growAmount)>heightTolerance+anchorTolerance)throw new Error(`Content below the results pane (the manuscript) must move downward roughly with the results growth: growAmount=${growAmount}, editorTopShift=${editorTopShift}`);
+    if(Math.abs(afterGrow.anchorAboveTop-projectModeGeometry.anchorAboveTop)>anchorTolerance)throw new Error(`Content ABOVE the shared region (the Find/Replace controls) must not move because of the drag: before=${projectModeGeometry.anchorAboveTop}, after=${afterGrow.anchorAboveTop}`);
+    if(Math.abs(afterGrow.anchorBelowTop-projectModeGeometry.anchorBelowTop)>anchorTolerance)throw new Error(`Content BELOW the shared region (participants) must not move because of the drag: before=${projectModeGeometry.anchorBelowTop}, after=${afterGrow.anchorBelowTop}`);
 
-    // Reverse direction: dragging the splitter back up (shrinking results)
-    // must prove the exact inverse -- same anchor, still stable, editor top
-    // moves back up roughly matching the shrink amount. Growing by 100 can
-    // itself have moved the resizer below the fold (expected: nothing in
-    // this stage's fix keeps it in view after a completed resize, since
-    // doing so would itself disturb the anchor -- see
-    // revealResizerPastStickyFooter()'s own comment) -- scrollIntoViewIfNeeded
-    // is the realistic "the user scrolls a little to find the handle again"
-    // step, a test-side action, not part of the drag/anchor contract itself,
-    // so the "before" snapshot is taken AFTER it settles.
+    // F. Reverse direction: dragging the splitter back up (shrinking
+    // results) must prove the exact inverse -- manuscript grows by
+    // approximately the shrink amount, region total still stable, both
+    // anchors still stable, no outer/window scroll. Growing by 100 can
+    // itself have moved the resizer below the fold (expected -- nothing
+    // in this stage keeps it in view after a completed resize, since
+    // doing so would itself disturb the outer-modal-must-not-move
+    // invariant) -- scrollIntoViewIfNeeded is the realistic "the user
+    // scrolls a little to find the handle again" step, a TEST-side
+    // action representing the user's own scroll, not part of the drag
+    // contract itself, so the "before" snapshot is taken after it
+    // settles (and must NOT have moved the two anchors either, since a
+    // plain user scroll moving the whole modal is expected/fine -- the
+    // invariant is specifically about the DRAG not causing movement).
     await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
     await page.waitForTimeout(50);
     const beforeShrink=await geometry();
     await dragResizerTouch(-60);
     const afterShrink=await geometry();
-    if(beforeShrink.resultsHeight-afterShrink.resultsHeight<40)throw new Error(`Dragging the splitter up must shrink the results pane substantially: before=${beforeShrink.resultsHeight}, after=${afterShrink.resultsHeight}`);
-    if(Math.abs(afterShrink.editorHeight-beforeShrink.editorHeight)>heightTolerance)throw new Error(`Shrinking the splitter must NOT materially change the manuscript height: before=${beforeShrink.editorHeight}, after=${afterShrink.editorHeight}`);
-    if(Math.abs(afterShrink.anchorTop-beforeShrink.anchorTop)>anchorTolerance)throw new Error(`Shrinking the results pane must also keep the Find/Replace controls above it anchored in the viewport: before=${beforeShrink.anchorTop}, after=${afterShrink.anchorTop}`);
+    const shrinkResultsDelta=beforeShrink.resultsHeight-afterShrink.resultsHeight;
+    const shrinkEditorDelta=afterShrink.editorHeight-beforeShrink.editorHeight;
+    if(shrinkResultsDelta<40)throw new Error(`Dragging the splitter up must shrink the results pane substantially: before=${beforeShrink.resultsHeight}, after=${afterShrink.resultsHeight}`);
+    if(Math.abs(shrinkEditorDelta-shrinkResultsDelta)>heightTolerance)throw new Error(`Results shrinkage must be RETURNED to the manuscript by approximately the same amount: resultsShrink=${shrinkResultsDelta}, editorGrowth=${shrinkEditorDelta}`);
+    if(Math.abs(afterShrink.regionHeight-beforeShrink.regionHeight)>heightTolerance)throw new Error(`The shared region's own total height must stay stable across the reverse drag too: before=${beforeShrink.regionHeight}, after=${afterShrink.regionHeight}`);
+    if(afterShrink.modalScrollTop!==beforeShrink.modalScrollTop)throw new Error(`The outer modal's own scrollTop must not move during the reverse drag either: before=${beforeShrink.modalScrollTop}, after=${afterShrink.modalScrollTop}`);
     if(afterShrink.windowScrollY!==0)throw new Error(`Shrinking the results pane must never scroll the page itself: windowScrollY=${afterShrink.windowScrollY}`);
-    const shrinkAmount=beforeShrink.resultsHeight-afterShrink.resultsHeight;
-    const editorTopShiftUp=beforeShrink.editorTop-afterShrink.editorTop;
-    if(Math.abs(editorTopShiftUp-shrinkAmount)>heightTolerance+anchorTolerance)throw new Error(`Content below the results pane (the manuscript) must move back upward roughly with the results shrinkage: shrinkAmount=${shrinkAmount}, editorTopShiftUp=${editorTopShiftUp}`);
+    if(Math.abs(afterShrink.anchorAboveTop-beforeShrink.anchorAboveTop)>anchorTolerance)throw new Error(`Content ABOVE the shared region must also not move during the reverse drag: before=${beforeShrink.anchorAboveTop}, after=${afterShrink.anchorAboveTop}`);
+    if(Math.abs(afterShrink.anchorBelowTop-beforeShrink.anchorBelowTop)>anchorTolerance)throw new Error(`Content BELOW the shared region must also not move during the reverse drag: before=${beforeShrink.anchorBelowTop}, after=${afterShrink.anchorBelowTop}`);
 
-    // Min/max constraints on the results pane itself still hold, and the
-    // anchor stays stable even under an extreme drag. Same
-    // scrollIntoViewIfNeeded pre-step as above, for the same reason.
+    // G. Repeated grow/shrink cycles must not drift -- returns to exactly
+    // the same split every time (catches the "sometimes expands/collapses
+    // strangely" real-phone symptom, which would show up as accumulating
+    // error across cycles).
+    let cyclePrev=await geometry();
+    for(let cycle=0;cycle<3;cycle++){
+      await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
+      await dragResizerTouch(50);
+      await dragResizerTouch(-50);
+      const cycleAfter=await geometry();
+      if(Math.abs(cycleAfter.resultsHeight-cyclePrev.resultsHeight)>heightTolerance)throw new Error(`Repeated grow/shrink cycle ${cycle} drifted the results height: before=${cyclePrev.resultsHeight}, after=${cycleAfter.resultsHeight}`);
+      if(Math.abs(cycleAfter.editorHeight-cyclePrev.editorHeight)>heightTolerance)throw new Error(`Repeated grow/shrink cycle ${cycle} drifted the manuscript height: before=${cyclePrev.editorHeight}, after=${cycleAfter.editorHeight}`);
+      if(Math.abs(cycleAfter.regionHeight-cyclePrev.regionHeight)>heightTolerance)throw new Error(`Repeated grow/shrink cycle ${cycle} drifted the shared region's total height: before=${cyclePrev.regionHeight}, after=${cycleAfter.regionHeight}`);
+      cyclePrev=cycleAfter;
+    }
+
+    // H. Switching scope current-scene -> project -> current-scene ->
+    // project, and closing/reopening Find/Replace, must not drift or
+    // corrupt the geometry either (the other real-phone symptom: "results
+    // sometimes appear to expand/collapse in ways that do not correspond
+    // to the finger drag").
+    await page.tap('#sceneTextFindReplace .rte-scope-btn:not(.active)'); // -> scene
+    await page.waitForTimeout(60);
+    const backToScene=await geometry();
+    if(Math.abs(backToScene.editorHeight-closedGeometry.editorHeight)>heightTolerance)throw new Error(`Leaving project scope must restore the manuscript to its full shared-region height: expected~=${closedGeometry.editorHeight}, got=${backToScene.editorHeight}`);
+    await page.tap('#sceneTextFindReplace .rte-scope-btn:not(.active)'); // -> project
+    await page.waitForTimeout(60);
+    const backToProject=await geometry();
+    if(backToProject.resultsHeight==null)throw new Error("Re-entering project scope must show the results pane again");
+    if(Math.abs(backToProject.regionHeight-closedGeometry.regionHeight)>heightTolerance)throw new Error(`Re-entering project scope must not have drifted the shared region's own total height: closed=${closedGeometry.regionHeight}, re-entered=${backToProject.regionHeight}`);
+    await page.tap("#sceneTextFindReplace .rte-find-close");
+    await page.waitForTimeout(60);
+    const afterClose=await geometry();
+    if(Math.abs(afterClose.editorHeight-closedGeometry.editorHeight)>heightTolerance)throw new Error(`Closing Find/Replace must restore the manuscript to its full shared-region height: expected~=${closedGeometry.editorHeight}, got=${afterClose.editorHeight}`);
+    await page.tap("#sceneTextToolbar .rte-btn-find");
+    await page.waitForTimeout(60);
+    const afterReopen=await geometry();
+    if(afterReopen.resultsHeight==null)throw new Error("Reopening Find/Replace must restore the previously-active project scope with its results pane");
+    if(Math.abs(afterReopen.regionHeight-closedGeometry.regionHeight)>heightTolerance)throw new Error(`Reopening Find/Replace must not have drifted the shared region's own total height: closed=${closedGeometry.regionHeight}, reopened=${afterReopen.regionHeight}`);
+
+    // I. Extreme drags: MIN/MAX still hold, and MAX now also respects the
+    // manuscript's own practical minimum (MANUSCRIPT_MIN_HEIGHT,
+    // find-replace-panel.js) -- the manuscript must never be crushed below
+    // it, which is exactly what makes this a corrected E3.2.3, not a
+    // repeat of it. Both anchors stay stable even under an extreme drag.
     await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
     await page.waitForTimeout(50);
     const beforeMaxDrag=await geometry();
     await dragResizerTouch(2000,20);
     const afterMaxDrag=await geometry();
-    if(afterMaxDrag.resultsHeight>420+2)throw new Error(`Touch drag must still respect the results pane's max height: ${afterMaxDrag.resultsHeight}`);
-    if(Math.abs(afterMaxDrag.editorHeight-closedGeometry.editorHeight)>heightTolerance)throw new Error(`Even an extreme drag must not shrink the manuscript: closed=${closedGeometry.editorHeight}, after=${afterMaxDrag.editorHeight}`);
-    if(Math.abs(afterMaxDrag.anchorTop-beforeMaxDrag.anchorTop)>anchorTolerance)throw new Error(`An extreme drag clamped to MAX must still keep the anchor stable: before=${beforeMaxDrag.anchorTop}, after=${afterMaxDrag.anchorTop}`);
+    if(afterMaxDrag.resultsHeight>420+2)throw new Error(`Touch drag must still respect the results pane's flat max height: ${afterMaxDrag.resultsHeight}`);
+    if(afterMaxDrag.editorHeight<140-heightTolerance)throw new Error(`Even an extreme drag must never crush the manuscript below its practical minimum (140px): ${afterMaxDrag.editorHeight}`);
+    if(Math.abs(afterMaxDrag.regionHeight-beforeMaxDrag.regionHeight)>heightTolerance)throw new Error(`An extreme drag clamped to MAX must still keep the shared region's total height stable: before=${beforeMaxDrag.regionHeight}, after=${afterMaxDrag.regionHeight}`);
+    if(Math.abs(afterMaxDrag.anchorAboveTop-beforeMaxDrag.anchorAboveTop)>anchorTolerance)throw new Error(`An extreme drag clamped to MAX must still keep the above-anchor stable: before=${beforeMaxDrag.anchorAboveTop}, after=${afterMaxDrag.anchorAboveTop}`);
+    if(Math.abs(afterMaxDrag.anchorBelowTop-beforeMaxDrag.anchorBelowTop)>anchorTolerance)throw new Error(`An extreme drag clamped to MAX must still keep the below-anchor stable: before=${beforeMaxDrag.anchorBelowTop}, after=${afterMaxDrag.anchorBelowTop}`);
     await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
     await page.waitForTimeout(50);
     const beforeMinDrag=await geometry();
     await dragResizerTouch(-2000,20);
     const afterMinDrag=await geometry();
     if(afterMinDrag.resultsHeight<90-2)throw new Error(`Touch drag must still respect the results pane's min height: ${afterMinDrag.resultsHeight}`);
-    if(Math.abs(afterMinDrag.anchorTop-beforeMinDrag.anchorTop)>anchorTolerance)throw new Error(`An extreme drag clamped to MIN must still keep the anchor stable: before=${beforeMinDrag.anchorTop}, after=${afterMinDrag.anchorTop}`);
+    if(Math.abs(afterMinDrag.regionHeight-beforeMinDrag.regionHeight)>heightTolerance)throw new Error(`An extreme drag clamped to MIN must still keep the shared region's total height stable: before=${beforeMinDrag.regionHeight}, after=${afterMinDrag.regionHeight}`);
+    if(Math.abs(afterMinDrag.anchorAboveTop-beforeMinDrag.anchorAboveTop)>anchorTolerance)throw new Error(`An extreme drag clamped to MIN must still keep the above-anchor stable: before=${beforeMinDrag.anchorAboveTop}, after=${afterMinDrag.anchorAboveTop}`);
 
     // The outer modal must remain the ONLY scroll owner involved in this
     // whole resize sequence -- window/page scroll must still be exactly 0.
@@ -380,8 +459,6 @@ try{
     await page.waitForFunction(()=>document.getElementById("discardChangesModal").style.display==="flex");
     await page.tap("#discardChanges");
     await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="none");
-    // Restore the rest of this test block's normal 390x844 viewport.
-    await page.setViewportSize({width:390,height:844});
 
     // J. Save an existing scene -- metadata + manuscript together.
     await page.locator('[data-scene-id="scene-a"] .row-action-icon[title="Изменить сцену"]').tap();
@@ -466,22 +543,48 @@ try{
     const landscapeOverflow={scrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),clientWidth:await page.evaluate(()=>document.documentElement.clientWidth)};
     if(landscapeOverflow.scrollWidth>landscapeOverflow.clientWidth+geometryTolerance)throw new Error(`Scene Editor introduced page-level horizontal overflow in landscape: ${JSON.stringify(landscapeOverflow)}`);
 
-    // Stage E3.2.4 sanity (no landscape redesign): the manuscript's
-    // independent ~50dvh height and the results-only splitter model must
-    // hold in short landscape too -- opening project Find/Replace must not
-    // collapse the manuscript, and the outer modal absorbs any extra
-    // height exactly as in portrait.
-    const landscapeClosedEditorHeight=await page.$eval("#sceneTextEditor",el=>el.getBoundingClientRect().height);
+    // Stage E3.2.6 sanity (no landscape redesign, per explicit scope guard):
+    // at 667x375, `.rte-manuscript-region`'s 50dvh budget is only ~187.5px
+    // -- less than results' own default (140px, flex:none, never shrinks)
+    // plus the manuscript's practical 140px minimum (flex-shrink stops
+    // there) combined (~298px+chrome). Measured directly: both the results
+    // pane and the manuscript still each get their own full requested
+    // height from the flex algorithm (`overflow:hidden` on the region just
+    // clips whatever doesn't fit, rather than forcing an ugly negative
+    // size) -- a real, honest degraded state in this tight orientation,
+    // NOT a crash, NOT a redesign target for this stage (landscape/tablet
+    // work is explicitly out of scope; deferred to E6, matching every
+    // earlier landscape note in this doc). This section only asserts: no
+    // page error, no horizontal overflow, the manuscript keeps a real
+    // (non-zero, still-editable) presence, and the results pane is still
+    // there -- not the strict portrait exchange invariants above, which
+    // this cramped a viewport cannot honestly satisfy.
     await page.tap("#sceneTextToolbar .rte-btn-find");
     await page.tap('#sceneTextFindReplace .rte-scope-btn:not(.active)');
     await page.locator("#sceneTextFindReplace .rte-find-input").fill("текст");
     await page.waitForSelector(".rte-project-results-resizer");
-    const landscapeProjectEditorHeight=await page.$eval("#sceneTextEditor",el=>el.getBoundingClientRect().height);
-    if(Math.abs(landscapeProjectEditorHeight-landscapeClosedEditorHeight)>4)throw new Error(`Opening project Find/Replace in landscape must not materially change the manuscript height: closed=${landscapeClosedEditorHeight}, project=${landscapeProjectEditorHeight}`);
+    await page.waitForTimeout(100);
+    const landscapeGeometry=await page.evaluate(()=>({
+      editorHeight:document.getElementById("sceneTextEditor").getBoundingClientRect().height,
+      resultsHeight:document.querySelector(".rte-project-results").getBoundingClientRect().height
+    }));
+    if(!(landscapeGeometry.editorHeight>0))throw new Error(`Manuscript must keep a real presence in short landscape even when cramped: ${JSON.stringify(landscapeGeometry)}`);
+    if(!(landscapeGeometry.resultsHeight>0))throw new Error(`Results pane must keep a real presence in short landscape even when cramped: ${JSON.stringify(landscapeGeometry)}`);
+    const landscapeEditableStillWorks=await page.evaluate(()=>{
+      const view=sceneModalTextEditor.view;
+      view.dispatch(view.state.tr.insertText("ЛАНДШАФТ"));
+      return sceneModalTextEditor.serialize().sceneText.includes("ЛАНДШАФТ");
+    });
+    if(!landscapeEditableStillWorks)throw new Error("Manuscript must remain editable in short landscape even with project results open");
     const landscapeOverflowWithResults={scrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),clientWidth:await page.evaluate(()=>document.documentElement.clientWidth)};
     if(landscapeOverflowWithResults.scrollWidth>landscapeOverflowWithResults.clientWidth+geometryTolerance)throw new Error(`Project results in short landscape must not introduce page-level horizontal overflow: ${JSON.stringify(landscapeOverflowWithResults)}`);
     await page.tap("#sceneTextFindReplace .rte-find-close");
+    // The manuscript was just edited (ЛАНДШАФТ above), so this close hits
+    // the same dirty-state discard guard used throughout this file.
     await page.evaluate(()=>document.getElementById("cancelScene").click());
+    await page.waitForFunction(()=>document.getElementById("discardChangesModal").style.display==="flex");
+    await page.tap("#discardChanges");
+    await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="none");
 
     if(pageErrors.length)throw new Error(`Unexpected page errors: ${pageErrors.join("; ")}`);
     await page.close();

@@ -864,7 +864,14 @@
       <h3 class="scene-section-title" id="sceneTextSectionTitle">Текст сцены</h3>
       <div id="sceneTextToolbar"></div>
       <div id="sceneTextFindReplace"></div>
-      <div id="sceneTextEditor" class="rte-editor" aria-labelledby="sceneTextSectionTitle"></div>
+      <!-- Stage E3.2.6: wraps ONLY the manuscript (and, once
+           find-replace-panel.js inserts it, the project-results pane +
+           splitter) in a bounded phone-only flex region -- see
+           css/editor.css's own comment on `.rte-manuscript-region` for why
+           the toolbar/Find/Replace row above are deliberately OUTSIDE it. -->
+      <div class="rte-manuscript-region">
+        <div id="sceneTextEditor" class="rte-editor" aria-labelledby="sceneTextSectionTitle"></div>
+      </div>
     </section>
 
     <section class="scene-section">

@@ -53,6 +53,21 @@
 const DEFAULT_RESULTS_HEIGHT=140;
 const MIN_RESULTS_HEIGHT=90;
 const MAX_RESULTS_HEIGHT=420;
+// Stage E3.2.6: the practical phone minimum for the manuscript once it
+// shares `.rte-manuscript-region`'s bounded height with the project-
+// results pane (css/editor.css) -- replaces E3.2.3's rejected 20px
+// "technical floor" (results could squeeze the manuscript to a sliver of
+// its own line-height). 140px minus `.rte-editor`'s own 12px+12px vertical
+// padding leaves ~116px of visible text at this app's manuscript
+// line-height (1.55 * 16px font-size ≈ 24.8px/line) -- roughly 4-5 whole
+// lines, a genuinely readable/editable amount, not just a sliver. Also
+// deliberately the SAME number as DEFAULT_RESULTS_HEIGHT: when both panes
+// are contending for the same budget, neither one's "comfortable default"
+// size is allowed to crush the other below its own comfortable default.
+// Single source of truth for BOTH the CSS `min-height` on `.rte-editor`
+// inside `.rte-manuscript-region` (must be kept numerically in sync, see
+// that rule's own comment) and the dynamic results-height clamp below.
+const MANUSCRIPT_MIN_HEIGHT=140;
 
 // Russian plural-form bucket -- standard mod-10/mod-100 rule, no library
 // needed. Module-level (not just an inline closure) and exported so
@@ -91,7 +106,16 @@ export function excludedScenesClause(excludedSceneCount){
   return ` · ${excludedSceneCount} ${noun} ${verb} в общий текст`;
 }
 
-export function createFindReplacePanel(container,controller){
+// Stage E3.2.6: `manuscriptRegion`, when passed (currently only by
+// mountSceneEditor for #sceneModal -- see that file's own comment), is the
+// phone-only bounded flex wrapper (`.rte-manuscript-region`, css/
+// editor.css) around the manuscript. When present, the project-results
+// pane/resizer are inserted as ITS first child (ahead of the manuscript)
+// instead of as `container`'s plain sibling, and the results-height clamp
+// becomes geometry-aware so results growth is paid for by the manuscript
+// shrinking within that SAME bounded region -- never by the outer modal.
+// `null` everywhere else preserves the exact pre-existing behavior.
+export function createFindReplacePanel(container,controller,manuscriptRegion=null){
   container.innerHTML="";
   container.classList.add("rte-find-replace");
   container.hidden=true;
@@ -277,6 +301,14 @@ export function createFindReplacePanel(container,controller){
   const stickyWrapper=container.closest(".rte-sticky-controls");
   if(stickyWrapper){
     stickyWrapper.appendChild(resultsWrapper);
+  } else if(manuscriptRegion){
+    // Stage E3.2.6: results/resizer become the manuscript's own sibling
+    // INSIDE the bounded region, ahead of it -- `.rte-manuscript-region`'s
+    // flex layout (css/editor.css) then does 100% of the "results grows,
+    // manuscript shrinks by the same amount" work with zero further JS
+    // needed here; this insertion point is the only thing that has to be
+    // correct for that to happen.
+    manuscriptRegion.insertBefore(resultsWrapper,manuscriptRegion.firstElementChild);
   } else if(container.parentElement){
     // Defensive fallback for a container not yet attached anywhere (never
     // true for the app's own real modals, which are always static HTML
@@ -287,8 +319,32 @@ export function createFindReplacePanel(container,controller){
     container.appendChild(resultsWrapper);
   }
 
+  // Stage E3.2.6: on #sceneModal phone, `.rte-manuscript-region` fixes the
+  // TOTAL results+splitter+manuscript height -- so the results pane can
+  // never be dragged taller than "region height minus the manuscript's own
+  // practical minimum," or the manuscript would be forced below that floor
+  // (flexbox never violates `min-height`; something would have to overflow
+  // instead). `chromeOverhead` reads the resizer/replaceStatusEl/margin
+  // space `resultsWrapper` uses beyond `resultsRoot` itself, straight from
+  // the live layout, rather than hardcoding a second copy of those numbers
+  // here. Falls back to the flat MAX_RESULTS_HEIGHT whenever there is no
+  // manuscriptRegion (every other surface, unchanged) or at desktop widths
+  // (desktop keeps its own existing, unrelated geometry -- see
+  // `#sceneModal .rte-editor`'s own desktop rule, still a flat 320px,
+  // completely untouched by this stage).
+  function effectiveMaxResultsHeight(){
+    if(!manuscriptRegion)return MAX_RESULTS_HEIGHT;
+    if(typeof matchMedia!=="function"||!matchMedia("(max-width:760px)").matches)return MAX_RESULTS_HEIGHT;
+    const regionHeight=manuscriptRegion.getBoundingClientRect().height;
+    if(!regionHeight)return MAX_RESULTS_HEIGHT;
+    const editorEl=manuscriptRegion.querySelector(".rte-editor");
+    const editorMinHeight=editorEl?parseFloat(getComputedStyle(editorEl).minHeight)||MANUSCRIPT_MIN_HEIGHT:MANUSCRIPT_MIN_HEIGHT;
+    const chromeOverhead=resultsWrapper.getBoundingClientRect().height-resultsRoot.getBoundingClientRect().height;
+    const available=regionHeight-editorMinHeight-chromeOverhead;
+    return Math.max(MIN_RESULTS_HEIGHT,Math.min(MAX_RESULTS_HEIGHT,available));
+  }
   function clampResultsHeight(height){
-    return Math.min(MAX_RESULTS_HEIGHT,Math.max(MIN_RESULTS_HEIGHT,height));
+    return Math.min(effectiveMaxResultsHeight(),Math.max(MIN_RESULTS_HEIGHT,height));
   }
   function setResultsHeight(height){
     const clamped=clampResultsHeight(height);
@@ -418,52 +474,6 @@ export function createFindReplacePanel(container,controller){
   // anything inside this panel itself.
   container.addEventListener("find-replace-escape",()=>controller.close());
 
-  // Stage E3.2.5 real-phone corrective fix: #sceneModal/#allScenesModal (any
-  // surface still using the shared `.modal-actions.sticky-modal-footer`,
-  // css/modals.css -- #textModal opts out of it, see editor.css's own
-  // comment on `#textModal .modal-actions.sticky-modal-footer`) keep that
-  // footer pinned via `position:sticky` over the LAST ~75px of the modal's
-  // own scroll viewport at essentially any scroll depth. The project-results
-  // pane (and its resizer) can land there the very first time it appears --
-  // e.g. right after opening Find/Replace and switching to "Весь проект",
-  // the browser's own native "scroll the newly-focused find input into
-  // view" behavior can leave the resizer sitting exactly under that footer,
-  // BEFORE the user ever touches it. A touch aimed at the (visually hidden)
-  // resizer then lands on the footer instead, so no resize happens at all --
-  // instead the touch falls through to an ordinary native scroll of the
-  // outer modal, which is what real-phone testing actually saw as "the
-  // upper Find/Replace area shifts upward/out of view" (confirmed via
-  // elementFromPoint hit-testing + a CDP touch-drag reproduction: with the
-  // resizer genuinely reachable, a correctly-captured drag showed ZERO
-  // scroll/anchor movement at all -- see docs/responsive-workspace-
-  // architecture.md's E3.2.5 section for the measured before/after). The fix
-  // is therefore not "compensate scroll during a successful resize" (nothing
-  // to compensate there) but "make sure the resizer is not born unreachable
-  // in the first place": once it first becomes visible, nudge it clear of
-  // the footer's reserved strip. `scroll-margin-bottom` on the resizer
-  // (css/editor.css, phone-only) tells the browser's own scrollIntoView
-  // algorithm to treat that reserved strip as insufficient, so this native
-  // call does the right thing with no manual pixel math here. Runs once per
-  // hidden->visible transition only (never on every keystroke's re-render,
-  // which would otherwise yank the user's scroll position while they read
-  // results) and only on the phone shell breakpoint (desktop's modal has no
-  // such squeeze and must not gain any new scroll behavior, per the
-  // explicit desktop-no-jumps requirement for this stage). Deliberately
-  // NOT also re-run after a completed resize: growing the results pane can
-  // itself push the resizer below the fold, and re-revealing it there would
-  // require scrolling the outer modal further -- which would disturb the
-  // very anchor-stability contract this stage's fix exists to guarantee.
-  // A resizer that ends up off-screen after a resize is not a regression
-  // this stage needs to solve: exactly like any other control that scrolls
-  // out of view, the user can scroll a little to reach it again, the same
-  // way they would for any other affordance below the fold.
-  function revealResizerPastStickyFooter(){
-    if(typeof matchMedia!=="function"||!matchMedia("(max-width:760px)").matches)return;
-    requestAnimationFrame(()=>{
-      if(!resultsWrapper.hidden)resizer.scrollIntoView({block:"nearest"});
-    });
-  }
-
   // Rebuilds the project-results list from scratch on every relevant
   // snapshot -- simplest correct approach for a "practical first version"
   // (see docs/find-replace-architecture.md's own Stage D1 product brief,
@@ -479,9 +489,7 @@ export function createFindReplacePanel(container,controller){
     replaceStatusEl.hidden=true;replaceStatusEl.textContent="";
     resultsRoot.innerHTML="";
     if(!snapshot.open||snapshot.scope!=="project"){resultsWrapper.hidden=true;return}
-    const wasHidden=resultsWrapper.hidden;
     resultsWrapper.hidden=false;
-    if(wasHidden)revealResizerPastStickyFooter();
     if(!snapshot.query){
       const hint=document.createElement("div");
       hint.className="rte-project-results-hint";

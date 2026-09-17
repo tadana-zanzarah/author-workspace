@@ -180,16 +180,103 @@
    results pane at all) already collapsed the manuscript to a few lines,
    and project mode could make it disappear almost entirely -- the
    product requirement was never "trade space with the manuscript," only
-   "the results pane itself should be resizable." E3.2.4 reverts this
-   rule back to exactly its E3.2.2 form below -- the manuscript's own
-   ~50dvh height is independent of whether Find/Replace is open at all;
-   see `.rte-project-results-resizer`'s own comment for how the splitter
-   now only resizes the results pane, letting the outer `#sceneModal
-   .modal` scroll (already its job since E3.2.1) absorb any extra height
-   that creates, exactly like growing manuscript content itself already
-   does. */
+   "the results pane itself should be resizable." E3.2.4 reverted this
+   rule back to exactly its E3.2.2 form -- the manuscript's own ~50dvh
+   height independent of Find/Replace, splitter resizes only the results
+   pane, outer `#sceneModal .modal` scroll absorbs the extra height.
+
+   E3.2.4's model was itself found incomplete on further real-phone
+   testing (E3.2.5/E3.2.6): letting the OUTER MODAL absorb results growth
+   meant the modal's own scrollable content length (and therefore where
+   focusing the find input naturally scrolls to) changed every time
+   Find/Replace opened or results resized -- producing unpredictable
+   outer-scroll jumps that looked like content "shifting" for reasons
+   unrelated to any single bug (E3.2.5 fixed one instance: the resizer
+   starting life hidden under `.sticky-modal-footer` at one such scroll
+   position -- see that stage's own now-removed
+   revealResizerPastStickyFooter() comment in find-replace-panel.js and
+   `.rte-project-results-resizer::after`'s own comment below). Real-phone
+   verdict: results growth must never be "paid for" by the outer modal at
+   all.
+
+   E3.2.6 (current): reproduces DESKTOP's own `#textModal` mechanism
+   (`.modal{display:flex;flex-direction:column;height:92vh;
+   overflow:hidden}` + `.rte-editor{flex:1 1 auto;min-height:0}` --
+   confirmed by direct measurement: dragging its splitter +100px shrinks
+   its editor by exactly -100px, with the modal's own height never
+   changing) -- but scoped NARROWLY: on `#sceneModal`, ONLY the manuscript
+   and the results pane/splitter share a bounded flex region
+   (`.rte-manuscript-region` below), never the toolbar or Find/Replace
+   controls above it. That narrower boundary is the actual correction over
+   E3.2.3, which bounded toolbar+Find/Replace+results+editor ALL together
+   and left the editor only ~20-30px once the chrome was subtracted --
+   confirmed by direct measurement that even `#textModal`'s own existing
+   (accepted, never-reported-broken) mechanism has this same risk if
+   dragged to MAX_RESULTS_HEIGHT (its editor measured 26px there, that
+   surface's toolbar+Find/Replace do live inside the SAME shared column) --
+   `#textModal` itself is intentionally NOT touched by this stage (out of
+   scope; flagged separately, see docs/responsive-workspace-
+   architecture.md's E3.2.6 section). `#sceneModal .rte-editor`'s height
+   moves from this rule onto `.rte-manuscript-region` (the new bounded
+   flex parent, index.html) -- the editor itself becomes `flex:1 1 auto`
+   with a practical `min-height` (MANUSCRIPT_MIN_HEIGHT, find-replace-
+   panel.js) instead of a flat height, exactly mirroring `#textModal
+   .rte-editor`'s own generic flex rule above, just with its OWN bounded
+   parent instead of the whole modal. */
 @media(max-width:760px){
-  #sceneModal .rte-editor{height:50vh;height:50dvh;overflow-y:auto}
+  /* Stage E3.2.6: bounds ONLY [project-results pane, splitter, manuscript]
+     -- inserted here by find-replace-panel.js's `manuscriptRegion`
+     parameter (see mountSceneEditor's own comment) as the region's first
+     child, ahead of the manuscript. `overflow:hidden`, not `auto`: this
+     region is a fixed-size flex layout container, never its own scroll
+     region -- `.rte-project-results` and `.rte-editor` each keep their
+     own independent `overflow-y:auto`, and the outer `#sceneModal .modal`
+     remains the sole scroll owner for everything above/below this region,
+     completely unaffected by whatever split it currently has internally. */
+  #sceneModal .rte-manuscript-region{
+    display:flex;flex-direction:column;
+    height:50vh;height:50dvh;
+    overflow:hidden;
+  }
+  /* `flex:1 1 auto` already comes from `.rte-editor`'s own generic rule
+     above (shared with #textModal) -- only `height`/`min-height` need
+     overriding here: `height:320px` (desktop, unconditional, same
+     selector) must not apply on phone, and `min-height:0` (that generic
+     rule, intended for #textModal's own full-modal-height budget) would
+     let this budget crush the manuscript arbitrarily small, reintroducing
+     exactly the E3.2.3 defect -- MANUSCRIPT_MIN_HEIGHT (find-replace-
+     panel.js) is the single source of truth for the number; keep both in
+     sync if it ever changes. */
+  #sceneModal .rte-manuscript-region .rte-editor{height:auto;min-height:140px}
+
+  /* Stage E3.2.6: structural sticky-footer fix (replaces E3.2.5's removed
+     auto-scroll workaround). `.sticky-modal-footer` (css/modals.css) is
+     always pinned over the last ~75px of `#sceneModal .modal`'s own
+     viewport at nearly any scroll depth. Opening Find/Replace focuses the
+     find input, and the browser's own native "scroll the newly-focused
+     element into view" lands wherever is JUST enough to reveal that
+     input -- with zero awareness of the resizer further down, which can
+     still end up under that reserved strip (confirmed by direct
+     measurement: the same near-miss as E3.2.5 diagnosed, unrelated to and
+     unfixed by `.rte-manuscript-region` above, since it's driven entirely
+     by content ABOVE the region, not by anything within it). Rather than
+     chasing that scroll position with more `scroll-margin`/auto-scroll
+     compensation (rejected -- the real-phone verdict on E3.2.5 was that
+     auto-repositioning the outer modal is itself the problem), this
+     applies the EXACT same precedent `#textModal` already uses
+     UNCONDITIONALLY (`#textModal .modal-actions.sticky-modal-footer{
+     position:static}` above): while the project-results pane is visible,
+     the footer simply stops being sticky, so there is nothing left for
+     the resizer to ever be occluded BY, regardless of scroll position,
+     viewport width, or how many rows the Find/Replace controls wrap to.
+     Save/Cancel are still reachable at the natural end of the outer
+     scroll, exactly as they were for every modal before `.sticky-modal-
+     footer` existed. `:has()` is an already-established technique in this
+     codebase (css/modals.css/profiles.css/timeline.css), not new here. */
+  #sceneModal:has(.rte-project-results-wrapper:not([hidden]))
+    .modal-actions.sticky-modal-footer{
+    position:static;bottom:auto;
+  }
 }
 
 /* Stage E2.2: Quick Scene (#quickSceneModal) — reuses .rte-toolbar/
@@ -319,20 +406,22 @@
   background:var(--surface-elevated);border-bottom:1px solid var(--border-faint);
   touch-action:none;
 }
-/* Stage E3.2.5: see js/editor/find-replace-panel.js's
-   revealResizerPastStickyFooter() for why this exists -- on #sceneModal/
-   #allScenesModal, `.sticky-modal-footer` (css/modals.css) stays pinned
-   over roughly the last 75px of the modal's own scroll viewport at nearly
-   any scroll depth. Without this, the browser's native scrollIntoView
-   (used to reveal this resizer the first time results appear) would
-   consider the resizer "already visible" as soon as it is geometrically
-   inside that viewport, even though the footer visually/functionally
-   covers it there -- this margin tells scrollIntoView to keep scrolling
-   until the resizer clears that reserved strip. Phone-only: desktop's
-   modal has no such squeeze and must not change. */
-@media(max-width:760px){
-  .rte-project-results-resizer{scroll-margin-bottom:84px}
-}
+/* Stage E3.2.6: E3.2.5's `scroll-margin-bottom` auto-scroll workaround
+   (compensating for the resizer landing under `.sticky-modal-footer`) was
+   removed here. Measured directly: `.rte-manuscript-region`'s invariant
+   height alone does NOT fix the occlusion -- the scroll position that
+   lands the resizer under the footer is driven entirely by the browser's
+   native "scroll the newly-focused find input into view" behavior, which
+   only depends on content ABOVE the region (title/metadata/toolbar), not
+   on anything the region itself changed. The actual structural fix is the
+   `:has()` rule above, in the `.rte-manuscript-region` media block
+   (`#sceneModal:has(.rte-project-results-wrapper:not([hidden]))
+   .modal-actions.sticky-modal-footer{position:static}`): removed here
+   after confirming, via a genuine CDP touch reproduction,
+   that the resizer is reachable (elementFromPoint resolves to it, not the
+   footer) with that rule in place and NO auto-scroll of any kind -- see
+   docs/responsive-workspace-architecture.md's E3.2.6 section for the
+   measured proof. */
 .rte-project-results-resizer::after{
   content:"";width:32px;height:3px;border-radius:2px;background:var(--border-subtle);
 }

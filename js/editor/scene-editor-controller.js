@@ -99,7 +99,17 @@ export function mountSceneEditor({editorContainer,toolbarContainer,scene,charact
   const doc=loadSceneDocument(sceneDocSchema,scene);
   const findReplace=findReplaceContainer?createFindReplaceController(projectSearchDeps({getProjectData,openSceneForEditing,commitProjectReplaceAll,rebaseSceneDirtyBaseline,confirmProjectReplaceAll})):null;
   findReplace?.adoptProjectSession(projectSession);
-  const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace):null;
+  // Stage E3.2.6: `#sceneModal`'s HTML wraps ONLY the manuscript in
+  // `.rte-manuscript-region` (index.html) -- when present, this is where
+  // the project-results pane/splitter must be inserted (as the region's
+  // first child, ahead of the manuscript) so the two share ONE bounded
+  // phone-height flex budget, never the toolbar/Find/Replace row above it.
+  // `#textModal`/"Весь текст" have no such wrapper (their own editorContainer's
+  // parent is never `.rte-manuscript-region`), so this stays `null` there
+  // and createFindReplacePanel falls back to its existing, unchanged
+  // sibling-insertion behavior -- see that file's own comment.
+  const manuscriptRegion=editorContainer.parentElement?.classList.contains("rte-manuscript-region")?editorContainer.parentElement:null;
+  const findReplacePanel=findReplace?createFindReplacePanel(findReplaceContainer,findReplace,manuscriptRegion):null;
   const toolbar=createSceneEditorToolbar(toolbarContainer,{
     characters,onFindReplace:findReplace?()=>findReplace.open("find"):undefined,
     // Editor-handoff Stage D2.1.4 (Finding 2) / D2.1.5 (position handoff):
