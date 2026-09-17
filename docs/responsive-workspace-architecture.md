@@ -936,3 +936,70 @@ no controls were collapsed for landscape, search/replace semantics and
 result-navigation semantics are unchanged, and no multi-line mobile result
 cards were introduced — this stage only changed which element owns
 horizontal overflow for project-search results on phone.
+
+## 24. Stage E3.1.3 — shared-scroll row geometry microfix
+
+E3.1.2 (§22) introduced shared horizontal scrolling for project-search
+results, and real-phone review confirmed the shared-scroll interaction
+itself felt correct. But the same review found a geometry defect in how it
+was implemented: E3.1.2 made each row's `white-space:nowrap` text paint
+past its own box under `overflow:visible`, relying on that unclipped ink
+propagating up to `.rte-project-results` to establish the shared scroll
+width — but a row's `background`/`border` (its active-match highlight)
+paints only inside that row's own BOX, which E3.1.2 left at a fixed
+`width:100%`. After scrolling, the revealed text continuation had no
+background under it — the same logical row visually split into a
+highlighted part and a plain part at the original viewport edge.
+
+Investigation found hit-testing was **not** actually broken by this — a
+point on the unclipped, overflowing text still resolved via
+`elementFromPoint` to a descendant inside the row, since nothing clipped
+it — but relying on that implicit ink-hit-testing behavior instead of the
+row's real box was fragile, and the painted state was visibly wrong
+regardless.
+
+**Fix**: `width:max-content` (not `100%`) on `.rte-project-result-row`,
+phone-only. Each row's own box now genuinely sizes to its own content's
+actual width, so background/border/hover/active states — and the box used
+for hit-testing — cover the row's entire real extent. A short row's box
+stays short; the longest row still governs `.rte-project-results`'s own
+`scrollWidth`. No wrapper element or JS was needed:
+`.rte-project-result-group` (no explicit width, default
+`overflow:visible`) lets its now-wider row overflow its own box the same
+way E3.1.2's ink did, propagating up to `.rte-project-results` identically
+— the only change is that what overflows is now the row's real box
+(background and all), not just unclipped ink.
+
+Verified in-browser: after the fix, six result rows spanned four distinct
+widths (528–762px, matching each row's own source-text length) instead of
+all being clamped to the visible ~339px; a click at a coordinate on the
+revealed continuation of the widest row (well past where its box used to
+end) correctly resolved to, and activated, that exact row's match, with
+the point still resolving inside the now-`.active` row afterward
+(background genuinely covers it). Desktop is unaffected — rows still
+report `width:100%`/`overflow:hidden`/`ellipsis`, and the results list
+still has no horizontal overflow to scroll.
+
+**Final interaction contract, restated with painted/interactive geometry
+now coherent**: vertical swipe on the results surface → browse rows;
+horizontal swipe on the results surface → reveal each visible row's own
+continuation, background and hit-area moving with the text; tap anywhere
+on a row (including its revealed continuation) → navigates to that exact
+match. The deferred E6 compact-mobile-Find/Replace/landscape item (§20)
+is unchanged and still not implemented.
+
+**Files changed:** `css/editor.css` (the fix — `.rte-project-result-row`'s
+phone-only rule gained `width:max-content`);
+`tools/mobile-text-scene-browser.test.mjs` (fixture rows given genuinely
+different lengths; assertions extended to check per-row box widths differ
+and to perform a real coordinate click on a row's revealed continuation).
+
+## 25. Explicit confirmation (E3.1.3)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E3.2 was not started. Quick Scene and Text Scene itself were not touched;
+the Find/Replace panel and its controls were not redesigned; no compact
+search mode was implemented; desktop Find/Replace is unchanged. This
+stage only corrected `.rte-project-result-row`'s phone-only box sizing so
+painted and interactive geometry agree with the shared horizontal scroll
+surface introduced in E3.1.2.

@@ -265,41 +265,51 @@
 .rte-project-result-row.active{border-color:var(--brand);background:var(--brand-tint)}
 .rte-project-result-match{background:#e9c56d;color:inherit;border-radius:2px;font-style:normal}
 
-/* Stage E3.1.1 real-phone microfix (superseded by E3.1.2 below): a
-   project-search result snippet can be wider than the phone viewport;
-   `overflow:hidden` above clips it AND blocks scrolling in one declaration,
-   so the continuation was genuinely unreachable. E3.1.1's first fix made
-   each ROW independently horizontally scrollable -- technically reachable,
-   but real-phone review rejected the UX: every row then owned two
-   competing touch gestures (tap-to-navigate vs swipe-to-reveal), and each
-   row scrolled to its own independent horizontal position, so inspecting
-   context across several results meant swiping every row separately.
+/* Stage E3.1.1 (superseded by E3.1.2) then E3.1.2 (geometry corrected by
+   E3.1.3 below): a project-search result snippet can be wider than the
+   phone viewport; `overflow:hidden` above clips it AND blocks scrolling in
+   one declaration, so the continuation was genuinely unreachable. E3.1.1's
+   fix made each ROW independently horizontally scrollable -- technically
+   reachable, but real-phone review rejected the UX (every row owned two
+   competing gestures, and rows scrolled to independent positions). E3.1.2
+   replaced that with `.rte-project-results` (the list -- already the
+   vertical scroll owner below) as the ONE shared horizontal scroll owner,
+   achieved by leaving each row's own box at `width:100%` and letting its
+   `white-space:nowrap` text paint past that box under `overflow:visible`
+   (CSS's "scrollable overflow" propagation carries that ink region up to
+   `.rte-project-results`, which correctly became scrollable).
 
-   Stage E3.1.2: `.rte-project-results` (the list -- already the vertical
-   scroll owner below) becomes the ONE shared horizontal scroll owner
-   instead. Rows must NOT clip (`overflow:hidden`, E3.1's original) or
-   independently scroll (`overflow-x:auto`, E3.1.1's model) -- either would
-   stop a row's own overflow from ever reaching the shared container, and
-   `hidden` would silently reintroduce the original unreachable-text defect.
-   `overflow-x:visible` (not `auto`) is deliberate and does the real work
-   here: with no width/basis set, each row's `white-space:nowrap` text
-   simply paints past its own box under `overflow:visible` -- CSS's
-   standard "scrollable overflow" propagation carries that ink region
-   through any ancestor that ALSO has `overflow:visible` (the row itself,
-   `.rte-project-result-group`) until it reaches the nearest actual
-   scroll-clipping ancestor, `.rte-project-results` -- so `.rte-project-
-   results`'s own `scrollWidth` genuinely reflects the widest row's content,
-   and ONE `scrollLeft` on that one element moves every row's visible
-   position together, since they all share its single coordinate space. No
-   extra wrapper or explicit width was needed to establish this -- pure
-   native block-overflow propagation, no custom scroll/gesture JS.
-   `text-overflow` has no effect once overflow isn't hidden/scroll/auto, so
-   it's dropped here rather than left as dead styling. Phone-only: desktop
-   keeps `.rte-project-result-row`'s own `overflow:hidden`/`ellipsis`
-   truncation completely unchanged -- no shared scroll surface there. */
+   Stage E3.1.3 real-phone microfix: that ink-overflow approach made the
+   TEXT reachable, but a row's `background`/`border` (the active-match
+   highlight) paints only inside its own BOX, which E3.1.2 left at a fixed
+   `width:100%` -- so after scrolling, the revealed text continuation had
+   no background under it; the same logical row visually split into a
+   highlighted part and a plain part at the original viewport edge.
+   (Hit-testing itself was NOT actually broken -- a point on the
+   overflowing, unclipped text still resolves via `elementFromPoint` to a
+   descendant inside the row, since nothing clips it -- but relying on that
+   implicit behavior instead of the row's real box is fragile and clearly
+   wrong for painted state.)
+
+   Fix: `width:max-content` (not `100%`) on the row -- its own box now
+   genuinely sizes to its own content's actual width, so `background`/
+   `border`/hover/active states, AND the box used for hit-testing, cover
+   the row's entire real extent, whatever that is per row (a short row's
+   box stays short; the longest row governs `.rte-project-results`'s own
+   `scrollWidth`, exactly as before). This still requires zero extra
+   wrapper elements or JS: `.rte-project-result-group` (no explicit width,
+   default `overflow:visible`) simply lets its now-wider row overflow ITS
+   OWN box the same way, propagating up to `.rte-project-results`
+   identically to E3.1.2's ink-overflow case -- the only change is that
+   what's overflowing is now the row's real BOX (background and all), not
+   just unclipped ink. `overflow:visible` on the row is still set, but is
+   now inert/defensive -- with the box sized to content, there is nothing
+   left for it to clip. Phone-only: desktop keeps `.rte-project-result-
+   row`'s own `width:100%`/`overflow:hidden`/`ellipsis` truncation
+   completely unchanged -- no shared scroll surface there. */
 @media(max-width:760px){
   .rte-project-results{overflow-x:auto;overscroll-behavior-x:contain}
-  .rte-project-result-row{overflow:visible}
+  .rte-project-result-row{width:max-content;overflow:visible}
 }
 
 /* Match highlighting: ProseMirror inline decorations only, never raw DOM text

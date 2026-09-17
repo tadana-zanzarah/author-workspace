@@ -10,19 +10,22 @@ const server=spawn(process.execPath,["tools/server.mjs"],{stdio:"ignore"});
 // a phone viewport's visible height -- see the scroll-ownership check below.
 const longText=Array.from({length:120},(_,i)=>`Абзац номер ${i+1}. `+"Текст сцены для проверки длинной прокрутки на телефоне. ".repeat(5)).join("\n\n");
 
-// Stage E3.1.1/E3.1.2: long, unbroken (no line breaks) sentences containing
-// a shared unique keyword -- project-search result rows built from these
-// are reliably wider than a phone viewport. TWO scenes (not one) so the
-// project search produces multiple result rows, needed to prove they share
-// one horizontal coordinate space (E3.1.2), not just that one row overflows.
+// Stage E3.1.1/E3.1.2/E3.1.3: long, unbroken (no line breaks) sentences
+// containing a shared unique keyword -- project-search result rows built
+// from these are reliably wider than a phone viewport. TWO scenes of
+// DIFFERENT lengths (not one, not equal) so the project search produces
+// multiple result rows of different intrinsic widths -- needed to prove
+// they share one horizontal coordinate space (E3.1.2) while each row's own
+// painted/interactive box still matches ITS OWN content length, not some
+// other row's (E3.1.3), not just that one row overflows.
 const longLineKeyword="ГОРИЗОНТМАРКЕР";
-const longLine=(n)=>`Это очень длинное предложение номер ${n} с ключевым словом ${longLineKeyword} которое должно выходить далеко за пределы ширины экрана телефона и не помещаться в одну строку результата поиска совсем никак ещё текста.`;
+const longLine=(n,repeats)=>`Это очень длинное предложение номер ${n} с ключевым словом ${longLineKeyword} и текстом. `.repeat(repeats);
 
 const project={version:11,characters:[],profiles:{},chapters:[{id:"chapter-unassigned",title:"Без главы",collapsed:false},{id:"chapter-one",title:"Глава 1",collapsed:false}],locations:[],tags:[],future:{},scenes:[
   {id:"scene-a",title:"Короткая сцена",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:"Текст А",included:true,status:"floating",people:{}},
   {id:"scene-b",title:"Длинная сцена",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:longText,included:true,status:"floating",people:{}},
-  {id:"scene-c",title:"Сцена с длинной строкой 1",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:longLine(1),included:true,status:"floating",people:{}},
-  {id:"scene-d",title:"Сцена с длинной строкой 2",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:longLine(2),included:true,status:"floating",people:{}}
+  {id:"scene-c",title:"Сцена с длинной строкой 1",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:longLine(1,4),included:true,status:"floating",people:{}},
+  {id:"scene-d",title:"Сцена с длинной строкой 2",date:"",time:"",dateReview:false,chapterId:"chapter-one",locationId:"",tags:[],writingStatus:"draft",sceneText:longLine(2,2),included:true,status:"floating",people:{}}
 ]};
 
 const browser=await chromium.launch({headless:true,executablePath:"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"});
@@ -152,9 +155,30 @@ try{
     const rowCount=await page.locator(".rte-project-result-row").count();
     if(rowCount<2)throw new Error(`Test fixture must produce multiple result rows to prove they share one coordinate space: found ${rowCount}`);
 
-    // A. Each row's content genuinely overflows its own box (fixture check).
-    const rowOverflow=await page.$eval(".rte-project-result-row",el=>({scrollWidth:el.scrollWidth,clientWidth:el.clientWidth}));
-    if(rowOverflow.scrollWidth<=rowOverflow.clientWidth)throw new Error(`Project result row fixture did not actually overflow horizontally -- test fixture too short: ${JSON.stringify(rowOverflow)}`);
+    // A. Stage E3.1.3 superseded the old "row's own scrollWidth exceeds its
+    // clientWidth" fixture check here: that was true precisely BECAUSE of
+    // the E3.1.2 defect (ink overflowing a box clamped to width:100%) --
+    // after this fix, a row's own box correctly SIZES to its content
+    // (`width:max-content`), so `scrollWidth===clientWidth` at the ROW
+    // level is now the CORRECT state (nothing is clipped/overflowing
+    // inside an individual row any more). The equivalent fixture-sanity
+    // proof now lives below, where at least one row's own rendered WIDTH
+    // must exceed the phone viewport.
+    // Stage E3.1.3: each row's own BOX (not just its ink/painted text) must
+    // size to ITS OWN content -- the E3.1.2 defect was that every row's box
+    // stayed clamped at the shared list's visible width (`width:100%`),
+    // which is why background/border (painted only inside the box) and the
+    // reported hit-test boundary both stopped at the original viewport
+    // edge even though the ink kept painting further right. Two proofs:
+    // (1) rows built from genuinely different-length source text must NOT
+    // all report the identical box width (that would mean every box is
+    // still clamped to the container instead of sized to its own content);
+    // (2) at least one row's own box must be wider than the phone viewport
+    // itself -- proof that the BOX, not merely unclipped ink, extends past
+    // the visible area.
+    const rowWidths=await page.$$eval(".rte-project-result-row",els=>els.map(el=>el.getBoundingClientRect().width));
+    if(new Set(rowWidths.map(w=>Math.round(w))).size<2)throw new Error(`Rows built from different-length source text must have different own-box widths, not a shared clamped width: ${JSON.stringify(rowWidths)}`);
+    if(Math.max(...rowWidths)<=viewportSize.width)throw new Error(`At least one row's own box must genuinely exceed the phone viewport width (not just its ink): widths=${JSON.stringify(rowWidths)}, viewport=${viewportSize.width}`);
 
     // C. Individual rows must NOT be independent scroll owners. Two checks,
     // per the explicit E3.1.1 lesson (a bare scrollLeft-moves check already
@@ -187,9 +211,55 @@ try{
     if(new Set(deltas).size!==1)throw new Error(`All result rows must move by the identical horizontal amount when the shared surface scrolls: ${JSON.stringify({rectsBefore,rectsAfter,deltas})}`);
     if(deltas[0]<=0)throw new Error(`Result rows did not actually shift when the shared surface scrolled: deltas=${JSON.stringify(deltas)}`);
 
-    const secondRowMatchId=await page.$$eval(".rte-project-result-row",els=>els[1].dataset.matchId);
-    await page.locator(".rte-project-result-row").nth(1).click();
-    await page.waitForFunction(id=>document.querySelector(".rte-project-result-row.active")?.dataset.matchId===id,secondRowMatchId);
+    // Stage E3.1.3 hit-geometry proof: the exact real-phone defect was that
+    // the same logical row visually split into a highlighted part and a
+    // plain part at the original viewport edge. Start with a DIFFERENT row
+    // active (baseline), then probe a point on the WIDEST row's revealed
+    // continuation -- to the right of where the row's box used to end
+    // under E3.1.2 -- and prove it (1) is geometrically inside that row's
+    // own (correctly widened) box, (2) hit-tests via the real browser
+    // engine to a descendant of that row, (3) is covered by that row's own
+    // `.active`-eligible box (not a plain unstyled remainder), and (4) a
+    // genuine COORDINATE click at that exact point (not a Playwright
+    // locator click, which targets an element's center regardless of
+    // scroll) navigates to THAT row's own match. This does not rely on
+    // programmatic scrollLeft alone: elementFromPoint + a real coordinate
+    // click is the actual browser hit-testing and event path.
+    const widestRowIndex=rowWidths.indexOf(Math.max(...rowWidths));
+    const baselineRowIndex=(widestRowIndex+1)%rowWidths.length;
+    const baselineMatchId=await page.$$eval(".rte-project-result-row",(els,i)=>els[i].dataset.matchId,baselineRowIndex);
+    await page.locator(".rte-project-result-row").nth(baselineRowIndex).click();
+    await page.waitForFunction(id=>document.querySelector(".rte-project-result-row.active")?.dataset.matchId===id,baselineMatchId);
+
+    const widestRowMatchId=await page.$$eval(".rte-project-result-row",(els,i)=>els[i].dataset.matchId,widestRowIndex);
+    const revealedContinuationProbe=await page.evaluate(({index,vw})=>{
+      const row=document.querySelectorAll(".rte-project-result-row")[index];
+      const rect=row.getBoundingClientRect();
+      const probeX=vw-10;
+      const probeY=rect.top+rect.height/2;
+      const el=document.elementFromPoint(probeX,probeY);
+      return {
+        rowRect:{left:rect.left,right:rect.right},
+        probeX,probeY,
+        probeIsWithinRowBox:probeX>=rect.left&&probeX<=rect.right,
+        hitIsInsideRow:el?el.closest(".rte-project-result-row")===row:false
+      };
+    },{index:widestRowIndex,vw:viewportSize.width});
+    if(!revealedContinuationProbe.probeIsWithinRowBox)throw new Error(`The revealed continuation must still be within the target row's own box (not clamped to the original viewport width): ${JSON.stringify(revealedContinuationProbe)}`);
+    if(!revealedContinuationProbe.hitIsInsideRow)throw new Error(`A point on the revealed continuation must hit-test into the same result row: ${JSON.stringify(revealedContinuationProbe)}`);
+
+    // The real coordinate tap: activates the WIDEST row's own match, proving
+    // the revealed continuation is both painted (background will follow, see
+    // below) and genuinely live/tappable at that exact point.
+    await page.mouse.click(revealedContinuationProbe.probeX,revealedContinuationProbe.probeY);
+    await page.waitForFunction(id=>document.querySelector(".rte-project-result-row.active")?.dataset.matchId===id,widestRowMatchId);
+    const activeRowCoversPoint=await page.evaluate(({index,x,y})=>{
+      const row=document.querySelectorAll(".rte-project-result-row")[index];
+      if(!row.classList.contains("active"))return false;
+      const el=document.elementFromPoint(x,y);
+      return el?el.closest(".rte-project-result-row.active")===row:false;
+    },{index:widestRowIndex,x:revealedContinuationProbe.probeX,y:revealedContinuationProbe.probeY});
+    if(!activeRowCoversPoint)throw new Error("After activating the widest row via a real coordinate click on its revealed continuation, that same point must resolve inside the now-active row (its painted background must cover the point it was just clicked at)");
 
     // G. Vertical result-list browsing still works independently.
     const verticalScrollProbe=await page.$eval(".rte-project-results",el=>{const before=el.scrollTop;el.scrollTop=999;const after=el.scrollTop;return {before,after}});
