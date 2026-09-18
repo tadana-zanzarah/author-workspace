@@ -2453,3 +2453,195 @@ stage, unaffected by any of these changes (its own `.rte-sticky-
 controls`-based results insertion path never passes a `manuscriptRegion`
 and is untouched). Desktop behavior for both `#sceneModal` and
 `#textModal` is confirmed unchanged via direct before/after measurement.
+
+## 42. Stage E3.2.8 — stabilize the splitter scroll context + repair project-results horizontal containment
+
+Real-phone validation REJECTED E3.2.7 while confirming its core: the
+bounded [results + splitter + manuscript] region, the opposite-direction
+exchange, Text Scene no longer collapsing, and the 140px manuscript floor
+are all accepted and were **not** touched (`50dvh`, `140px`, default/MIN/
+MAX result heights unchanged). Four remaining defects, each diagnosed by
+measurement before any change. No reveal/`scrollIntoView` workaround was
+added.
+
+### The three invariants this stage defines
+
+1. **Bounded vertical region invariant.** The region's total height never
+   changes during a drag AND its contents never exceed it: results yields
+   before the manuscript can be pushed past its own box (§B).
+2. **Outer-scroll / anchor invariant.** A splitter drag changes nothing
+   *outside* the region: outer `scrollTop`, `window.scrollY`, and the
+   viewport position of anything above or below the region are unchanged,
+   and no scroll event fires on an ancestor (§A).
+3. **Horizontal ownership invariant.** Exactly ONE element scrolls
+   horizontally — `.rte-project-results` — and no other container in the
+   chain can be scrolled sideways at all (§C, §D).
+
+### A. Splitter drag moved the outer modal (Scene Editor)
+
+Reproduced with genuine CDP touch input, sampling every touchmove. The
+precondition that matters is **the manuscript holds focus** (the user has
+been typing): with nothing focused, or the Find input focused, a +100px drag
+moved nothing. With the editor focused, a +100px drag scrolled
+`#sceneModal .modal` by exactly **+100px** (scroll event on `modal`; content
+above the region −100px, below −100px; `window.scrollY` 0; region height,
+`visualViewport` and the editor's own scroll all unchanged). Text Scene never
+showed it because its modal does not scroll.
+
+Mechanism (measured, not assumed): **Chrome scroll anchoring.** It prefers
+the focused element as its anchor. Growing results pushes the manuscript's
+top down, so the browser "compensates" by scrolling the outer scroller.
+Confirmed by toggling only `overflow-anchor`: unchanged baseline +100;
+`overflow-anchor:none` on the region → 0; on the outer modal → 0; on the
+editor → 0.
+
+Fix (structural, CSS-only): `overflow-anchor:none` on `.rte-manuscript-region`.
+Its contents exchange height internally *by design*, so none of them may act
+as a scroll anchor; the exclusion covers the whole subtree (results and
+manuscript). After: outer `scrollTop` unchanged (baseline in the regression:
+475 → 575), no scroll event on any ancestor, anchors above/below within 1px,
+in both directions, at both extremes, over repeated cycles and scope toggles.
+
+### B. Bottom border/radius still missing (measured clipping ancestor)
+
+E3.2.7's margin accounting was correct but insufficient: the actual clipper
+was always the **region itself** (`overflow:hidden`), and the underlying
+problem is that the region's height is *externally determined* (`50dvh`; or
+leftover flex space in Text Scene) while results was a non-shrinking
+`flex:none` 140px and the manuscript has a 140px floor. Whenever the budget
+is below `140 + 18 (splitter 8 + margin 10) + 140 = 298` the manuscript is
+pushed past the region's bottom edge and the clip cuts its bottom border and
+both radii. Measured on the OLD code (`editor bottom − region bottom`, and
+region `scrollHeight − clientHeight`): Scene Editor 360×640 after a `dvh`
+shrink of 56px (browser chrome reappearing) **6px**; Text Scene 375×667 by
+default **41px**. (A clip line coinciding *exactly* with the editor's border
+also makes the border fragile under sub-pixel snapping while the outer modal
+scrolls; removing the clip removes that fragility too — not separately
+provable on desktop CDP.) Ancestor overflow modes, editor upward: `.rte-
+manuscript-region` (`hidden` — the clipper), then `.scene-section` (`visible`)
+and `.modal` (`auto` in Scene Editor: a scroller, not a clipper; `hidden` in
+Text Scene: clips at the modal, with the footer below the region), backdrop
+`hidden`.
+
+Fix, without subtracting arbitrary pixels:
+- The region no longer clips vertically (`overflow-y:visible`).
+- Overflow is prevented at the source: inside a region the results wrapper is
+  a shrinkable column-flex item (`flex:0 1 auto`, floor `98px` = results
+  floor 90 + splitter 8), so it yields only *after* the manuscript reaches its
+  140px floor. Priority is expressed as shrink weights (`.rte-editor
+  {flex-shrink:1000}`): equal weights measurably shrank results 140→115px at
+  375×812 (changing the approved default), and a tiny wrapper weight does not
+  work because Chrome only distributes the weight-sum fraction while the
+  unfrozen weights sum < 1.
+- The `#sceneModal` region also gets `min-height:248px` (=90+18+140) so on
+  landscape/tiny viewports its OUTER scroll absorbs the difference instead of
+  the region overflowing. Text Scene's region stays externally determined (its
+  footer must stay pinned); below ~248px its column can still be short —
+  landscape/tablet remain out of scope.
+
+After: overflow 0 at default / MIN / MAX / after repeated cycles / 360×640 /
+dvh-shrink / 375×667, both surfaces; defaults preserved (`resultsH≈139.97`,
+editor 248 at 375×812).
+
+### C. Project results escaping horizontally (structural; see limitation)
+
+Measured per ancestor (`scrollWidth − clientWidth`, `scrollLeft`): row →
+`.rte-project-result-group` (overflow visible, sw 683 vs 339) → **`.rte-
+project-results` (overflow-x:auto, sw 701 vs 375 — the one intended
+scroller)** → wrapper (375/375) → `.rte-manuscript-region` (`hidden`, 375/375)
+→ `.scene-section` (sw 357 vs cw 339: the 18px full-bleed of the region; not a
+scroll container) → `.modal` (375/375) → backdrop (375/375) → body/html
+(375/375; `visualViewport.pageLeft` 0). At rest, and on a genuine touch pan,
+overpan, tap, focus and Enter-navigation, desktop Chromium **could not
+reproduce** the phone's whole-modal sideways shift. What was measurable is its
+enabling condition: `overflow:hidden` is still a *scroll container* — focusing
+wide content inside the region scrolled the region sideways by **843px** on
+the old code (both surfaces), and anything wider than the region that ever
+escapes the results list can shift the modal the same way.
+
+Fix (structural): `.rte-manuscript-region{overflow-x:clip}` — clips
+identically but is **not a scroll container**, so it (and everything in it)
+can never be scrolled off-axis; the results scrollport keeps
+`overscroll-behavior-x:contain`. After: the same probe leaves region/modal/
+backdrop/document `scrollLeft` at 0. Limitation stated plainly: the exact
+Chrome-Android trigger was not reproduced here. The regression asserts the
+measured cause (the clipping ancestor is not scrollable; wide focusable
+content inside the region cannot shift any container) plus the observable
+outcome (only the results scrollport has `scrollWidth > clientWidth`;
+`documentElement` `scrollWidth ≤ clientWidth`; a touch pan and
+focus/scroll-into-view on a long row move only the scrollport).
+
+### D. Short active row border ended after its text (horizontal ownership)
+
+Audit: the shared horizontal scrollport is `.rte-project-results`, but there
+was no shared scroll-content element. `.rte-project-result-group` was a plain
+block exactly as wide as the scrollport's content box (339px), so E3.2.7's
+`min-width:100%` on a row resolved against a box that stops at the scrollport's
+edge — a short row was 339px while a long sibling was 683px, so once the list
+scrolled sideways the short row's border ended a few px after its text.
+
+Implemented model (phone; desktop keeps plain block flow + ellipsis):
+
+    .rte-project-results            ONE visible scrollport (overflow-x:auto, no side padding)
+      .rte-project-results-canvas   shared canvas: min-width:100%; width:max-content; padding 0 18px
+        .rte-project-result-group   plain blocks
+          .rte-project-result-row   width:100% OF THE CANVAS
+
+`find-replace-panel.js` renders all results content into that one canvas
+(shared by Scene Editor, Text Scene and "Весь текст"). The canvas is never
+narrower than the scrollport and grows to the widest row; every row spans it,
+so a short selected row's border/background/hit area covers the whole
+scrollable width, and the horizontal gutters scroll with the content (scrolled
+to the end every row ends exactly 18px from the scrollport edge). Rows are
+still not scroll owners. Before/after (375px phone, short + long result): row
+widths `[339, 693, 339]` → `[683, 683, 683]`; scrolled to the end the short
+row's right edge now equals the longest row's. The E3.1.3 assertion
+"different-length rows must have different box widths" encoded the old hugging
+model and was replaced by "every row spans the canvas".
+
+### E. Text Scene
+
+Vertical splitter untouched. The shared Find/Replace component carries all
+horizontal fixes (canvas, region `overflow-x:clip`), so Text Scene gets them
+without a separate hack; its clipping numbers are in §B. Class A (scroll
+anchoring) cannot occur there (no outer scroller) — the regression passes on
+the old code there by design.
+
+### Tests and baseline-failure proof
+
+`tools/mobile-splitter-contract.mjs` is one shared contract run by both
+`mobile-scene-editor-browser` and `mobile-text-scene-browser` (genuine CDP
+touch for every drag/pan; a long AND a short project result in a fixture
+scene). Classes can be run in isolation (`checks:`); against unmodified
+`2e0aec4` CSS/JS: **A** scene FAIL "the outer modal scrolled during the
+splitter drag … scrollTop 475 -> 575" (text passes, as expected); **B** both
+FAIL (region `overflow-y:hidden`; behavioral 6px / 41px overflow); **C** both
+FAIL (region is a scroll container, `overflow-x:hidden`; wide content shifted
+it 843px); **D** both FAIL "every result row must span the shared scroll
+canvas … [339, 692.5, 339]". All pass with the fix. Desktop 1280×800 measured
+identical before/after on both surfaces (`#sceneModal` editor 320px with the
+outer scroll absorbing growth; `#textModal` editor 320.1→220.1, modal 736px;
+row widths/overflow unchanged).
+
+### Real-device validation status
+
+Automated: complete as above. **Not yet validated on a real phone** — in
+particular §C's exact Chrome-Android trigger, and §A's behaviour with the real
+on-screen keyboard (`visualViewport`), neither of which desktop CDP can drive.
+Pending user validation.
+
+**Files changed:** `css/editor.css`, `js/editor/find-replace-panel.js`
+(canvas; comments), `tools/mobile-splitter-contract.mjs` (new, shared),
+`tools/mobile-scene-editor-browser.test.mjs`, `tools/mobile-text-scene-
+browser.test.mjs` (call the contract; E3.1.3 row-width assertion updated),
+this doc.
+
+## 43. Explicit confirmation (E3.2.8)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E4, E6 and tablet/landscape work were not started. Toolbar, Find/Replace
+semantics, Replace/Replace All behavior, manuscript typography, scene
+metadata/participants and Quick Scene were not changed. The E3.2.6 bounded
+region, the 50dvh / 140px / default-result-height numbers, MIN/MAX results
+constraints and the shared horizontal project-results scrolling model are
+preserved. Nothing was pushed or merged.

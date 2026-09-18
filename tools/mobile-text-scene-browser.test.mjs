@@ -1,5 +1,6 @@
 import {createRequire} from "node:module";
 import {spawn} from "node:child_process";
+import {runSplitterContract} from "./mobile-splitter-contract.mjs";
 
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
@@ -176,8 +177,19 @@ try{
     // (2) at least one row's own box must be wider than the phone viewport
     // itself -- proof that the BOX, not merely unclipped ink, extends past
     // the visible area.
+    // Stage E3.2.8 supersedes the E3.1.3 "rows hug their own content"
+    // half of that proof (the old assertion here required different-length
+    // rows to report DIFFERENT box widths). Real-phone review rejected it:
+    // a short row's border/background then ended shortly after its text
+    // while a long sibling kept going. The contract is now ONE shared
+    // scroll-content canvas (`.rte-project-results-canvas`) and every row
+    // spans it -- so all rows report the SAME width, equal to the canvas'
+    // content width, which in turn is the widest row's natural width. What
+    // E3.1.3 actually protected (the BOX, not just its ink, covers the
+    // revealed continuation) still holds, more strongly: half (2) below.
     const rowWidths=await page.$$eval(".rte-project-result-row",els=>els.map(el=>el.getBoundingClientRect().width));
-    if(new Set(rowWidths.map(w=>Math.round(w))).size<2)throw new Error(`Rows built from different-length source text must have different own-box widths, not a shared clamped width: ${JSON.stringify(rowWidths)}`);
+    const canvasContentWidth=await page.$eval(".rte-project-results-canvas",el=>{const cs=getComputedStyle(el);return el.getBoundingClientRect().width-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight)});
+    if(rowWidths.some(w=>Math.abs(w-canvasContentWidth)>1))throw new Error(`Every result row must span the shared scroll canvas' full content width (${canvasContentWidth}): ${JSON.stringify(rowWidths)}`);
     if(Math.max(...rowWidths)<=viewportSize.width)throw new Error(`At least one row's own box must genuinely exceed the phone viewport width (not just its ink): widths=${JSON.stringify(rowWidths)}, viewport=${viewportSize.width}`);
 
     // C. Individual rows must NOT be independent scroll owners. Two checks,
@@ -557,6 +569,12 @@ try{
     await page.waitForFunction(()=>document.getElementById("textModal").style.display==="none");
     await page.close();
   }
+
+  // Stage E3.2.8: the same real-phone contract as Scene Editor, shared via
+  // tools/mobile-splitter-contract.mjs (Text Scene has no outer scroll, so its
+  // "outer modal did not scroll" checks hold trivially; the clipping and
+  // horizontal-containment checks are the ones that bite here).
+  await runSplitterContract({browser,base,surface:"text"});
 
   console.log("Mobile Text Scene browser tests passed");
 }finally{await browser.close();server.kill()}

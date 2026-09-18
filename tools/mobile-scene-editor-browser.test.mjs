@@ -1,5 +1,6 @@
 import {createRequire} from "node:module";
 import {spawn} from "node:child_process";
+import {runSplitterContract} from "./mobile-splitter-contract.mjs";
 
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
@@ -663,6 +664,10 @@ try{
     await page.waitForFunction(()=>document.getElementById("sceneModal").style.display==="none");
     await page.close();
   }
+
+  // Stage E3.2.8: the real-phone splitter/clipping/horizontal-containment
+  // contract (shared with Text Scene) -- see tools/mobile-splitter-contract.mjs.
+  await runSplitterContract({browser,base,surface:"scene"});
 
   console.log("Mobile Scene Editor browser tests passed");
 }finally{await browser.close();server.kill()}

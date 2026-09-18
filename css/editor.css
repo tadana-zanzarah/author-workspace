@@ -51,7 +51,11 @@
    ALREADY-ACCEPTED "results grows, editor shrinks, modal height never
    changes" flexbox exchange (E3.2.6 §A) working correctly with the new
    DOM structure -- verified via direct before/after measurement to be
-   byte-identical to before this stage. `overflow:hidden` here (not
+   byte-identical to before this stage. STALE AS OF E3.2.8 (kept as
+   history): this region no longer sets its own `overflow:hidden` -- see
+   the shared `.rte-manuscript-region` rule below for why a clip on this
+   box was itself the cause of the clipped bottom border. The E3.2.7 text:
+   `overflow:hidden` here (not
    relying solely on the outer `.modal`'s own `overflow:hidden`) keeps any
    sub-pixel/margin rounding error clipped at THIS boundary rather than
    the outer modal, matching #sceneModal's own defensive treatment (see
@@ -62,7 +66,6 @@
 #textModal .rte-manuscript-region{
   display:flex;flex-direction:column;
   flex:1 1 auto;min-height:0;
-  overflow:hidden;
 }
 @media(max-width:760px){
   /* Same MANUSCRIPT_MIN_HEIGHT floor as #sceneModal (find-replace-
@@ -275,16 +278,25 @@
   /* Stage E3.2.6: bounds ONLY [project-results pane, splitter, manuscript]
      -- inserted here by find-replace-panel.js's `manuscriptRegion`
      parameter (see mountSceneEditor's own comment) as the region's first
-     child, ahead of the manuscript. `overflow:hidden`, not `auto`: this
+     child, ahead of the manuscript. (E3.2.6 set `overflow:hidden` here;
+     E3.2.8 removed it -- see the shared rule below.) `hidden`, not `auto`: this
      region is a fixed-size flex layout container, never its own scroll
      region -- `.rte-project-results` and `.rte-editor` each keep their
      own independent `overflow-y:auto`, and the outer `#sceneModal .modal`
      remains the sole scroll owner for everything above/below this region,
      completely unaffected by whatever split it currently has internally. */
+  /* Stage E3.2.8: `min-height:248px` = MIN_RESULTS_HEIGHT(90) + the
+     results wrapper's chrome (resizer 8 + margin 10) + MANUSCRIPT_MIN_
+     HEIGHT(140) -- the smallest budget in which the pair can both keep their
+     floors. Only ever wins when `50dvh` is below that (landscape/tiny
+     viewports); this modal's OUTER scroll simply absorbs the difference,
+     instead of the region overflowing and clipping the manuscript. The
+     region no longer sets `overflow:hidden` at all -- see the shared
+     `.rte-manuscript-region` rule below for why. */
   #sceneModal .rte-manuscript-region{
     display:flex;flex-direction:column;
     height:50vh;height:50dvh;
-    overflow:hidden;
+    min-height:248px;
   }
   /* `flex:1 1 auto` already comes from `.rte-editor`'s own generic rule
      above (shared with #textModal) -- only `height`/`min-height` need
@@ -443,7 +455,37 @@
    `overflow:hidden` no longer clips it. Unconditional (both `#sceneModal`
    and `#textModal` need it, and it's a harmless no-op everywhere else
    `.rte-manuscript-region` doesn't exist). */
-.rte-manuscript-region{margin:0 -18px;padding:0 18px}
+/* Stage E3.2.8 -- overflow ownership of `.rte-manuscript-region`, measured
+   (not assumed) on real geometry:
+   1. NO vertical clip (`overflow-y:visible`). E3.2.6/E3.2.7 clipped with
+      `overflow:hidden` "defensively", but that box is exactly the size of
+      [results + splitter + manuscript]; whenever the budget was even a few
+      px short of `results(140)+chrome(18)+manuscript floor(140)` (measured:
+      Text Scene at 375x667 by default, Scene Editor at 360x640 once `dvh`
+      shrinks by a browser-chrome height) the editor's bottom edge landed
+      past the clip line and its bottom border + both bottom radii were cut
+      off. Overflow is now prevented at the source instead (the results
+      wrapper shrinks first, below), so nothing needs clipping.
+   2. NO scrollable horizontal overflow (`overflow-x:clip`, not `hidden`).
+      `hidden` still leaves the region a scroll container that focus /
+      scroll-into-view / find navigation can shift sideways; `clip` clips
+      identically but is not a scroll container at all, so the region (and
+      everything inside it) can never be dragged/scrolled off-axis. The one
+      intentional horizontal scroller is `.rte-project-results` itself.
+   3. `overflow-anchor:none`. Chrome's scroll anchoring prefers the FOCUSED
+      element as its anchor. With the manuscript focused, growing results
+      moves the manuscript's top down; the browser "compensated" by
+      scrolling the OUTER modal by the same amount (measured: a +100px
+      splitter drag produced scrollTop +100, a scroll event on the modal, and
+      every surrounding element shifting -100px; 0 without editor focus and
+      0 with `overflow-anchor:none`). The region's contents exchange height
+      internally by design, so none of them may act as a scroll anchor.
+   Bleed: see the E3.2.7 note above (`margin`/`padding` pair). */
+.rte-manuscript-region{
+  margin:0 -18px;padding:0 18px;
+  overflow-x:clip;overflow-y:visible;
+  overflow-anchor:none;
+}
 
 .rte-project-results-wrapper{flex:none;margin:0 -18px 10px}
 .rte-project-results{
@@ -562,21 +604,59 @@
    row`'s own `width:100%`/`overflow:hidden`/`ellipsis` truncation
    completely unchanged -- no shared scroll surface there. */
 @media(max-width:760px){
-  .rte-project-results{overflow-x:auto;overscroll-behavior-x:contain}
-  /* Stage E3.2.7 real-phone microfix: `width:max-content` alone (E3.1.3)
-     correctly grows a row's box to cover a LONG/overflowing snippet's full
-     text width, but for a SHORT snippet it also SHRINKS the box down to
-     that snippet's own intrinsic width -- so the active-row outline/
-     background only wrapped the text itself, not the row's actual
-     available width, which read as visually wrong (especially for short
-     results). `min-width:100%` adds a floor: the row's box is the LARGER
-     of its own content width and the full row width, so a short row's
-     background/outline spans the whole row (this stage's fix) while a
-     long row's still grows past 100% to cover its full text (E3.1.3's
-     fix, unaffected) -- `.rte-project-result-group`'s own default block
-     width (100% of `.rte-project-results`, its own scrollable parent) is
-     what `min-width:100%` resolves against. */
-  .rte-project-result-row{width:max-content;min-width:100%;overflow:visible}
+  /* Stage E3.2.8 -- horizontal ownership model for project results
+     (supersedes E3.1.3's per-row `width:max-content` and E3.2.7's
+     `min-width:100%`, which resolved against the WRONG box):
+
+       .rte-project-results            the ONE visible scrollport
+         .rte-project-results-canvas   shared scroll-content canvas
+           .rte-project-result-group   plain blocks (no width of their own)
+             .rte-project-result-row   width:100% OF THE CANVAS
+
+     E3.2.7's `min-width:100%` on a row resolved against its group, which
+     is only as wide as the scrollport -- so a short row's border ended at
+     the scrollport's original edge and, once the list was scrolled
+     sideways, stopped a few px past its text while a long sibling kept
+     going. The canvas is `min-width:100%` (never narrower than the
+     scrollport) and `width:max-content` (grows to the widest row); rows
+     are `width:100%` of that, so EVERY row -- short or long -- spans the
+     full scrollable width, its border/background/hit-area included.
+     Horizontal gutters live on the canvas (not the scrollport) so they
+     scroll with the content and the row edges align at both ends.
+     Rows are still not scroll owners (no per-row overflow); the scrollport
+     alone scrolls, `overscroll-behavior-x:contain` keeps a sideways swipe
+     that reaches its end from chaining to any ancestor, and the region
+     around it is `overflow-x:clip` (see `.rte-manuscript-region`), so
+     nothing here can ever scroll the modal, backdrop or page. */
+  .rte-project-results{overflow-x:auto;overscroll-behavior-x:contain;padding-left:0;padding-right:0}
+  .rte-project-results-canvas{width:max-content;min-width:100%;padding:0 18px;box-sizing:border-box}
+  .rte-project-result-row{width:100%;overflow:visible}
+
+  /* Stage E3.2.8 (bottom-border clipping, root cause -- see the
+     `.rte-manuscript-region` comment): inside a bounded region the results
+     wrapper is the one that yields when the budget is short, down to
+     MIN_RESULTS_HEIGHT (find-replace-panel.js, mirrored as 90px here),
+     BEFORE the manuscript would ever be pushed past its own box. It is a
+     column flex container so the (JS-sized) results list can shrink inside
+     it while the 8px splitter keeps its own height. */
+  /* Priority of who yields, expressed as flex shrink weights: flexbox
+     spreads a shortfall across items in proportion to shrink-factor x base
+     size, so equal weights (measured) made results give up height alongside
+     the editor even when the manuscript still had room (default 140 ->
+     115px at 375x812). With the manuscript 1000x heavier it absorbs the
+     whole shortfall first (as in E3.2.6/E3.2.7); only once it is frozen at
+     its 140px floor does the remainder land on this wrapper. (A tiny
+     wrapper weight instead does not work: while the unfrozen weights sum
+     to < 1 Chrome deliberately distributes only that fraction of the
+     shortfall.) */
+  .rte-manuscript-region .rte-editor{flex-shrink:1000}
+  .rte-manuscript-region .rte-project-results-wrapper{
+    flex:0 1 auto;display:flex;flex-direction:column;
+    min-height:98px; /* results floor 90 + splitter 8 */
+  }
+  .rte-manuscript-region .rte-project-results{flex:1 1 auto;min-height:90px}
+  .rte-manuscript-region .rte-project-results-resizer,
+  .rte-manuscript-region .rte-project-replace-status{flex:none}
 }
 
 /* Match highlighting: ProseMirror inline decorations only, never raw DOM text

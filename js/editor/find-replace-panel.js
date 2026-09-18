@@ -339,7 +339,9 @@ export function createFindReplacePanel(container,controller,manuscriptRegion=nul
   // `chromeOverhead` calculation silently dropped it, letting results grow
   // 10px taller than the region could actually hold. The visible symptom:
   // at max results height, the manuscript's own bottom border/rounded
-  // corners were clipped off by `.rte-manuscript-region{overflow:hidden}`,
+  // corners were clipped off by `.rte-manuscript-region{overflow:hidden}`
+  // (E3.2.8 removed that clip entirely, and the results wrapper now also
+  // yields via flex-shrink -- see css/editor.css's `.rte-manuscript-region`),
   // since editor+resultsWrapper's true combined footprint exceeded the
   // region by exactly that missing 10px. Reading the margin explicitly via
   // `getComputedStyle` (rather than hardcoding "10px" a second time) keeps
@@ -504,11 +506,20 @@ export function createFindReplacePanel(container,controller,manuscriptRegion=nul
     resultsRoot.innerHTML="";
     if(!snapshot.open||snapshot.scope!=="project"){resultsWrapper.hidden=true;return}
     resultsWrapper.hidden=false;
+    // Stage E3.2.8: everything inside the results scrollport lives in ONE
+    // shared scroll-content canvas (css/editor.css, `.rte-project-results-
+    // canvas`): at least as wide as the visible scrollport, growing to fit
+    // the widest row, with every row spanning the canvas -- so a short row's
+    // border/background covers the whole horizontally-scrollable width, not
+    // just its own text.
+    const canvas=document.createElement("div");
+    canvas.className="rte-project-results-canvas";
+    resultsRoot.appendChild(canvas);
     if(!snapshot.query){
       const hint=document.createElement("div");
       hint.className="rte-project-results-hint";
       hint.textContent="Введите запрос, чтобы найти совпадения по всему проекту.";
-      resultsRoot.appendChild(hint);
+      canvas.appendChild(hint);
       return;
     }
     const result=snapshot.projectResult;
@@ -516,7 +527,7 @@ export function createFindReplacePanel(container,controller,manuscriptRegion=nul
       const hint=document.createElement("div");
       hint.className="rte-project-results-hint";
       hint.textContent="Совпадений не найдено.";
-      resultsRoot.appendChild(hint);
+      canvas.appendChild(hint);
       return;
     }
     const summary=document.createElement("div");
@@ -532,7 +543,7 @@ export function createFindReplacePanel(container,controller,manuscriptRegion=nul
       `${result.totalMatches} ${pluralRu(result.totalMatches,"совпадение","совпадения","совпадений")} · `+
       `${result.affectedSceneCount} ${pluralRu(result.affectedSceneCount,"сцена","сцены","сцен")}`+
       excludedScenesClause(result.excludedSceneCount);
-    resultsRoot.appendChild(summary);
+    canvas.appendChild(summary);
 
     result.scenes.forEach(sceneResult=>{
       const group=document.createElement("div");
@@ -560,7 +571,7 @@ export function createFindReplacePanel(container,controller,manuscriptRegion=nul
         row.addEventListener("click",()=>controller.activateProjectMatch(match.matchId));
         group.appendChild(row);
       });
-      resultsRoot.appendChild(group);
+      canvas.appendChild(group);
     });
   }
 
