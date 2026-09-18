@@ -27,6 +27,54 @@
    сцены"), so it's overridden here rather than changed generically. */
 #textModal .modal-actions.sticky-modal-footer{position:static;bottom:auto;flex:none}
 
+/* Stage E3.2.7: generalizes E3.2.6's #sceneModal `.rte-manuscript-region`
+   (see its own extensive comment further down this file) to Text Scene --
+   real-phone testing confirmed #textModal has the SAME defect E3.2.3 was
+   rejected for: at MAX_RESULTS_HEIGHT its manuscript editor measured only
+   ~26px, because the editor's own generic `flex:1 1 auto;min-height:0`
+   rule (below) let it shrink almost to nothing whenever the OTHER flex
+   siblings (toolbar, Find/Replace controls, and formerly the results pane
+   as a direct sibling too) claimed more of this fixed-height column.
+
+   Unlike #sceneModal (a non-flex, linear-scroll modal, where the region
+   needs its OWN explicit `50dvh` height), #textModal's `.modal` is ALREADY
+   a fixed-height flex column (`height:92vh` above, `100dvh` on phone via
+   `.mobile-fullscreen-modal`) -- `.rte-manuscript-region` here simply
+   takes over the `flex:1 1 auto;min-height:0` role `.rte-editor`'s own
+   generic rule used to provide DIRECTLY, since the editor is no longer a
+   direct child of that outer column (now nested one level deeper inside
+   this new wrapper, with the results pane/splitter inserted ahead of it
+   by find-replace-panel.js's existing `manuscriptRegion` parameter --
+   already fully generic, needed zero JS changes to reach #textModal too).
+
+   Unconditional (not phone-only): needed on desktop as well, to keep its
+   ALREADY-ACCEPTED "results grows, editor shrinks, modal height never
+   changes" flexbox exchange (E3.2.6 §A) working correctly with the new
+   DOM structure -- verified via direct before/after measurement to be
+   byte-identical to before this stage. `overflow:hidden` here (not
+   relying solely on the outer `.modal`'s own `overflow:hidden`) keeps any
+   sub-pixel/margin rounding error clipped at THIS boundary rather than
+   the outer modal, matching #sceneModal's own defensive treatment (see
+   `MANUSCRIPT_MIN_HEIGHT`'s own comment in find-replace-panel.js for the
+   margin-accounting fix that keeps this overflow:hidden purely
+   defensive, never actually clipping the manuscript's own border/
+   radius). */
+#textModal .rte-manuscript-region{
+  display:flex;flex-direction:column;
+  flex:1 1 auto;min-height:0;
+  overflow:hidden;
+}
+@media(max-width:760px){
+  /* Same MANUSCRIPT_MIN_HEIGHT floor as #sceneModal (find-replace-
+     panel.js is the single source of truth for the number -- keep both in
+     sync if it ever changes). Desktop deliberately keeps `min-height:0`
+     (the generic rule, unchanged by this stage): its own much larger
+     budget makes a near-zero collapse impractical in ordinary use, and
+     nothing reported desktop Text Scene as broken, so this stage adds no
+     new floor there. */
+  #textModal .rte-manuscript-region .rte-editor{height:auto;min-height:140px}
+}
+
 .rte-toolbar{
   flex:none;
   display:flex;flex-wrap:wrap;align-items:center;gap:4px;
@@ -375,6 +423,28 @@
    now has an explicit, JS-managed `height` (default ~6 rows, user-resizable
    via .rte-project-results-resizer below, clamped in find-replace-panel.js)
    instead of a fixed max-height. */
+/* Stage E3.2.7 fix: `.rte-manuscript-region` (#sceneModal/#textModal,
+   above) clips vertically via `overflow:hidden` so a rounding/margin
+   error can never spill the manuscript's own border/radius past the
+   region -- but that same `overflow:hidden` ALSO clips HORIZONTALLY,
+   which broke `.rte-project-results-wrapper`'s own `margin:0 -18px`
+   full-bleed technique just below: the wrapper (now nested one level
+   deeper inside the region, since E3.2.6/E3.2.7) bled 18px past the
+   region's own un-bled edge and got silently clipped there, invisible
+   and unreachable via `elementFromPoint` -- discovered via Text Scene's
+   existing E3.1.3 horizontal-scroll-hit-test regression, which failed
+   for exactly this reason. `margin:0 -18px` on the region itself extends
+   its OWN border-box to the same outer edge the wrapper already bleeds
+   to, and the matching `padding:0 18px` shifts its CONTENT box back in
+   by that same 18px, so ordinary (non-bled) children like the manuscript
+   still render at their original position -- the wrapper's own `-18px`
+   margin, now measured against that content box, lands EXACTLY at the
+   region's (extended) border-box edge instead of 18px past it, so
+   `overflow:hidden` no longer clips it. Unconditional (both `#sceneModal`
+   and `#textModal` need it, and it's a harmless no-op everywhere else
+   `.rte-manuscript-region` doesn't exist). */
+.rte-manuscript-region{margin:0 -18px;padding:0 18px}
+
 .rte-project-results-wrapper{flex:none;margin:0 -18px 10px}
 .rte-project-results{
   padding:8px 18px;
@@ -493,7 +563,20 @@
    completely unchanged -- no shared scroll surface there. */
 @media(max-width:760px){
   .rte-project-results{overflow-x:auto;overscroll-behavior-x:contain}
-  .rte-project-result-row{width:max-content;overflow:visible}
+  /* Stage E3.2.7 real-phone microfix: `width:max-content` alone (E3.1.3)
+     correctly grows a row's box to cover a LONG/overflowing snippet's full
+     text width, but for a SHORT snippet it also SHRINKS the box down to
+     that snippet's own intrinsic width -- so the active-row outline/
+     background only wrapped the text itself, not the row's actual
+     available width, which read as visually wrong (especially for short
+     results). `min-width:100%` adds a floor: the row's box is the LARGER
+     of its own content width and the full row width, so a short row's
+     background/outline spans the whole row (this stage's fix) while a
+     long row's still grows past 100% to cover its full text (E3.1.3's
+     fix, unaffected) -- `.rte-project-result-group`'s own default block
+     width (100% of `.rte-project-results`, its own scrollable parent) is
+     what `min-width:100%` resolves against. */
+  .rte-project-result-row{width:max-content;min-width:100%;overflow:visible}
 }
 
 /* Match highlighting: ProseMirror inline decorations only, never raw DOM text

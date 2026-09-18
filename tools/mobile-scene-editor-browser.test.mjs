@@ -209,10 +209,19 @@ try{
       // reach it directly (see createFindReplacePanel's own comment).
       const anchorAbove=document.getElementById("sceneTextFindReplace");
       const anchorBelow=document.querySelector(".scene-participant-selector");
+      const editorRect=editor.getBoundingClientRect();
+      const regionRect=region.getBoundingClientRect();
       return {
-        editorHeight:editor.getBoundingClientRect().height,
-        editorTop:editor.getBoundingClientRect().top,
-        regionHeight:region.getBoundingClientRect().height,
+        editorHeight:editorRect.height,
+        editorTop:editorRect.top,
+        // Stage E3.2.7: the manuscript's own bottom edge must never extend
+        // past the shared region's own bottom edge -- `.rte-manuscript-
+        // region{overflow:hidden}` would silently clip whatever does,
+        // taking the manuscript's own bottom border/rounded corners with
+        // it. See find-replace-panel.js's effectiveMaxResultsHeight() own
+        // comment for the margin-accounting bug this stage fixed.
+        editorBottomOverflow:editorRect.bottom-regionRect.bottom,
+        regionHeight:regionRect.height,
         modalScrollHeight:modal.scrollHeight,
         modalScrollTop:modal.scrollTop,
         resultsHeight:results?results.getBoundingClientRect().height:null,
@@ -227,12 +236,24 @@ try{
     // (a broken model would drift by the FULL drag distance, e.g. ~90-
     // 100px) without chasing sub-pixel layout noise.
     const anchorTolerance=4;
+    // Stage E3.2.7 visual-acceptance check: the manuscript box's own
+    // bottom border + rounded bottom corners must never be clipped by
+    // `.rte-manuscript-region{overflow:hidden}` -- checked via computed
+    // geometry (editor bottom vs region bottom), not a brittle screenshot
+    // pixel match. A small positive tolerance absorbs sub-pixel rounding;
+    // this must stay far tighter than the ~10px clipping this stage
+    // actually found and fixed (a stale chromeOverhead calculation that
+    // silently dropped the results wrapper's own bottom margin).
+    const assertNoBottomClipping=(g,label)=>{
+      if(g.editorBottomOverflow>1)throw new Error(`Manuscript bottom border/rounded corners must not be clipped by the shared region (${label}): editor extends ${g.editorBottomOverflow}px past the region's own bottom edge`);
+    };
 
     // A. Find/Replace closed: baseline manuscript height -- the full
     // shared-region budget, since results isn't competing for it at all.
     const closedGeometry=await geometry();
     if(closedGeometry.editorHeight<300)throw new Error(`Manuscript must have a genuinely useful ~50dvh height with Find/Replace closed: ${closedGeometry.editorHeight}`);
     if(Math.abs(closedGeometry.regionHeight-closedGeometry.editorHeight)>heightTolerance)throw new Error(`With no results pane, the manuscript must claim the ENTIRE shared region: region=${closedGeometry.regionHeight}, editor=${closedGeometry.editorHeight}`);
+    assertNoBottomClipping(closedGeometry,"Find/Replace closed");
 
     // B. Find/Replace open, current-scene mode (no results pane at all):
     // manuscript height must stay approximately the same -- the toolbar/
@@ -254,6 +275,7 @@ try{
     if(beforeQueryGeometry.resultsHeight==null)throw new Error("Project mode must show a results pane even before a query is typed");
     if(Math.abs(beforeQueryGeometry.regionHeight-closedGeometry.regionHeight)>heightTolerance)throw new Error(`Switching to project mode must not change the shared region's own total height: closed=${closedGeometry.regionHeight}, project-before-query=${beforeQueryGeometry.regionHeight}`);
     if(beforeQueryGeometry.editorHeight>=currentSceneGeometry.editorHeight-20)throw new Error(`The manuscript must visibly shrink once the results pane claims its share of the shared region: current-scene=${currentSceneGeometry.editorHeight}, project-before-query=${beforeQueryGeometry.editorHeight}`);
+    assertNoBottomClipping(beforeQueryGeometry,"project mode before query");
 
     // Stage E3.2.6 root-cause proof: the resizer must be genuinely
     // touchable (elementFromPoint resolves to it, not to the sticky
@@ -279,6 +301,27 @@ try{
     const projectModeGeometry=await geometry();
     if(Math.abs(projectModeGeometry.editorHeight-beforeQueryGeometry.editorHeight)>heightTolerance)throw new Error(`Typing a query must not itself change the manuscript/results split: before=${beforeQueryGeometry.editorHeight}, after=${projectModeGeometry.editorHeight}`);
     if(Math.abs(projectModeGeometry.regionHeight-closedGeometry.regionHeight)>heightTolerance)throw new Error(`The shared region's own total height must stay stable once results are populated: closed=${closedGeometry.regionHeight}, with-results=${projectModeGeometry.regionHeight}`);
+
+    // Stage E3.2.7 visual-acceptance check: the active/current result row's
+    // own outline/background must span the full available row width, not
+    // just the intrinsic width of its (possibly short) snippet text --
+    // real-phone review found the row's painted state hugging the text
+    // for short snippets, which read as visually wrong. Query for a
+    // unique, exact paragraph number so exactly one (short-ish) row comes
+    // back -- a deliberately short snippet is the case that was broken.
+    await page.locator("#sceneTextFindReplace .rte-find-input").fill("Абзац номер 1.");
+    await page.waitForSelector(".rte-project-result-row.active");
+    await page.waitForTimeout(80);
+    const activeRowWidthCheck=await page.evaluate(()=>{
+      const row=document.querySelector(".rte-project-result-row.active");
+      const results=document.querySelector(".rte-project-results");
+      return {rowWidth:row.getBoundingClientRect().width,resultsClientWidth:results.clientWidth};
+    });
+    // The row's own box (outline/background) must cover ALMOST the whole
+    // available row width (a little short of it is fine -- the results
+    // list has its own left/right padding) -- NOT just wrap the snippet
+    // text, which for "Абзац номер 1." would be under 100px.
+    if(activeRowWidthCheck.rowWidth<activeRowWidthCheck.resultsClientWidth*0.85)throw new Error(`The active result row must span the full available row width, not just its intrinsic snippet width: ${JSON.stringify(activeRowWidthCheck)}`);
 
     // E. A genuine touch drag on the resizer (Chromium's real touch input
     // pipeline via CDP -- see the E3.2.2 test lesson on why a plain
@@ -311,6 +354,7 @@ try{
     if(afterGrow.windowScrollY!==0)throw new Error(`Resizing the results pane must never scroll the page itself: windowScrollY=${afterGrow.windowScrollY}`);
     if(Math.abs(afterGrow.anchorAboveTop-projectModeGeometry.anchorAboveTop)>anchorTolerance)throw new Error(`Content ABOVE the shared region (the Find/Replace controls) must not move because of the drag: before=${projectModeGeometry.anchorAboveTop}, after=${afterGrow.anchorAboveTop}`);
     if(Math.abs(afterGrow.anchorBelowTop-projectModeGeometry.anchorBelowTop)>anchorTolerance)throw new Error(`Content BELOW the shared region (participants) must not move because of the drag: before=${projectModeGeometry.anchorBelowTop}, after=${afterGrow.anchorBelowTop}`);
+    assertNoBottomClipping(afterGrow,"after +100 grow drag");
 
     // F. Reverse direction: dragging the splitter back up (shrinking
     // results) must prove the exact inverse -- manuscript grows by
@@ -396,6 +440,11 @@ try{
     if(Math.abs(afterMaxDrag.regionHeight-beforeMaxDrag.regionHeight)>heightTolerance)throw new Error(`An extreme drag clamped to MAX must still keep the shared region's total height stable: before=${beforeMaxDrag.regionHeight}, after=${afterMaxDrag.regionHeight}`);
     if(Math.abs(afterMaxDrag.anchorAboveTop-beforeMaxDrag.anchorAboveTop)>anchorTolerance)throw new Error(`An extreme drag clamped to MAX must still keep the above-anchor stable: before=${beforeMaxDrag.anchorAboveTop}, after=${afterMaxDrag.anchorAboveTop}`);
     if(Math.abs(afterMaxDrag.anchorBelowTop-beforeMaxDrag.anchorBelowTop)>anchorTolerance)throw new Error(`An extreme drag clamped to MAX must still keep the below-anchor stable: before=${beforeMaxDrag.anchorBelowTop}, after=${afterMaxDrag.anchorBelowTop}`);
+    // Stage E3.2.7: this is the exact drag position (manuscript at its
+    // practical minimum, results at its dynamic max) that originally
+    // exhibited the border-clipping defect -- the most important place to
+    // check it.
+    assertNoBottomClipping(afterMaxDrag,"after extreme MAX drag");
     await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
     await page.waitForTimeout(50);
     const beforeMinDrag=await geometry();
@@ -404,6 +453,7 @@ try{
     if(afterMinDrag.resultsHeight<90-2)throw new Error(`Touch drag must still respect the results pane's min height: ${afterMinDrag.resultsHeight}`);
     if(Math.abs(afterMinDrag.regionHeight-beforeMinDrag.regionHeight)>heightTolerance)throw new Error(`An extreme drag clamped to MIN must still keep the shared region's total height stable: before=${beforeMinDrag.regionHeight}, after=${afterMinDrag.regionHeight}`);
     if(Math.abs(afterMinDrag.anchorAboveTop-beforeMinDrag.anchorAboveTop)>anchorTolerance)throw new Error(`An extreme drag clamped to MIN must still keep the above-anchor stable: before=${beforeMinDrag.anchorAboveTop}, after=${afterMinDrag.anchorAboveTop}`);
+    assertNoBottomClipping(afterMinDrag,"after extreme MIN drag");
 
     // The outer modal must remain the ONLY scroll owner involved in this
     // whole resize sequence -- window/page scroll must still be exactly 0.

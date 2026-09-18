@@ -2184,3 +2184,272 @@ collapse-at-MAX defect (§O) was found, not fixed, and is flagged
 separately. Desktop's existing `#sceneModal` geometry (flat 320px,
 outer-modal-absorbs-growth model) is fully preserved, confirmed via
 direct before/after measurement.
+
+## 40. Stage E3.2.7 — unify mobile splitter contract + two visual follow-ups
+
+Real-phone validation ACCEPTED E3.2.6's core `#sceneModal` splitter
+mechanism (results/manuscript share a stable budget, no outer-modal
+jumping). Three follow-ups: (1) the manuscript's bottom border/rounded
+corners could get clipped at some splitter positions; (2) the active
+project-search result row's outline/background only wrapped the
+intrinsic snippet text, not the full row width; (3) `#textModal` (Text
+Scene)'s latent collapse-at-MAX defect (flagged, not fixed, in E3.2.6 §O)
+was confirmed on a real device — the splitter could travel far enough
+that the manuscript effectively disappeared and the sticky footer left
+the composition.
+
+### Cause 1: manuscript bottom-border clipping
+
+`effectiveMaxResultsHeight()`'s `chromeOverhead` calculation (find-
+replace-panel.js) read `resultsWrapper.getBoundingClientRect().height`,
+which — like every `getBoundingClientRect()` call — never includes an
+element's own MARGIN. `.rte-project-results-wrapper{margin:0 -18px
+10px}`'s 10px bottom margin still consumes real space in the flex column
+(margins affect flex layout even though they sit outside the border box),
+but the old calculation silently dropped it, letting results grow 10px
+taller than the region could actually hold. Measured directly: at MAX
+drag, the manuscript's own rendered bottom edge sat exactly 10px past
+`.rte-manuscript-region`'s own bottom edge — `overflow:hidden` on the
+region clipped that 10px, taking the manuscript's own bottom border and
+rounded corners with it. **Fix:** read the wrapper's own `margin-top`/
+`margin-bottom` via `getComputedStyle` and add them to `chromeOverhead`,
+so the true flex-column footprint is measured correctly (find-replace-
+panel.js). Verified: `editorBottomOverflow` (editor's own bottom minus
+the region's own bottom) is exactly `0` at every measured splitter
+position, including both extremes, for both `#sceneModal` and
+`#textModal`.
+
+A SECOND, previously-undetected clipping bug was found while fixing
+this: `.rte-manuscript-region{overflow:hidden}` also clips HORIZONTALLY
+by default, which broke `.rte-project-results-wrapper`'s own `margin:0
+-18px` full-bleed technique (E3.1.2/E3.1.3) — the wrapper, now nested one
+level deeper inside the region (since E3.2.6), bled 18px past the
+region's own un-bled edge and got silently clipped there: invisible and
+unreachable via `elementFromPoint`. Discovered via Text Scene's existing
+E3.1.3 horizontal-scroll-hit-test regression, which failed for exactly
+this reason once the region existed. **Fix:** `.rte-manuscript-region
+{margin:0 -18px;padding:0 18px}` (css/editor.css, unconditional) — the
+region's own border-box now extends to the same outer edge the wrapper
+already bleeds to, and the matching padding shifts its content box back
+in by that same 18px, so ordinary (non-bled) children like the
+manuscript still render at their original position, while the wrapper's
+bleed now lands exactly at the region's (extended) edge instead of past
+it. This was a real, latent E3.2.6 regression in `#sceneModal` too (not
+new to this stage) — its own existing tests didn't do the rigorous
+coordinate-click-after-scroll check Text Scene's does, so it went
+undetected until this stage's Text Scene generalization surfaced it via
+that stricter regression.
+
+### Cause 2: intrinsic-width active result row
+
+`.rte-project-result-row{width:max-content;overflow:visible}` (E3.1.3,
+phone-only) sized each row's box to its OWN content — correct for a long
+snippet (its background/border must cover its full overflowing text,
+not clip at the viewport edge, which was E3.1.3's original fix), but for
+a SHORT snippet this also shrank the box down to that snippet's own
+intrinsic width, so the active-row outline/background only wrapped the
+text, not the row's actual available width. **Fix:** `.rte-project-
+result-row{width:max-content;min-width:100%;overflow:visible}` — adds a
+floor: the box is the LARGER of its own content width and the full row
+width (`min-width:100%` resolves against `.rte-project-result-group`'s
+own default block width, itself the results list's full width). A short
+row's box now spans the whole row (this stage's fix); a long row's box
+still grows past 100% to cover its full text (E3.1.3's fix, unaffected).
+Verified live: a short snippet's active row now measures ~90% of the
+results list's own width (matching its padding), and a long snippet
+(deliberately constructed with the shared `SNIPPET_CONTEXT_CHARS=42`
+context window on both sides of the match) still renders a background-
+covered box hundreds of pixels wider than the viewport, horizontal
+scroll still moves it, and no page-level horizontal overflow appears.
+
+### Cause 3: Text Scene splitter collapse
+
+Exactly the mechanism E3.2.6 §O already identified: `#textModal`'s
+toolbar, Find/Replace controls, results pane, and manuscript editor all
+shared ONE fixed-height flex column (`#textModal .modal{display:flex;
+flex-direction:column;height:92vh/100dvh;overflow:hidden}`), with the
+editor as the column's only `flex:1 1 auto;min-height:0` child — so
+ANY sibling claiming more space (chiefly the results pane, up to its
+flat `MAX_RESULTS_HEIGHT=420`) squeezed the editor arbitrarily close to
+zero, with nothing structurally stopping it. Measured pre-fix: editor
+`~26px` at `MAX_RESULTS_HEIGHT` on a 375×812 viewport.
+
+### E3.2.6 structure reused, not reinvented
+
+Per the task's explicit preference, `#textModal` now uses the EXACT same
+`.rte-manuscript-region`/`manuscriptRegion` mechanism E3.2.6 built for
+`#sceneModal` — no second, parallel splitter architecture:
+
+- **HTML** (index.html): `#fullSceneTextEditor` wrapped in `<div
+  class="rte-manuscript-region">`, identical in spirit to `#sceneModal`'s
+  own wrapper.
+- **JS**: zero changes needed beyond what E3.2.6 already built.
+  `scene-editor-controller.js`'s `manuscriptRegion` derivation
+  (`editorContainer.parentElement?.classList.contains(
+  "rte-manuscript-region")`) is already fully generic — wrapping
+  `#fullSceneTextEditor` in HTML was sufficient for `mountSceneEditor`
+  (reused for both surfaces) to thread it through to
+  `createFindReplacePanel` automatically. `effectiveMaxResultsHeight()`'s
+  dynamic clamp is likewise already generic (gated only by "is there a
+  `manuscriptRegion`" and the phone `matchMedia` check, never by which
+  modal it's in).
+- **CSS is where the two surfaces genuinely differ**, because their outer
+  modals differ: `#sceneModal .modal` is a non-flex, linear-scroll modal,
+  so its region needs an explicit `height:50dvh`. `#textModal .modal` is
+  ALREADY a fixed-height flex column — `.rte-manuscript-region` there
+  instead becomes `flex:1 1 auto;min-height:0`, taking over the exact
+  role `.rte-editor`'s own generic rule used to provide directly (since
+  the editor is no longer a direct child of that outer column). This is
+  UNCONDITIONAL (not phone-only), because it is also needed to keep
+  `#textModal`'s OWN already-accepted desktop exchange (E3.2.6 §A)
+  working with the new DOM nesting — verified byte-identical to before.
+  `MANUSCRIPT_MIN_HEIGHT=140px` (find-replace-panel.js, unchanged number,
+  single source of truth) is applied to `#textModal .rte-manuscript-
+  region .rte-editor` phone-only, exactly mirroring `#sceneModal`'s own
+  treatment; desktop deliberately keeps `min-height:0` (unchanged from
+  before this stage — its own much larger budget makes near-zero
+  collapse impractical in ordinary use, and nothing reported desktop
+  Text Scene as broken).
+
+### Text Scene shared-region height (375×812 portrait, genuine CDP touch drags)
+
+Find/Replace closed: not separately re-measured this stage (unchanged
+from E3.2.6's own finding that `#textModal`'s generic flex rule already
+worked correctly there). Project mode, default results: `editorHeight=
+244.09`, `regionHeight=402.09`, `resultsHeight=140`. `regionHeight`
+(402.09, not exactly 406 like `#sceneModal`'s dvh-based region) is
+whatever's left in `#textModal`'s own fixed flex column after its own
+toolbar/Find/Replace/h2/footer claim their share — this is expected and
+intentional: unlike `#sceneModal`, `#textModal`'s region total is
+externally determined by the outer column, not a hardcoded constant; the
+CORE, universally-required invariant (proven below) is that this total
+stays STABLE DURING a drag, not that it equals `#sceneModal`'s own
+number or stays identical across every Find/Replace open/closed
+transition (a property `#textModal`'s pre-existing, already-accepted
+architecture never had either, even before this stage, and which this
+stage was not asked to add).
+
+### Results/editor heights after grow/shrink
+
+Genuine CDP touch `+100px`: `resultsHeight` `140→240` (+100);
+`editorHeight` `244.09→144.09` (−100, the desktop-style exchange);
+`regionHeight` unchanged (`402.09→402.09`); `#textModal .modal`'s own
+height unchanged (`812→812`, the fixed 100dvh — it never scrolls);
+`.sticky-modal-footer`'s own `top` unchanged (`737→737`); footer stayed
+visible throughout. `-60px` reverse drag: `resultsHeight` `240→180`
+(−60), `editorHeight` `144.09→204.09` (+60, returned to the manuscript),
+region/modal/footer all unchanged again. Extreme `+3000` drag: `results
+Height` clamps to `244.09` (well under the flat 420 max — the dynamic
+clamp correctly protects the floor), `editorHeight` clamps to exactly
+`140` (the practical minimum — NOT the previously-measured ~26px
+collapse). Extreme `-4000` drag: `resultsHeight` clamps to flat
+`MIN_RESULTS_HEIGHT=90`, `editorHeight` returns to `294.09` (`402.09 −
+90 − ~18px chrome`).
+
+### Manuscript minimum
+
+`MANUSCRIPT_MIN_HEIGHT=140px` — the SAME canonical value used for
+`#sceneModal` (find-replace-panel.js remains the single source of truth
+for both), per the task's own explicit preference to reuse rather than
+invent a second magic number. Verified it fits Text Scene's actual phone
+geometry comfortably (portrait region ~402px, leaving ~250+px of
+headroom for results even at the manuscript's floor) — no viewport-
+specific reduction was needed in portrait.
+
+### Extreme-drag measurements
+
+See "Results/editor heights after grow/shrink" above — both extremes
+measured with the manuscript never crossing below 140px and results
+never exceeding its (flat or dynamic) ceiling.
+
+### Footer behavior before/after
+
+Before this stage (measured against unmodified `fcf92df`): no
+`.rte-manuscript-region` existed for `#textModal` at all, so nothing
+structurally prevented the editor from being squeezed toward zero by
+results growth, which is the same mechanism that let the splitter
+"travel far downward" and the footer "disappear from the expected
+working composition" per the real-phone report — with the editor able
+to shrink to ~26px, the visual composition would read as almost entirely
+results, with comparatively little room left for the footer's own
+neighborhood to feel present/reachable in the same view. After this
+stage: `.sticky-modal-footer`'s own `top` position is measured
+completely unchanged (`737px`, exact equality, not just within
+tolerance) across every drag tested, in both directions, at both
+extremes — because `.rte-manuscript-region` is now a flex:1 sibling of
+the (always fully-sized, `flex:none`) footer within the SAME fixed-height
+outer column, the footer's own space was never at risk in the first
+place once the region correctly bounds its own internal exchange.
+
+### Repeated-cycle / scope-toggle drift
+
+Three repeated `+50/-50` grow-then-shrink cycles returned to the exact
+same `resultsHeight`/`editorHeight`/`regionHeight` every cycle (zero
+drift). Scope toggling (Эта сцена → Весь проект → Эта сцена → Весь
+проект): region height stayed within tolerance of its pre-toggle value
+at each step; re-entering project scope correctly re-showed the results
+pane.
+
+### Portrait / landscape / desktop
+
+**Portrait** (375×812): all invariants above hold. **Short landscape**
+(667×375, sanity only, no redesign attempted, matching `#sceneModal`'s
+own E3.2.6 landscape note): editor and results both clamp to their
+practical/flat minimums (`140`/`140` respectively) rather than crashing
+or overflowing; no page-level horizontal overflow; the manuscript
+remains genuinely editable (confirmed live); no page errors. **Desktop**
+(1280×800): re-measured both surfaces after this stage's changes —
+byte-identical to before. `#sceneModal`: `editorHeight` stays exactly
+`320px` before/after a mouse drag, `.modal`'s own `scrollHeight` absorbs
+the growth, unaffected by the new `.rte-manuscript-region{margin:0
+-18px;padding:0 18px}` rule (confirmed via direct rect measurement:
+`left`/`right`/`height` identical). `#textModal`: `editorHeight
+320.09→220.09` for a +100px drag (unchanged from E3.2.6's own
+measurement), `.modal`'s own height stays exactly `736px`.
+
+### Stop-condition check
+
+Fixing `#textModal` did NOT require redesigning the whole modal: the
+existing `.rte-manuscript-region`/`manuscriptRegion` mechanism, built
+for a different (non-flex) outer-modal shape in E3.2.6, generalized
+cleanly to a flex outer-modal shape with only a CSS-level difference in
+how the region itself claims its height (explicit `dvh` vs. `flex:1`) —
+no JS changes, no second workaround, no scrollIntoView/reveal-resizer/
+scroll-compensation hack introduced anywhere in this stage.
+
+**Files changed:** `index.html` (`.rte-manuscript-region` wrapper around
+`#fullSceneTextEditor`), `css/editor.css` (`#textModal .rte-manuscript-
+region` flex rules, shared `.rte-manuscript-region` bleed-compensation
+rule, active-result-row `min-width:100%` fix), `js/editor/find-replace-
+panel.js` (`chromeOverhead` margin-accounting fix), `tools/mobile-scene-
+editor-browser.test.mjs` (bottom-clipping + active-row-width
+assertions), `tools/mobile-text-scene-browser.test.mjs` (full shared-
+region splitter regression: opposite-direction exchange, region/footer/
+modal invariance, practical minimum, repeated-cycle and scope-toggle
+drift checks, reachability; baseline-failure proof confirmed against
+unmodified `fcf92df`), `tools/find-replace-project-replace-all-browser
+.test.mjs` (fixed 4 sibling-combinator selectors — `#…FindReplace ~
+.rte-project-results-wrapper` — that assumed the pre-E3.2.6/E3.2.7 flat
+DOM structure; 3 of the 4 had been silently vacuous, null-safe checks
+that never actually matched anything since E3.2.6, not caught as
+failures until this stage's stricter Text Scene assertion surfaced the
+pattern).
+
+## 41. Explicit confirmation (E3.2.7)
+
+No Supabase changes, no migrations, `reference/` and `backup/`
+untouched. E4, E6, and tablet work were not started. No landscape
+redesign was attempted (sanity-checked only, per the Portrait/landscape/
+desktop section above). Find/Replace search/replace semantics, Replace/
+Replace All logic, project search logic, and shared horizontal project-
+results scrolling (E3.1.2/E3.1.3) are unchanged — the only project-
+results CSS change (`min-width:100%` on the row) was verified not to
+disturb the E3.1.2/E3.1.3 horizontal-scroll/hit-test contract, and the
+project-replace-all test's selector fixes are DOM-structure-only, not
+behavioral. Editor content behavior and save behavior are unchanged.
+Quick Scene was not touched (it has no Find/Replace panel at all).
+`#allScenesModal` ("Весь текст") was not touched — out of scope for this
+stage, unaffected by any of these changes (its own `.rte-sticky-
+controls`-based results insertion path never passes a `manuscriptRegion`
+and is untouched). Desktop behavior for both `#sceneModal` and
+`#textModal` is confirmed unchanged via direct before/after measurement.

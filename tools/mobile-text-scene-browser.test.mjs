@@ -315,18 +315,143 @@ try{
       await page.waitForTimeout(50);
     };
 
+    // Stage E3.2.7: #textModal now obeys the SAME shared-region splitter
+    // contract accepted for #sceneModal in E3.2.6 -- generalized via the
+    // exact same `.rte-manuscript-region`/`manuscriptRegion` mechanism
+    // (find-replace-panel.js, index.html, css/editor.css), not a second,
+    // unrelated workaround. Real-phone testing found #textModal's own
+    // PRE-E3.2.7 architecture (toolbar/Find/Replace/results/editor ALL
+    // sharing its one fixed-height flex column) let the manuscript
+    // collapse to ~26px at MAX_RESULTS_HEIGHT, the splitter travel far
+    // downward, and the sticky footer effectively vanish from the
+    // composition -- confirmed BEFORE this stage's fix via direct
+    // measurement (see docs/responsive-workspace-architecture.md's E3.2.7
+    // section). This block proves the corrected contract numerically:
+    // results/manuscript exchange height in OPPOSITE directions within a
+    // STABLE shared-region total, the manuscript never drops below its
+    // practical minimum, and -- unlike #sceneModal, which has an outer
+    // scrolling modal -- #textModal's own `.modal` height AND its sticky
+    // footer's position must both stay completely fixed throughout,
+    // since `#textModal .modal{overflow:hidden}` never scrolls at all.
+    const textSceneGeometry=()=>page.evaluate(()=>{
+      const editor=document.getElementById("fullSceneTextEditor");
+      const region=document.querySelector("#textModal .rte-manuscript-region");
+      if(!region)throw new Error("#textModal .rte-manuscript-region does not exist -- pre-E3.2.7 architecture");
+      const modal=document.querySelector("#textModal .modal");
+      const results=document.querySelector(".rte-project-results");
+      const footer=document.querySelector("#textModal .modal-actions.sticky-modal-footer");
+      const editorRect=editor.getBoundingClientRect();
+      const regionRect=region.getBoundingClientRect();
+      const footerRect=footer.getBoundingClientRect();
+      return {
+        editorHeight:editorRect.height,
+        editorBottomOverflow:editorRect.bottom-regionRect.bottom,
+        regionHeight:regionRect.height,
+        modalHeight:modal.getBoundingClientRect().height,
+        resultsHeight:results?results.getBoundingClientRect().height:null,
+        footerTop:footerRect.top,
+        footerHeight:footerRect.height,
+        footerVisible:footerRect.height>0&&footerRect.top<window.innerHeight&&footerRect.bottom>0,
+        windowScrollY:window.scrollY
+      };
+    });
+    const textSceneHeightTolerance=4;
+    const textSceneManuscriptMin=140;
+
+    const beforeDrag=await textSceneGeometry();
+    if(beforeDrag.resultsHeight==null)throw new Error("Project mode must show a results pane before this drag sequence begins");
+    if(!beforeDrag.footerVisible)throw new Error(`The sticky footer must be visible/reachable before any drag: ${JSON.stringify(beforeDrag)}`);
+    // Splitter must be genuinely touchable (not occluded by anything) the
+    // very first time it appears -- the same reachability contract as
+    // #sceneModal (E3.2.5/E3.2.6), now proven for #textModal too.
+    const textSceneResizerReachable=await page.evaluate(()=>{
+      const resizer=document.querySelector(".rte-project-results-resizer");
+      const r=resizer.getBoundingClientRect();
+      const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+      return hit===resizer||resizer.contains(hit);
+    });
+    if(!textSceneResizerReachable)throw new Error("The results-pane resizer must be genuinely touchable as soon as it first appears in Text Scene");
+
     const heightBeforeDrag=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
     await dragTouch(undefined,100);
     const heightAfterDrag=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
     if(Math.abs(heightAfterDrag-heightBeforeDrag-100)>10)throw new Error(`A genuine touch drag on the resizer must resize the results pane by roughly the drag distance: before=${heightBeforeDrag}, after=${heightAfterDrag}`);
 
-    // Min/max clamping still applies to a touch drag.
+    const afterGrow=await textSceneGeometry();
+    const growResultsDelta=afterGrow.resultsHeight-beforeDrag.resultsHeight;
+    const growEditorDelta=afterGrow.editorHeight-beforeDrag.editorHeight;
+    if(Math.abs(growEditorDelta+growResultsDelta)>textSceneHeightTolerance)throw new Error(`Results growth must be paid for by the manuscript shrinking by approximately the SAME amount, not by the outer modal: resultsDelta=${growResultsDelta}, editorDelta=${growEditorDelta}`);
+    if(Math.abs(afterGrow.regionHeight-beforeDrag.regionHeight)>textSceneHeightTolerance)throw new Error(`The shared region's own total height must stay stable across a drag: before=${beforeDrag.regionHeight}, after=${afterGrow.regionHeight}`);
+    if(Math.abs(afterGrow.modalHeight-beforeDrag.modalHeight)>textSceneHeightTolerance)throw new Error(`#textModal's own fixed modal height must never move as a consequence of the splitter drag: before=${beforeDrag.modalHeight}, after=${afterGrow.modalHeight}`);
+    if(Math.abs(afterGrow.footerTop-beforeDrag.footerTop)>textSceneHeightTolerance)throw new Error(`The sticky footer must not be pushed away by results growth: before=${beforeDrag.footerTop}, after=${afterGrow.footerTop}`);
+    if(!afterGrow.footerVisible)throw new Error(`The sticky footer must remain visible/reachable after growing results: ${JSON.stringify(afterGrow)}`);
+    if(afterGrow.windowScrollY!==0)throw new Error(`Resizing the results pane must never scroll the page itself: windowScrollY=${afterGrow.windowScrollY}`);
+    if(afterGrow.editorBottomOverflow>1)throw new Error(`Manuscript bottom border/rounded corners must not be clipped by the shared region after a grow drag: ${afterGrow.editorBottomOverflow}px`);
+
+    // Reverse direction: shrinking results must return the exact same
+    // amount to the manuscript.
+    await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
+    const beforeShrink=await textSceneGeometry();
+    await dragTouch(undefined,-60);
+    const afterShrink=await textSceneGeometry();
+    const shrinkResultsDelta=beforeShrink.resultsHeight-afterShrink.resultsHeight;
+    const shrinkEditorDelta=afterShrink.editorHeight-beforeShrink.editorHeight;
+    if(shrinkResultsDelta<40)throw new Error(`Dragging the splitter up must shrink the results pane substantially: before=${beforeShrink.resultsHeight}, after=${afterShrink.resultsHeight}`);
+    if(Math.abs(shrinkEditorDelta-shrinkResultsDelta)>textSceneHeightTolerance)throw new Error(`Results shrinkage must be RETURNED to the manuscript by approximately the same amount: resultsShrink=${shrinkResultsDelta}, editorGrowth=${shrinkEditorDelta}`);
+    if(Math.abs(afterShrink.regionHeight-beforeShrink.regionHeight)>textSceneHeightTolerance)throw new Error(`The shared region's own total height must stay stable across the reverse drag too: before=${beforeShrink.regionHeight}, after=${afterShrink.regionHeight}`);
+    if(Math.abs(afterShrink.footerTop-beforeShrink.footerTop)>textSceneHeightTolerance)throw new Error(`The sticky footer must not move during the reverse drag either: before=${beforeShrink.footerTop}, after=${afterShrink.footerTop}`);
+
+    // Repeated grow/shrink cycles must not drift.
+    let textSceneCyclePrev=await textSceneGeometry();
+    for(let cycle=0;cycle<3;cycle++){
+      await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
+      await dragTouch(undefined,50);
+      await dragTouch(undefined,-50);
+      const cycleAfter=await textSceneGeometry();
+      if(Math.abs(cycleAfter.resultsHeight-textSceneCyclePrev.resultsHeight)>textSceneHeightTolerance)throw new Error(`Repeated grow/shrink cycle ${cycle} drifted the results height: before=${textSceneCyclePrev.resultsHeight}, after=${cycleAfter.resultsHeight}`);
+      if(Math.abs(cycleAfter.editorHeight-textSceneCyclePrev.editorHeight)>textSceneHeightTolerance)throw new Error(`Repeated grow/shrink cycle ${cycle} drifted the manuscript height: before=${textSceneCyclePrev.editorHeight}, after=${cycleAfter.editorHeight}`);
+      if(Math.abs(cycleAfter.regionHeight-textSceneCyclePrev.regionHeight)>textSceneHeightTolerance)throw new Error(`Repeated grow/shrink cycle ${cycle} drifted the shared region's total height: before=${textSceneCyclePrev.regionHeight}, after=${cycleAfter.regionHeight}`);
+      textSceneCyclePrev=cycleAfter;
+    }
+
+    // Scope toggling (Эта сцена -> Весь проект -> Эта сцена -> Весь проект)
+    // must not drift the geometry either.
+    await page.tap('#fullSceneTextFindReplace .rte-scope-btn:not(.active)'); // -> scene
+    await page.waitForTimeout(60);
+    const textSceneBackToScene=await textSceneGeometry();
+    if(Math.abs(textSceneBackToScene.regionHeight-beforeDrag.regionHeight)>textSceneHeightTolerance)throw new Error(`Leaving project scope must not drift the shared region's total height: expected~=${beforeDrag.regionHeight}, got=${textSceneBackToScene.regionHeight}`);
+    await page.tap('#fullSceneTextFindReplace .rte-scope-btn:not(.active)'); // -> project
+    await page.waitForTimeout(60);
+    const textSceneBackToProject=await textSceneGeometry();
+    if(textSceneBackToProject.resultsHeight==null)throw new Error("Re-entering project scope must show the results pane again in Text Scene");
+    if(Math.abs(textSceneBackToProject.regionHeight-beforeDrag.regionHeight)>textSceneHeightTolerance)throw new Error(`Re-entering project scope must not have drifted the shared region's own total height: before=${beforeDrag.regionHeight}, re-entered=${textSceneBackToProject.regionHeight}`);
+
+    // Min/max clamping still applies to a touch drag -- MAX must now also
+    // respect the manuscript's practical minimum instead of allowing the
+    // ~26px real-phone collapse (the exact real-device defect this stage
+    // fixes). This is also the baseline-failure-proof drag: unmodified
+    // fcf92df has no `.rte-manuscript-region` for #textModal at all, so
+    // `textSceneGeometry()` above already fails immediately there; even a
+    // hypothetical partial backport that only skipped the min-height
+    // floor would be caught by the assertion below.
+    await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
+    const beforeMaxDrag=await textSceneGeometry();
     await dragTouch(undefined,2000,20);
     const heightAfterMaxDrag=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
     if(heightAfterMaxDrag>420+2)throw new Error(`Touch drag must still respect the max results height: ${heightAfterMaxDrag}`);
+    const afterMaxDrag=await textSceneGeometry();
+    if(afterMaxDrag.editorHeight<textSceneManuscriptMin-textSceneHeightTolerance)throw new Error(`Even an extreme drag must never crush the manuscript below its practical minimum (${textSceneManuscriptMin}px) -- this is the exact real-phone collapse-to-~26px defect: ${afterMaxDrag.editorHeight}`);
+    if(Math.abs(afterMaxDrag.regionHeight-beforeMaxDrag.regionHeight)>textSceneHeightTolerance)throw new Error(`An extreme drag clamped to MAX must still keep the shared region's total height stable: before=${beforeMaxDrag.regionHeight}, after=${afterMaxDrag.regionHeight}`);
+    if(Math.abs(afterMaxDrag.footerTop-beforeMaxDrag.footerTop)>textSceneHeightTolerance)throw new Error(`An extreme MAX drag must not push the sticky footer away: before=${beforeMaxDrag.footerTop}, after=${afterMaxDrag.footerTop}`);
+    if(!afterMaxDrag.footerVisible)throw new Error(`The sticky footer must remain visible/reachable even at an extreme MAX drag: ${JSON.stringify(afterMaxDrag)}`);
+    if(afterMaxDrag.editorBottomOverflow>1)throw new Error(`Manuscript bottom border/rounded corners must not be clipped at an extreme MAX drag: ${afterMaxDrag.editorBottomOverflow}px`);
+
+    await page.locator(".rte-project-results-resizer").scrollIntoViewIfNeeded();
     await dragTouch(undefined,-2000,20);
     const heightAfterMinDrag=await page.$eval(".rte-project-results",el=>el.getBoundingClientRect().height);
     if(heightAfterMinDrag<90-2)throw new Error(`Touch drag must still respect the min results height: ${heightAfterMinDrag}`);
+    const afterMinDrag=await textSceneGeometry();
+    if(!afterMinDrag.footerVisible)throw new Error(`The sticky footer must remain visible/reachable at an extreme MIN drag too: ${JSON.stringify(afterMinDrag)}`);
 
     // The resizer's own drag must not disturb the shared horizontal
     // project-results scroll model (E3.1.2/E3.1.3) or vertical browsing.

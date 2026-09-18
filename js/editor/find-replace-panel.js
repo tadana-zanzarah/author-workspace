@@ -319,19 +319,31 @@ export function createFindReplacePanel(container,controller,manuscriptRegion=nul
     container.appendChild(resultsWrapper);
   }
 
-  // Stage E3.2.6: on #sceneModal phone, `.rte-manuscript-region` fixes the
-  // TOTAL results+splitter+manuscript height -- so the results pane can
-  // never be dragged taller than "region height minus the manuscript's own
-  // practical minimum," or the manuscript would be forced below that floor
-  // (flexbox never violates `min-height`; something would have to overflow
-  // instead). `chromeOverhead` reads the resizer/replaceStatusEl/margin
-  // space `resultsWrapper` uses beyond `resultsRoot` itself, straight from
-  // the live layout, rather than hardcoding a second copy of those numbers
-  // here. Falls back to the flat MAX_RESULTS_HEIGHT whenever there is no
+  // Stage E3.2.6: on a bounded manuscript region (#sceneModal, and #textModal
+  // as of E3.2.7), `.rte-manuscript-region` fixes the TOTAL results+
+  // splitter+manuscript height -- so the results pane can never be dragged
+  // taller than "region height minus the manuscript's own practical
+  // minimum," or the manuscript would be forced below that floor (flexbox
+  // never violates `min-height`; something would have to overflow instead).
+  // `chromeOverhead` reads the resizer/replaceStatusEl/margin space
+  // `resultsWrapper` uses beyond `resultsRoot` itself, straight from the
+  // live layout, rather than hardcoding a second copy of those numbers here.
+  // Falls back to the flat MAX_RESULTS_HEIGHT whenever there is no
   // manuscriptRegion (every other surface, unchanged) or at desktop widths
-  // (desktop keeps its own existing, unrelated geometry -- see
-  // `#sceneModal .rte-editor`'s own desktop rule, still a flat 320px,
-  // completely untouched by this stage).
+  // (desktop keeps its own existing, unrelated geometry).
+  //
+  // Stage E3.2.7 fix: `getBoundingClientRect()` never includes an element's
+  // own MARGIN -- `resultsWrapper`'s `margin:0 -18px 10px` (10px bottom)
+  // still consumes real space in the flex column (margins affect flex
+  // layout even though they're outside the border box), but the previous
+  // `chromeOverhead` calculation silently dropped it, letting results grow
+  // 10px taller than the region could actually hold. The visible symptom:
+  // at max results height, the manuscript's own bottom border/rounded
+  // corners were clipped off by `.rte-manuscript-region{overflow:hidden}`,
+  // since editor+resultsWrapper's true combined footprint exceeded the
+  // region by exactly that missing 10px. Reading the margin explicitly via
+  // `getComputedStyle` (rather than hardcoding "10px" a second time) keeps
+  // this correct if that margin value ever changes.
   function effectiveMaxResultsHeight(){
     if(!manuscriptRegion)return MAX_RESULTS_HEIGHT;
     if(typeof matchMedia!=="function"||!matchMedia("(max-width:760px)").matches)return MAX_RESULTS_HEIGHT;
@@ -339,7 +351,9 @@ export function createFindReplacePanel(container,controller,manuscriptRegion=nul
     if(!regionHeight)return MAX_RESULTS_HEIGHT;
     const editorEl=manuscriptRegion.querySelector(".rte-editor");
     const editorMinHeight=editorEl?parseFloat(getComputedStyle(editorEl).minHeight)||MANUSCRIPT_MIN_HEIGHT:MANUSCRIPT_MIN_HEIGHT;
-    const chromeOverhead=resultsWrapper.getBoundingClientRect().height-resultsRoot.getBoundingClientRect().height;
+    const wrapperStyle=getComputedStyle(resultsWrapper);
+    const wrapperMargin=parseFloat(wrapperStyle.marginTop)+parseFloat(wrapperStyle.marginBottom);
+    const chromeOverhead=resultsWrapper.getBoundingClientRect().height+wrapperMargin-resultsRoot.getBoundingClientRect().height;
     const available=regionHeight-editorMinHeight-chromeOverhead;
     return Math.max(MIN_RESULTS_HEIGHT,Math.min(MAX_RESULTS_HEIGHT,available));
   }

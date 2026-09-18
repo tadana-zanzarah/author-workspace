@@ -142,7 +142,13 @@ try{
 
     // Fresh search afterward: the summary must report zero remaining matches
     // for the now-replaced query, never a stale/fabricated count.
-    const summaryText=await page.locator("#fullSceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-results-hint").innerText();
+    // Stage E3.2.7: `.rte-project-results-wrapper` is no longer necessarily
+    // `#fullSceneTextFindReplace`'s own DOM sibling -- on phone it's now
+    // inserted inside `.rte-manuscript-region` (ahead of the manuscript),
+    // via find-replace-panel.js's `manuscriptRegion` parameter. Scoping to
+    // `#textModal` (its ancestor either way) reaches it regardless of that
+    // internal nesting.
+    const summaryText=await page.locator("#textModal .rte-project-results-wrapper .rte-project-results-hint").innerText();
     if(!summaryText.includes("Совпадений не найдено"))
       throw new Error(`Expected a fresh empty-results summary after Replace All, got: ${summaryText}`);
   }
@@ -230,7 +236,11 @@ try{
     await confirmProjectReplaceAll(page);
 
     const statusText=await page.evaluate(()=>{
-      const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
+      // Stage E3.2.7: scoped to `#sceneModal` (an ancestor either way) --
+      // `.rte-project-results-wrapper` is no longer necessarily
+      // `#sceneTextFindReplace`'s own DOM sibling, see the Text Scene
+      // instance of this same comment above.
+      const el=document.querySelector("#sceneModal .rte-project-results-wrapper .rte-project-replace-status");
       return el?{hidden:el.hidden,text:el.textContent}:null;
     });
     if(statusText&&!statusText.hidden)
@@ -269,7 +279,11 @@ try{
     await confirmProjectReplaceAll(page);
 
     const statusText=await page.evaluate(()=>{
-      const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
+      // Stage E3.2.7: scoped to `#sceneModal` (an ancestor either way) --
+      // `.rte-project-results-wrapper` is no longer necessarily
+      // `#sceneTextFindReplace`'s own DOM sibling, see the Text Scene
+      // instance of this same comment above.
+      const el=document.querySelector("#sceneModal .rte-project-results-wrapper .rte-project-replace-status");
       return el?{hidden:el.hidden,text:el.textContent}:null;
     });
     if(statusText&&!statusText.hidden)
@@ -313,7 +327,11 @@ try{
     await page.click("#sceneTextFindReplace .rte-replace-all");
     await confirmProjectReplaceAll(page);
     const statusText=await page.evaluate(()=>{
-      const el=document.querySelector("#sceneTextFindReplace ~ .rte-project-results-wrapper .rte-project-replace-status");
+      // Stage E3.2.7: scoped to `#sceneModal` (an ancestor either way) --
+      // `.rte-project-results-wrapper` is no longer necessarily
+      // `#sceneTextFindReplace`'s own DOM sibling, see the Text Scene
+      // instance of this same comment above.
+      const el=document.querySelector("#sceneModal .rte-project-results-wrapper .rte-project-replace-status");
       return el?{hidden:el.hidden,text:el.textContent}:null;
     });
     if(statusText&&!statusText.hidden)

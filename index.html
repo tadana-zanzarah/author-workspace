@@ -952,7 +952,18 @@
     <h2 id="textModalTitle">Текст сцены</h2>
     <div id="fullSceneTextToolbar"></div>
     <div id="fullSceneTextFindReplace"></div>
-    <div id="fullSceneTextEditor" class="rte-editor" aria-label="Текст сцены"></div>
+    <!-- Stage E3.2.7: generalizes E3.2.6's #sceneModal `.rte-manuscript-
+         region` to Text Scene -- wraps ONLY the manuscript (and, once
+         find-replace-panel.js inserts it, the project-results pane +
+         splitter) so results/manuscript can exchange height between
+         themselves without the toolbar/Find/Replace row above ever
+         competing for that budget. See css/editor.css's own comment on
+         `#textModal .rte-manuscript-region` for how this differs from
+         #sceneModal's version (a flex:1 child of an ALREADY fixed-height
+         flex column here, rather than its own explicit dvh height). -->
+    <div class="rte-manuscript-region">
+      <div id="fullSceneTextEditor" class="rte-editor" aria-label="Текст сцены"></div>
+    </div>
     <div class="modal-actions sticky-modal-footer">
       <button id="closeText">Закрыть</button>
       <button id="saveTextAndClose">Сохранить и закрыть</button>
