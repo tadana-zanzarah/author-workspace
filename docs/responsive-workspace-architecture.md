@@ -2847,3 +2847,111 @@ for its own reason (label; 20px gutters).
 No Supabase changes, no migrations, `reference/` and `backup/` untouched. E4,
 E6 and tablet work were not started. "Весь текст" was NOT redesigned — only its
 phone-width gutter changed. Nothing was pushed or merged.
+
+## 48. Stage E3.2.11 — "Весь текст" true edge-to-edge on phone + post-search bottom band
+
+Real-phone validation overrode the E3.2.10 reading: the user wants **no outer
+gutter at all** on the "Весь текст" shell (reading width matters more than a
+decorative frame), and found a blank band above the sticky footer after a
+cross-scene search navigation. Scope: those two things only; Text Scene, Full
+Scene Editor, the splitter architecture, footer labels, toolbar, cards and
+desktop/tablet were not touched.
+
+### A. Edge-to-edge (outer gutter vs internal padding)
+
+Measured owner of E3.2.10's remaining 8px: the **backdrop's horizontal
+padding** (`.modal-backdrop{padding:20px}`, css/modals.css, reduced to 8px for
+this modal by E3.2.10). The modal has no border, its inline
+`width:min(1180px,100%)` resolves against the backdrop's content box, so the
+backdrop padding is the sole owner of the outer strip. Fix (css/editor.css,
+existing 760px breakpoint, scoped to `#allScenesModal` — the generic
+`.modal-backdrop` padding is shared with other modals and is not touched):
+`#allScenesModal.modal-backdrop{padding-left:0;padding-right:0}`.
+
+Outer gutter ≠ content padding: the modal's own 18px padding and the scene
+card's inset are **internal** content padding and were deliberately not
+changed (the sticky footer, toolbar and results bleed via `-18px` margins
+against that padding, so the footer now spans exactly the full-width shell, and
+it is what keeps cards off the screen edge). Vertical padding, the 94vh cap and
+the 14px corner radius are unchanged.
+
+| viewport | E3.2.10 (backdrop pad / modal / gutters) | E3.2.11 | editor left inset |
+|---|---|---|---|
+| 360×780 | 8 / 344 / 8 | 0 / **360** / **0** | 45 → 37 |
+| 375×812 | 8 / 359 / 8 | 0 / **375** / **0** | 45 → 37 |
+| 412×915 | 8 / 396 / 8 | 0 / **412** / **0** | 45 → 37 |
+
+Document, modal and backdrop horizontal overflow: 0 at every size (also 667×375).
+768×1024 (modal 728, gutters 20) and 1280×800 (modal 1180) unchanged.
+
+### B. Post-search bottom band (measured owner)
+
+Real sequence exercised, not a synthetic final DOM: open All Text → Find →
+«Весь проект» → tap a result in a later scene → the last scene → ↑/↓ buttons →
+close Find (a key press after navigating would type into the focused editor).
+Instrumented: modal scrollport, list, target card, editor, sticky controls,
+footer, and every spacing declaration that could reserve space.
+
+* The band is exactly **`.sticky-modal-footer{margin-top:16px}`**
+  (css/modals.css): at the end of the list the last card ends, then 16px of
+  modal background, then the footer. A navigation to the LAST scene scrolls to
+  that end and exposes it (measured 15–16px blank run directly above the
+  footer). Every other candidate is 0/`auto`: list margin/padding/min-height,
+  last-card margin-bottom, modal `scroll-padding-bottom` — so **E3.2.9's
+  Scene-Editor `scroll-padding`/`scroll-margin` rules do not leak into All Text**
+  (they are `#sceneModal`-scoped; computed `auto`/`0`).
+* It is not a Stage E regression: bisected on archived copies of `f007fc7b`
+  (master, before Stage E), `9c5ef64`, `c2dcc39`, `fcf92df`, `2e0aec4`,
+  `2fcaee4`, `d51a428` — identical (active card `[99,680]`, blank run 15) in
+  every one. Nothing between the list and the footer changes with a global
+  search; the same strip appears when the list is scrolled to its end by hand.
+* The reveal path was checked, not changed: `revealDocPosition`/
+  `scrollIntoView({block:"center"})` place the target match inside the visible
+  window between the sticky controls and the footer (match 577–596 within
+  411–696 on 375×812), so no reveal change was needed.
+
+Fix (phone, this modal only): `#allScenesModal .modal-actions.sticky-modal-footer
+{margin-top:0}`, so the last card meets the footer with no reserved band (the
+footer stays sticky). Verified: blank run 0 before search, after navigation to a
+non-last scene, after the last scene, after prev/next/wrap, after closing Find;
+last card bottom == footer top; footer sticky and pinned; match revealed.
+Scene Editor / Text Scene footers keep `margin-top:16px` (asserted).
+
+**Limitation, stated plainly:** desktop Chromium cannot drive the Android
+on-screen keyboard / `visualViewport` behaviour. An emulated keyboard (viewport
+shrink) shows a different, larger problem — with the keyboard up the sticky
+controls (toolbar + Find row + results pane) are taller than the whole modal
+(`visibleForScene` −34px) — which is not the band reported and is out of scope
+here. The regression therefore asserts the measured cause (the 16px footer
+margin at the end of the list) and the resulting geometry; the exact phone
+appearance still needs real-device validation.
+
+### Tests
+
+`tools/mobile-text-scene-browser.test.mjs` (existing E3.2.10 block, rewritten for
+the new contract + extended): edge-to-edge (outer gutters ≤1px, modal width ==
+viewport, no document/modal/backdrop overflow) at 360/375/412; internal 18px
+padding preserved; the real search sequence above with a per-step assertion of
+zero blank run, footer sticky/pinned and the target match inside the visible
+window; non-vacuity checks (the list must genuinely reach its end; scenes must
+actually change); Scene Editor footer margin unchanged. Baseline-failure proof:
+on the `d51a428` CSS the edge-to-edge assertion fails with 8px gutters
+(`modalW 396` at 412); with only the footer-margin rule removed the band
+assertion fails with `blankRun 15`, `atEnd true`, `footerMarginTop 16px`.
+Text Scene and Scene Editor shell/footer/editor rects identical between
+`d51a428` and this stage (375×812).
+
+### Real-device validation status
+
+Pending: the exact Android band (see limitation) and edge-to-edge look on the
+real phone.
+
+**Files changed:** `css/editor.css`, `tools/mobile-text-scene-browser.test.mjs`,
+this doc.
+
+## 49. Explicit confirmation (E3.2.11)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched. E4, E6
+and tablet work were not started. "Весь текст" was not redesigned: only its
+phone outer gutter and its footer's top margin changed. Nothing was pushed or
+merged.

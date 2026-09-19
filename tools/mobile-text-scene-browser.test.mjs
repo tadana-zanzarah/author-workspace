@@ -570,7 +570,7 @@ try{
     await page.close();
   }
 
-  // Stage E3.2.10: (1) Text Scene's footer wording matches the Scene Editor's
+  // Stage E3.2.10/E3.2.11: (1) Text Scene's footer wording matches the Scene Editor's
   // concise pair ("Сохранить", not "Сохранить текст") with unchanged ids/
   // handlers; "Весь текст" keeps its deliberately longer final action. (2)
   // "Весь текст" uses the phone width -- small deliberate 8px gutter instead of
@@ -606,11 +606,84 @@ try{
         modalOver:mo.scrollWidth-mo.clientWidth,backdropOver:bd.scrollWidth-bd.clientWidth,scrolled:mo.scrollTop,
         footerPos:getComputedStyle(f).position,footerGap:mo.getBoundingClientRect().top+mo.clientHeight-fr2.bottom,inlineW:mo.style.width};
     });
-    if(w.gutterL>12||w.gutterR>12||w.modalW<w.vw*0.95)throw new Error(`"Весь текст" must use essentially the whole phone width (small gutter only): ${JSON.stringify(w)}`);
-    if(w.gutterL<4||w.gutterR<4)throw new Error(`"Весь текст" should keep a small deliberate gutter, not literal edge-to-edge: ${JSON.stringify(w)}`);
+    // Stage E3.2.11: on phone "Весь текст" is TRULY edge-to-edge -- no decorative
+    // outer gutter of any size (the E3.2.10 8px value was superseded by real-
+    // phone validation). Only the OUTER gutter is asserted zero; the modal's
+    // internal 18px padding is content padding and is deliberately unchanged.
+    if(w.gutterL>1||w.gutterR>1||Math.abs(w.modalW-w.vw)>1)throw new Error(`"Весь текст" must be edge-to-edge on phone (outer gutters <=1px, modal width == viewport): ${JSON.stringify(w)}`);
     if(w.docOver>1||w.modalOver>1||w.backdropOver>1)throw new Error(`"Весь текст" must not create horizontal overflow: ${JSON.stringify(w)}`);
     if(w.scrolled<100)throw new Error(`vacuous: the All Text modal must genuinely scroll to prove its footer is still sticky: ${JSON.stringify(w)}`);
     if(w.footerPos!=="sticky"||Math.abs(w.footerGap)>1)throw new Error(`"Весь текст" sticky footer must be unchanged (pinned while scrolled): ${JSON.stringify(w)}`);
+    // The internal content padding is NOT the outer gutter and must survive.
+    const internal=await phone.evaluate(()=>{const mo=document.querySelector("#allScenesModal .modal"),ed=mo.querySelector(".rte-editor").getBoundingClientRect();return {modalPad:getComputedStyle(mo).paddingLeft,editorLeft:ed.left}});
+    if(internal.modalPad!=="18px"||internal.editorLeft<18)throw new Error(`"Весь текст" internal content padding must be preserved (only the outer gutter was removed): ${JSON.stringify(internal)}`);
+
+    // Stage E3.2.11 post-search bottom band: the REAL sequence -- Find ->
+    // "Весь проект" -> a result in a LATER scene -> the last scene -> next/previous
+    // buttons -> close Find. Measured owner of the band: the sticky footer's
+    // own `margin-top:16px` (css/modals.css), which a navigation to the last
+    // scene exposes by scrolling to the end of the list. The Android-only
+    // keyboard/visual-viewport behaviour cannot be driven by desktop CDP, so
+    // this asserts the measurable cause and the resulting geometry only.
+    const band=()=>phone.evaluate(()=>{
+      const mo=document.querySelector("#allScenesModal .modal"),f=mo.querySelector(".modal-actions"),fr=f.getBoundingClientRect();
+      const ctl=mo.querySelector(".rte-sticky-controls").getBoundingClientRect(),x=Math.round(innerWidth/2);
+      let run=0;for(let y=Math.floor(fr.top)-1;y>ctl.bottom;y--){const e=document.elementFromPoint(x,y);if(e&&!e.closest(".all-scene-block")&&!e.closest(".rte-sticky-controls")&&!e.closest(".modal-actions"))run++;else break}
+      const cards=[...mo.querySelectorAll(".all-scene-block")],last=cards[cards.length-1].getBoundingClientRect();
+      const sel=getSelection().rangeCount?getSelection().getRangeAt(0).getBoundingClientRect():null;
+      return {blankRun:run,atEnd:Math.round(mo.scrollTop)>=Math.round(mo.scrollHeight-mo.clientHeight)-1,scrollTop:Math.round(mo.scrollTop),
+        lastCardToFooter:fr.top-last.bottom,footerPos:getComputedStyle(f).position,footerGap:mo.getBoundingClientRect().top+mo.clientHeight-fr.bottom,
+        window:[ctl.bottom,fr.top],match:sel&&sel.height>0?[sel.top,sel.bottom]:null,footerMarginTop:getComputedStyle(f).marginTop};
+    });
+    const assertBand=(b,label,{needMatch=true}={})=>{
+      if(b.blankRun>1)throw new Error(`[${label}] a blank band of ${b.blankRun}px sits directly above the sticky footer: ${JSON.stringify(b)}`);
+      if(b.footerPos!=="sticky"||Math.abs(b.footerGap)>1)throw new Error(`[${label}] the footer must stay sticky/pinned: ${JSON.stringify(b)}`);
+      if(needMatch){
+        if(!b.match)throw new Error(`[${label}] the navigated-to match must be a real selection: ${JSON.stringify(b)}`);
+        if(b.match[0]<b.window[0]-1||b.match[1]>b.window[1]+1)throw new Error(`[${label}] the target match is not revealed (hidden under the sticky controls or the footer): ${JSON.stringify(b)}`);
+      }
+    };
+    await phone.$eval("#allScenesModal .modal",mo=>{mo.scrollTop=0});
+    await phone.waitForTimeout(80);
+    assertBand(await band(),"before any search",{needMatch:false});
+    await phone.tap("#allScenesToolbar .rte-btn-find");
+    await phone.tap("#allScenesFindReplace .rte-scope-btn:not(.active)");
+    await phone.locator("#allScenesFindReplace .rte-find-input").fill(longLineKeyword);
+    await phone.waitForSelector("#allScenesModal .rte-project-result-row");
+    await phone.waitForTimeout(250);
+    const rowsAll=phone.locator("#allScenesModal .rte-project-result-row");
+    const rowTotal=await rowsAll.count();
+    if(rowTotal<3)throw new Error(`fixture must give several results across scenes: ${rowTotal}`);
+    const sceneOfActive=()=>phone.evaluate(()=>document.querySelector(".rte-project-result-row.active")?.closest(".rte-project-result-group")?.querySelector(".rte-project-result-scene-header")?.textContent||"");
+    // a cross-scene navigation that is NOT the last scene (rows: scene c ... scene d)
+    await rowsAll.first().tap();await phone.waitForTimeout(700);
+    const firstScene=await sceneOfActive();
+    assertBand(await band(),`after search navigation to "${firstScene}"`);
+    // the LAST scene: scrolls to the end of the list -- the band's real trigger
+    await rowsAll.nth(rowTotal-1).tap();await phone.waitForTimeout(700);
+    const lastScene=await sceneOfActive();
+    if(lastScene===firstScene)throw new Error(`fixture must navigate across scenes: ${firstScene} == ${lastScene}`);
+    const atLast=await band();
+    if(!atLast.atEnd)throw new Error(`vacuous: navigating to the last scene must scroll the list to its end: ${JSON.stringify(atLast)}`);
+    assertBand(atLast,`after search navigation to the LAST scene "${lastScene}"`);
+    if(Math.abs(atLast.lastCardToFooter)>1)throw new Error(`the last scene's card must meet the sticky footer with no reserved band: ${atLast.lastCardToFooter}px`);
+    // next / previous result buttons (a key press would type into the focused editor)
+    for(const [btn,label] of [[".rte-find-prev","previous"],[".rte-find-next","next"],[".rte-find-next","next (wrap)"]]){
+      await phone.tap(`#allScenesFindReplace ${btn}`);await phone.waitForTimeout(600);
+      assertBand(await band(),`after ${label} result`);
+    }
+    // closing Find/Replace
+    await phone.tap("#allScenesFindReplace .rte-find-close");await phone.waitForTimeout(400);
+    await phone.$eval("#allScenesModal .modal",mo=>{mo.scrollTop=mo.scrollHeight});await phone.waitForTimeout(150);
+    assertBand(await band(),"after closing Find/Replace, scrolled to the end",{needMatch:false});
+
+    // Scope: the phone-only footer/gutter rules are All-Text-only. The Scene
+    // Editor's footer keeps its 16px margin-top (E3.2.9 geometry untouched).
+    await phone.evaluate(()=>{forceCloseModal?.("allScenesModal")});
+    await phone.evaluate(()=>editScene("scene-a"));
+    await phone.waitForFunction(()=>document.getElementById("sceneModal").style.display==="flex");
+    const sceneFooterMargin=await phone.$eval("#sceneModal .modal-actions",el=>getComputedStyle(el).marginTop);
+    if(sceneFooterMargin!=="16px")throw new Error(`the Scene Editor footer margin must be unchanged (leak from the All Text rule?): ${sceneFooterMargin}`);
     await phone.close();
 
     // Desktop/tablet widths must not have changed (760px breakpoint only).
@@ -624,6 +697,18 @@ try{
       const dw=await desk.$eval("#allScenesModal .modal",el=>Math.round(el.getBoundingClientRect().width));
       if(dw!==expectW)throw new Error(`"Весь текст" must keep its width at ${vw}px wide (phone-only change): expected ${expectW}, got ${dw}`);
       await desk.close();
+    }
+    // Edge-to-edge at the other representative phone widths (412 is covered above).
+    for(const [vw,vh] of [[360,780],[375,812]]){
+      const ph=await browser.newPage({viewport:{width:vw,height:vh},isMobile:true,hasTouch:true,userAgent:"Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"});
+      ph.setDefaultTimeout(5000);
+      await ph.addInitScript(value=>{localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
+      for(let attempt=0;attempt<30;attempt++){try{await ph.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
+      await ph.evaluate(()=>openAllScenes());
+      await ph.waitForFunction(()=>document.getElementById("allScenesModal").style.display==="flex");
+      const g=await ph.evaluate(()=>{const bd=document.getElementById("allScenesModal"),mo=bd.querySelector(".modal"),r=mo.getBoundingClientRect();return {vw:innerWidth,left:r.left,right:innerWidth-r.right,width:r.width,backdropPad:getComputedStyle(bd).paddingLeft+"/"+getComputedStyle(bd).paddingRight,docOver:document.documentElement.scrollWidth-document.documentElement.clientWidth,modalOver:mo.scrollWidth-mo.clientWidth}});
+      if(g.left>1||g.right>1||Math.abs(g.width-g.vw)>1||g.docOver>1||g.modalOver>1)throw new Error(`"Весь текст" must be edge-to-edge at ${vw}px wide: ${JSON.stringify(g)}`);
+      await ph.close();
     }
   }
 

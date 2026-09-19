@@ -737,13 +737,34 @@
    `width:min(1180px,100%)` resolves against the backdrop's CONTENT box, so at
    375px the modal was 335px wide with 20px gutters, and (with the modal's own
    18px padding + the scene card's inset) the editor sat 57px from each screen
-   edge. Only the backdrop's horizontal padding is reduced, to a small
-   deliberate 8px, on the existing 760px phone breakpoint; the modal's 18px
+   edge. (E3.2.10 reduced the backdrop's horizontal padding to 8px; E3.2.11
+   below supersedes that with 0.) The modal's 18px
    padding is left alone because the sticky footer, toolbar and results all
    rely on its `-18px` full-bleed. Vertical padding, max-height, scrolling,
    footer, cards and desktop are untouched. */
+/* Stage E3.2.11 (supersedes the 8px above -- real-phone validation: the user
+   wants NO outer gutter here, reading width matters more than a decorative
+   frame): on phone the "Весь текст" shell is truly edge-to-edge. Only the
+   OUTER gutter is removed -- the backdrop's horizontal padding (the sole owner
+   of the strip; the modal has no border, `width:min(1180px,100%)` then resolves
+   to the full viewport). The modal's own 18px INTERNAL padding and the scene
+   card's inset are content padding, not an outer gutter, and stay: the sticky
+   footer/toolbar/results bleed via `-18px` margins against that padding, and
+   it is what keeps the cards from touching the screen edge. The sticky footer
+   therefore spans exactly the full-width modal. Scoped to this one modal (the
+   generic `.modal-backdrop` padding is shared by other modals and is not
+   touched); vertical padding, the 94vh cap and desktop/tablet are unchanged.
+
+   Bottom band: the only blank strip between the last scene's card and the
+   sticky footer at the end of the list is the footer's own `margin-top:16px`
+   (css/modals.css) -- measured 16px, identical on every commit back to master,
+   with every other candidate (list margin/padding/min-height, last-card margin,
+   scroll-padding) 0/auto. A cross-scene search navigation to the last scene
+   scrolls to that end and exposes it. Zeroing just that margin (phone, this
+   modal) makes the content meet the footer; the footer stays sticky. */
 @media(max-width:760px){
-  #allScenesModal.modal-backdrop{padding-left:8px;padding-right:8px}
+  #allScenesModal.modal-backdrop{padding-left:0;padding-right:0}
+  #allScenesModal .modal-actions.sticky-modal-footer{margin-top:0}
 }
 
 #allScenesModal .rte-sticky-controls{position:sticky;top:-18px;z-index:2;padding-bottom:10px}
