@@ -731,6 +731,21 @@
    the one intentional trailing gap on the wrapper itself, where it always
    lands after whichever row is genuinely last, regardless of which are
    currently visible. */
+/* Stage E3.2.10: "Весь текст" gets ONLY a phone-width adjustment (no mobile
+   redesign). Measured owner of the unused side space: the generic
+   `.modal-backdrop{padding:20px}` (css/modals.css) -- the modal's inline
+   `width:min(1180px,100%)` resolves against the backdrop's CONTENT box, so at
+   375px the modal was 335px wide with 20px gutters, and (with the modal's own
+   18px padding + the scene card's inset) the editor sat 57px from each screen
+   edge. Only the backdrop's horizontal padding is reduced, to a small
+   deliberate 8px, on the existing 760px phone breakpoint; the modal's 18px
+   padding is left alone because the sticky footer, toolbar and results all
+   rely on its `-18px` full-bleed. Vertical padding, max-height, scrolling,
+   footer, cards and desktop are untouched. */
+@media(max-width:760px){
+  #allScenesModal.modal-backdrop{padding-left:8px;padding-right:8px}
+}
+
 #allScenesModal .rte-sticky-controls{position:sticky;top:-18px;z-index:2;padding-bottom:10px}
 /* .rte-toolbar's own margin-bottom:10px exists to space it from whatever
    comes after it -- previously the editor content directly, now the

@@ -2782,3 +2782,68 @@ E4, E6 and tablet work were not started; landscape was sanity-checked only.
 The splitter, results, manuscript, horizontal-ownership and result-row-canvas
 architecture of E3.2.8 was not reworked. Text Scene and desktop are unchanged.
 Nothing was pushed or merged.
+
+## 46. Stage E3.2.10 — footer wording consistency + "Весь текст" phone width
+
+Real-phone validation of E3.2.9 **passed**: the whole E3.2 splitter /
+project-results / sticky-footer sequence (E3.2.6–E3.2.9) is now accepted. This
+stage is a two-item UI consistency task and reopens none of it (no splitter,
+Find/Replace geometry, region height exchange or sticky-footer change).
+
+### Footer wording
+
+Rendered labels, measured (not read from markup):
+
+| surface | before | after |
+|---|---|---|
+| Full Scene Editor | Отмена / Сохранить и закрыть / Сохранить | unchanged |
+| Text Scene | Закрыть / Сохранить и закрыть / **Сохранить текст** | Закрыть / Сохранить и закрыть / **Сохранить** |
+| Весь текст | Закрыть / Сохранить и закрыть / Сохранить все изменения | unchanged (multi-scene action deliberately keeps its wording) |
+
+Only `#saveText`'s text changed (index.html). Ids, handlers
+(`saveTextModalOnly`), `primary` class, dirty/enabled logic and semantics are
+untouched; no `aria-label` added (the dialog is already labelled «Текст сцены»).
+Note for future wording work: the Full Scene Editor's cancel button reads
+«Отмена» (its `#cancelScene` is a cancel-with-discard-guard), not «Закрыть» —
+left as is. At 412px wide all three Text Scene labels sit on one line (34px
+buttons, identical to the Scene Editor); at 360–390px both surfaces wrap
+«Сохранить и закрыть» to two lines (50px buttons) exactly as the Scene Editor
+already did — pre-existing, shared, not addressed here.
+
+### "Весь текст" — phone width only
+
+Width owner (measured): the modal's inline `width:min(1180px,100%)` resolves
+against the **backdrop's content box**, and the generic `.modal-backdrop
+{padding:20px}` (css/modals.css) took 20px per side (375px viewport → 335px
+modal); with the modal's own 18px padding and the scene card's inset the editor
+sat 57px from each screen edge. Fix at the owner, in `css/editor.css`, on the
+existing 760px phone breakpoint: `#allScenesModal.modal-backdrop{padding-left:
+8px;padding-right:8px}`. The modal's 18px padding is deliberately unchanged
+(sticky footer, toolbar and results rely on its `-18px` full-bleed).
+
+| viewport | modal width / gutters before → after | editor edge gap before → after |
+|---|---|---|
+| 375×812 | 335 (20/20) → 359 (8/8) | 57 → 45 |
+| 360×780 | 320 → 344 | 57 → 45 |
+| 412×915 | 372 → 396 | 57 → 45 |
+
+Unchanged: 768×1024 (modal 728, gutters 20) and 1280×800 (modal 1180) — above
+the breakpoint; scrolling, `max-height:94vh`, the sticky footer (pinned, gap 0
+while scrolled), card order/layout, rich text and Find/Replace. No page, modal
+or backdrop horizontal overflow at any measured size.
+
+Regression: a small block in `tools/mobile-text-scene-browser.test.mjs` pins
+the exact Text Scene label triple + ids, one-line footer at 412px, the "Весь
+текст" final-action wording, phone gutter 4–12px with modal ≥95% of the
+viewport, no horizontal overflow, footer sticky after a genuine scroll (≥100px,
+non-vacuous), and unchanged 1280/768 widths. Each half fails against `38d8636`
+for its own reason (label; 20px gutters).
+
+**Files changed:** `index.html`, `css/editor.css`,
+`tools/mobile-text-scene-browser.test.mjs`, this doc.
+
+## 47. Explicit confirmation (E3.2.10)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched. E4,
+E6 and tablet work were not started. "Весь текст" was NOT redesigned — only its
+phone-width gutter changed. Nothing was pushed or merged.

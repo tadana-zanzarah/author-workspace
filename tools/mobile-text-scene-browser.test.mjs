@@ -570,6 +570,63 @@ try{
     await page.close();
   }
 
+  // Stage E3.2.10: (1) Text Scene's footer wording matches the Scene Editor's
+  // concise pair ("Сохранить", not "Сохранить текст") with unchanged ids/
+  // handlers; "Весь текст" keeps its deliberately longer final action. (2)
+  // "Весь текст" uses the phone width -- small deliberate 8px gutter instead of
+  // the generic 20px backdrop padding -- with no page/modal horizontal overflow
+  // and its sticky footer untouched; desktop/tablet widths unchanged.
+  {
+    const footerLabels=(page,modal)=>page.$$eval(`#${modal} .modal-actions button`,els=>els.map(e=>({id:e.id,text:e.textContent.trim(),primary:e.classList.contains("primary"),disabled:e.disabled})));
+    const phone=await browser.newPage({viewport:{width:412,height:915},isMobile:true,hasTouch:true,userAgent:"Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"});
+    phone.setDefaultTimeout(5000);
+    await phone.addInitScript(value=>{localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
+    for(let attempt=0;attempt<30;attempt++){try{await phone.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
+
+    await phone.evaluate(()=>openSceneText("scene-a"));
+    await phone.waitForFunction(()=>document.getElementById("textModal").style.display==="flex");
+    const textFooter=await footerLabels(phone,"textModal");
+    if(JSON.stringify(textFooter.map(b=>[b.id,b.text,b.primary]))!==JSON.stringify([["closeText","Закрыть",false],["saveTextAndClose","Сохранить и закрыть",false],["saveText","Сохранить",true]]))throw new Error(`Text Scene footer must read Закрыть / Сохранить и закрыть / Сохранить with unchanged ids: ${JSON.stringify(textFooter)}`);
+    // one line at the normal phone width: same button height as a single line of text
+    const textBtnHeights=await phone.$$eval("#textModal .modal-actions button",els=>els.map(e=>Math.round(e.getBoundingClientRect().height)));
+    if(new Set(textBtnHeights).size!==1||textBtnHeights[0]>40)throw new Error(`Text Scene footer labels must sit on one line at 412px wide: button heights ${JSON.stringify(textBtnHeights)}`);
+    await phone.click("#closeText");
+    await phone.waitForFunction(()=>document.getElementById("textModal").style.display==="none");
+
+    await phone.evaluate(()=>openAllScenes());
+    await phone.waitForFunction(()=>document.getElementById("allScenesModal").style.display==="flex");
+    await phone.waitForSelector("#allScenesModal .rte-editor .ProseMirror");
+    const allFooter=await footerLabels(phone,"allScenesModal");
+    if(JSON.stringify(allFooter.map(b=>[b.id,b.text]))!==JSON.stringify([["closeAllScenes","Закрыть"],["saveAllScenesAndClose","Сохранить и закрыть"],["saveAllScenes","Сохранить все изменения"]]))throw new Error(`"Весь текст" must keep its multi-scene final action wording: ${JSON.stringify(allFooter)}`);
+    const w=await phone.evaluate(()=>{
+      const bd=document.getElementById("allScenesModal"),mo=bd.querySelector(".modal"),r=mo.getBoundingClientRect(),f=mo.querySelector(".modal-actions"),fr=f.getBoundingClientRect();
+      mo.scrollTop=Math.floor((mo.scrollHeight-mo.clientHeight)/2);
+      const fr2=f.getBoundingClientRect();
+      return {vw:innerWidth,modalW:r.width,gutterL:r.left,gutterR:innerWidth-r.right,docOver:document.documentElement.scrollWidth-document.documentElement.clientWidth,
+        modalOver:mo.scrollWidth-mo.clientWidth,backdropOver:bd.scrollWidth-bd.clientWidth,scrolled:mo.scrollTop,
+        footerPos:getComputedStyle(f).position,footerGap:mo.getBoundingClientRect().top+mo.clientHeight-fr2.bottom,inlineW:mo.style.width};
+    });
+    if(w.gutterL>12||w.gutterR>12||w.modalW<w.vw*0.95)throw new Error(`"Весь текст" must use essentially the whole phone width (small gutter only): ${JSON.stringify(w)}`);
+    if(w.gutterL<4||w.gutterR<4)throw new Error(`"Весь текст" should keep a small deliberate gutter, not literal edge-to-edge: ${JSON.stringify(w)}`);
+    if(w.docOver>1||w.modalOver>1||w.backdropOver>1)throw new Error(`"Весь текст" must not create horizontal overflow: ${JSON.stringify(w)}`);
+    if(w.scrolled<100)throw new Error(`vacuous: the All Text modal must genuinely scroll to prove its footer is still sticky: ${JSON.stringify(w)}`);
+    if(w.footerPos!=="sticky"||Math.abs(w.footerGap)>1)throw new Error(`"Весь текст" sticky footer must be unchanged (pinned while scrolled): ${JSON.stringify(w)}`);
+    await phone.close();
+
+    // Desktop/tablet widths must not have changed (760px breakpoint only).
+    for(const [vw,vh,expectW] of [[1280,800,1180],[768,1024,728]]){
+      const desk=await browser.newPage({viewport:{width:vw,height:vh}});
+      desk.setDefaultTimeout(5000);
+      await desk.addInitScript(value=>{localStorage.setItem("novelTimelineV11",JSON.stringify(value))},project);
+      for(let attempt=0;attempt<30;attempt++){try{await desk.goto(`${base}?local=1`,{waitUntil:"networkidle"});break}catch{await new Promise(resolve=>setTimeout(resolve,100))}}
+      await desk.evaluate(()=>openAllScenes());
+      await desk.waitForFunction(()=>document.getElementById("allScenesModal").style.display==="flex");
+      const dw=await desk.$eval("#allScenesModal .modal",el=>Math.round(el.getBoundingClientRect().width));
+      if(dw!==expectW)throw new Error(`"Весь текст" must keep its width at ${vw}px wide (phone-only change): expected ${expectW}, got ${dw}`);
+      await desk.close();
+    }
+  }
+
   // Stage E3.2.8: the same real-phone contract as Scene Editor, shared via
   // tools/mobile-splitter-contract.mjs (Text Scene has no outer scroll, so its
   // "outer modal did not scroll" checks hold trivially; the clipping and
