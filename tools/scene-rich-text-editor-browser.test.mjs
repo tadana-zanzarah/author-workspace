@@ -181,10 +181,20 @@ try{
   const textAfterRedo2=await page.$eval("#fullSceneTextEditor",el=>el.textContent);
   if(!textAfterRedo2.includes("pov Мартин Моралес"))throw new Error("Redo #2 did not restore the POV insert");
 
-  // --- Save, then reopen: formatting must survive exactly.
+  // --- Save, then reopen: formatting must survive exactly. "Сохранить" is
+  // save-only since D2.1.2 (docs/find-replace-architecture.md, Finding F/G):
+  // it persists and re-baselines the dirty tracker but keeps the modal open;
+  // only "Сохранить и закрыть" closes. Close afterward must then need no
+  // discard confirmation, proving the baseline was refreshed by the save.
   await page.click("#saveText");
   await page.waitForTimeout(120);
-  if(await isVisible("#textModal"))throw new Error("Modal did not close after Save");
+  if(!(await isVisible("#textModal")))throw new Error("Save-only closed the modal (only \"Сохранить и закрыть\" should close it)");
+  if(await page.evaluate(()=>trackerFor("textModal").isDirty()))throw new Error("Save did not re-baseline the dirty tracker");
+  if(!(await page.$eval("#saveText",el=>el.disabled)))throw new Error("Save button should be disabled once the modal is clean");
+  await page.click("#closeText");
+  await page.waitForTimeout(80);
+  if(await isVisible("#discardChangesModal"))throw new Error("Closing right after Save showed a discard confirmation (baseline not refreshed)");
+  if(await isVisible("#textModal"))throw new Error("Modal did not close via Close after Save");
 
   const savedScene=await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem("novelTimelineV11"));return p.scenes.find(s=>s.id==="scene-1")});
   if(!savedScene.sceneTextDoc||savedScene.sceneTextDoc.type!=="doc")throw new Error("sceneTextDoc was not persisted");

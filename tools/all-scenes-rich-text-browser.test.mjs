@@ -69,13 +69,23 @@ try{
   const toolbarCount=await page.locator("#allScenesModal .rte-toolbar").count();
   if(toolbarCount!==1)throw new Error(`Expected exactly one shared toolbar, found ${toolbarCount}`);
 
-  // --- No-edit Save produces zero writes: nothing touched yet.
-  await page.click("#saveAllScenes");
-  await page.waitForTimeout(120);
-  if(await isOpen("allScenesModal"))throw new Error("All Scenes modal stayed open after a no-op Save");
+  // --- No-edit Save produces zero writes: nothing touched yet. Both save
+  // buttons are disabled while the modal is clean (createSaveButtonController,
+  // js/dirty-state.js), so a no-edit save cannot be triggered from the UI;
+  // saveAllScenes() itself is still called directly to prove the "only write
+  // changed scenes" guarantee at the function level, then the untouched modal
+  // closes without any discard confirmation.
+  if(!await page.$eval("#saveAllScenes",el=>el.disabled)||!await page.$eval("#saveAllScenesAndClose",el=>el.disabled))
+    throw new Error("Save buttons should be disabled while \"Весь текст\" is clean");
+  const noopResult=await page.evaluate(()=>saveAllScenes());
+  if(!noopResult?.ok)throw new Error("A no-edit saveAllScenes() call did not report success");
   let saved=await savedProject();
   if(JSON.stringify(saved.scenes)!==JSON.stringify(freshProject().scenes))
     throw new Error("A no-edit Save changed scene data -- expected zero writes");
+  await page.click("#closeAllScenes");
+  await page.waitForTimeout(80);
+  if(await isOpen("discardChangesModal"))throw new Error("Closing an untouched \"Весь текст\" showed a discard confirmation");
+  if(await isOpen("allScenesModal"))throw new Error("All Scenes modal stayed open after closing while clean");
 
   // --- Reopen: toolbar targets whichever scene last had focus, and switching
   // scenes updates both the command target and the reported active state.
@@ -127,9 +137,12 @@ try{
   // --- Save: only the two changed scenes (formatting-only A, prose+formatting
   // B) are written; scene-c-untouched, scene-rich and scene-dangerous (never
   // focused this session) must come out byte-identical.
+  // "Сохранить все изменения" is save-only since D2.1.2 (docs/find-replace-
+  // architecture.md, Finding F/G): persists and re-baselines, modal stays open.
   await page.click("#saveAllScenes");
   await page.waitForTimeout(120);
-  if(await isOpen("allScenesModal"))throw new Error("All Scenes modal stayed open after Save");
+  if(!await isOpen("allScenesModal"))throw new Error("Save-only closed \"Весь текст\" (only \"Сохранить и закрыть\" should close it)");
+  if(await page.evaluate(()=>trackerFor("allScenesModal").isDirty()))throw new Error("Save did not re-baseline the dirty tracker");
   saved=await savedProject();
   const savedA=saved.scenes.find(s=>s.id==="scene-a"),savedB=saved.scenes.find(s=>s.id==="scene-b");
   if(!savedA.sceneTextDoc||JSON.stringify(savedA.sceneTextDoc).indexOf('"strong"')<0)throw new Error("Scene A's formatting-only change was not saved");
@@ -140,6 +153,10 @@ try{
     throw new Error("An untouched scene was rewritten by Save (should generate zero mutation for it)");
   if(JSON.stringify(saved.scenes.find(s=>s.id==="scene-rich"))!==richBaseline)
     throw new Error("An untouched already-rich scene was rewritten by Save");
+  await page.click("#closeAllScenes");
+  await page.waitForTimeout(80);
+  if(await isOpen("discardChangesModal"))throw new Error("Closing right after Save showed a discard confirmation (baseline not refreshed)");
+  if(await isOpen("allScenesModal"))throw new Error("All Scenes modal did not close via Close after Save");
 
   // --- Failure handling does not silently lose unsaved editor state. Local-mode
   // analog of a cloud mutation failure (same technique tools/dirty-browser.test.mjs
@@ -159,9 +176,9 @@ try{
   if(!survivedText.includes("Текст, который не должен потеряться"))
     throw new Error("Unsaved edit was lost from the still-mounted editor after a save failure");
   await page.evaluate(()=>__restoreAllScenesStorage());
-  await page.click("#saveAllScenes");
+  await page.click("#saveAllScenesAndClose");
   await page.waitForTimeout(120);
-  if(await isOpen("allScenesModal"))throw new Error("Successful retry after a save failure did not close the modal");
+  if(await isOpen("allScenesModal"))throw new Error("Successful retry via \"Сохранить и закрыть\" after a save failure did not close the modal");
   saved=await savedProject();
   if(!saved.scenes.find(s=>s.id==="scene-c-untouched").sceneText.includes("Текст, который не должен потеряться"))
     throw new Error("Successful retry after a save failure did not persist the edit");

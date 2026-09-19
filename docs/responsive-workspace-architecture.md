@@ -1,12 +1,14 @@
 # Responsive workspace & mobile personalization — architecture
 
-Status: **Stage E1.1** (E0 audit → E1 mobile shell prototype implemented and
-committed → E1.1 real-phone review pass, docs-only). Baseline `f007fc7`
-(branch `master`). §§1–9 are the original E0 audit; §10 records what E1
-actually built; §11 records the real-phone review (accepted behavior,
-confirmed-but-deferred limitations, and the explicit E3 product
-requirement it surfaced); §12 is the refined E2/E3 sub-staging to preserve
-until those stages start.
+Status: **Stage E3 closed** (accepted through E3.2.11, baseline `7179400`).
+**Read §50 first** — it is the consolidated, canonical description of the
+accepted responsive/mobile-writing state and of what remains for E4–E6.
+§§1–9 are the original E0 audit; §10 records what E1 actually built; §11
+records the E1 real-phone review; §12 is the E2/E3 sub-staging; §§14–49 are
+the per-stage records (E2.1 → E3.2.11) and are **historical**: several of
+them describe designs later corrected or reverted (e.g. §26 unbounded
+manuscript, §32 E3.2.3 shared space, the `:has()` static footer of §38), so
+where a stage record disagrees with §50, §50 wins.
 
 ## Product goal (context)
 
@@ -2770,7 +2772,8 @@ particular the exact focus-scroll landing with the real on-screen keyboard
 `scene-rich-text-editor`, `scene-modal-rich-text`, `all-scenes-rich-text`,
 `scene-surfaces-visual-system` and `dirty` browser suites fail with "modal did
 not close after Save"/click timeouts identically on `2fcaee4` and on `master`;
-unrelated to this stage.
+unrelated to this stage. (The three rich-text suites were later shown to be
+stale tests, not defects, and updated — see §50.5.)
 
 **Files changed:** `css/editor.css`, `tools/mobile-splitter-contract.mjs`,
 `tools/mobile-scene-editor-browser.test.mjs`, this doc.
@@ -2955,3 +2958,199 @@ No Supabase changes, no migrations, `reference/` and `backup/` untouched. E4, E6
 and tablet work were not started. "Весь текст" was not redesigned: only its
 phone outer gutter and its footer's top margin changed. Nothing was pushed or
 merged.
+
+## 50. Stage E3 closeout — canonical accepted state (E1 → E3.2.11)
+
+This section consolidates what §§10–49 built, corrected and reverted into the
+one description that is true **now**. It is not a diary: dead ends are listed
+only as "do not re-try" boundaries. Where an older section disagrees, this one
+wins. Phone means `max-width:760px` (the single breakpoint E1 reused; no new
+breakpoint was introduced in E1–E3). Desktop (>760px) is behaviorally
+unchanged by all of Stage E except where stated.
+
+### 50.1 Accepted architecture, by stage
+
+* **E1 — shell.** Desktop sidebar replaced by the `#mobileNavModal` drawer
+  (tap chapter → `navigateToChapter`, tap scene → `openSceneText`); filter
+  progressive disclosure; wrapped (never clipped) header; `.main-workspace`
+  children reprioritized with CSS `order` (see 50.6).
+* **E2.1 — Cards.** Single column on phone; card tap opens Text Scene
+  (`handleCardPrimaryTap`), double-click still opens the Scene Editor;
+  `.board.view-cards{min-width:0}` so Cards has no internal horizontal pan
+  (Matrix keeps its own).
+* **E2.2 — Quick Scene.** Text-first capture into a normal Scene
+  (`chapter-unassigned`, `floating`, `draft`), title derived from the first
+  line; no schema/RPC change. Introduced `.mobile-fullscreen-modal`, the one
+  shared phone-fullscreen primitive (100dvh, no radius/margin; centered modal
+  on desktop). Quick Scene, Text Scene and the Scene Editor all reuse it.
+* **E3.1 — Text Scene (`#textModal`).** Fullscreen on phone; flex column with
+  `flex:none` toolbar/footer and the manuscript as the single scrolling
+  region. Footer, left to right: Закрыть / Сохранить и закрыть / Сохранить.
+* **E3.2 — Full Scene Editor (`#sceneModal`).** Fullscreen on phone; the
+  **hybrid** scroll model: the outer `#sceneModal .modal` scrolls metadata →
+  title → participants; the manuscript is a bounded, independently scrolling
+  box (`50dvh`). Footer: Отмена / Сохранить и закрыть / Сохранить.
+* **"Весь текст" (`#allScenesModal`).** Phone: true edge-to-edge (backdrop
+  horizontal padding 0, scoped to this modal; the modal's internal 18px
+  padding stays because the sticky footer/toolbar/results bleed against it),
+  and the sticky footer has `margin-top:0` so no blank band sits above it.
+  Final actions: Закрыть / Сохранить и закрыть / Сохранить все изменения.
+
+### 50.2 Find/Replace responsive contract (Text Scene and Scene Editor)
+
+* Current-scene Find/Replace controls (toolbar + find row) live **outside**
+  the manuscript budget: opening Find/Replace, in any scope, never shrinks the
+  manuscript by itself. (E3.2.3 tried the opposite and was rejected on a real
+  phone.)
+* Project/global results share ONE bounded `.rte-manuscript-region` with the
+  manuscript on **both** surfaces (Scene Editor `50dvh` box; Text Scene
+  `flex:1` region). The splitter (`.rte-project-results-resizer`, Pointer
+  Events + `setPointerCapture`, `touch-action:none`) moves height between
+  results and manuscript in opposite directions with the region total
+  invariant. Constants live in `js/editor/find-replace-panel.js`: results
+  90/140/420 (min/default/max), `MANUSCRIPT_MIN_HEIGHT=140`;
+  `effectiveMaxResultsHeight()` reads the region live (including the results
+  wrapper's own margins — `getBoundingClientRect()` excludes margins) so the
+  manuscript is never pushed below its 140px floor.
+* Results horizontal scroll: exactly ONE element scrolls sideways,
+  `.rte-project-results`; rows are `overflow:visible` and share one scroll
+  canvas, every row spans the full canvas width, and the active row's
+  outline/background covers the whole row. Tap on a row navigates; a drag that
+  scrolls does not.
+* Result navigation between scenes works on every surface (verified on the
+  real phone, including project/global search across scenes).
+
+### 50.3 Canonical principles (the "why" behind the CSS)
+
+1. **Bounded region.** The [results + splitter + manuscript] region's height
+   never changes during a drag and its contents never exceed it.
+2. **Anchor invariance.** A splitter drag changes nothing outside the region:
+   outer `scrollTop`, `window.scrollY` and the viewport position of anything
+   above/below are unchanged (`overflow-anchor:none` on the scroller).
+3. **Horizontal ownership.** One horizontal scroller in the results chain
+   (above); the region itself is `overflow-x:clip`, not a scroll container.
+4. **Scroll ownership per surface.** Text Scene: fixed-height flex column,
+   the manuscript region is the only scroller. Scene Editor: the outer modal
+   is the scroller, the manuscript a bounded inner scroller. "Весь текст": the
+   modal scrolls the scene list. Never two competing scrollers for the same
+   axis on the same gesture.
+5. **Sticky footer is unconditional.** `.modal-actions.sticky-modal-footer`
+   (`css/modals.css`, `position:sticky;bottom:-18px`) stays sticky in every
+   Find/Replace state of the Scene Editor (Text Scene's footer is a static
+   flex child of its own fixed column). Do not switch it to `static` to
+   "make room" for anything; instead the phone rules
+   `#sceneModal .modal{scroll-padding-bottom:80px}` and
+   `#sceneModal .rte-find-replace input{scroll-margin-bottom:50dvh}` make the
+   browser's own focus-scroll land the results/splitter clear of it.
+6. **Save semantics (D2.1.2).** "Сохранить" is save-only — it persists,
+   re-baselines the dirty tracker and keeps the modal open; only
+   "Сохранить и закрыть" closes, and only after a successful save. Both are
+   disabled while the surface is clean (`createSaveButtonController`). Close/
+   discard still goes through the guarded `requestCloseModal` path.
+7. **Fix at the owner, measured.** Every E3.2.x fix followed a runtime
+   measurement of the actual owner (bisecting archived copies of earlier
+   commits where needed), not a reading of the CSS. Phone rules that must beat
+   an ID-scoped rule use cascade order on the same selector inside the phone
+   media block; only the fullscreen primitive uses `!important`.
+
+### 50.4 Implementation boundaries discovered during E3 (do not re-try)
+
+* Do not make the manuscript and Find/Replace chrome share one budget (E3.2.3);
+  only the results pane trades height with the manuscript.
+* Do not auto-scroll to reveal the splitter (E3.2.5) and do not make the footer
+  `static` while results are visible (`:has()` rule of E3.2.6, removed in
+  E3.2.9) — both were shown not to fix, or to cause, the defects they targeted.
+* Do not give result rows their own horizontal scrollers (E3.1.1 → E3.1.2).
+* Do not leave the manuscript unbounded inside the Scene Editor's outer scroll
+  (E3.2 → E3.2.1): it makes reaching the participants a novel-length scroll.
+* Desktop CDP/Playwright cannot drive the Android on-screen keyboard or
+  `visualViewport`; keyboard-open layout is confirmable only on a device. A
+  synthetic `element.click()` does not fire `mousedown` (the focus-target
+  capture in `scene-editor-controller.js`); tests must use real taps/clicks.
+* `crypto.randomUUID` is absent on insecure (LAN-HTTP) origins; the fallback
+  from E3.2.1 is required for on-device testing.
+
+### 50.5 Real-device status and test status at closeout
+
+The product owner verified the final behavior on a real Android phone: Scene
+Editor, Text Scene, Find/Replace, the splitter, the sticky footer, "Весь
+текст" and its edge-to-edge layout, project/global search navigation between
+scenes, and the absence of the bottom blank band. This supersedes the
+"pending real-device validation" notes in §§42–48.
+
+Editor browser-test debt closed in this closeout: `scene-rich-text-editor`,
+`scene-modal-rich-text` and `all-scenes-rich-text` had been failing since the
+D2.1.2 save-only change (and the disabled-when-clean Save buttons) because
+they still asserted that "Сохранить" closes the modal and that a no-edit Save
+can be clicked. They were **stale tests, not application defects**; they now
+assert the current contract (save-only keeps the modal open, re-baselines the
+tracker, disables Save, and Close afterwards needs no discard prompt;
+"Сохранить и закрыть" closes; a no-edit `saveAllScenes()` writes nothing).
+No production code changed.
+
+Every other browser suite that exercises an E3 surface passes
+(`mobile-*`, `quick-scene`, `find-replace-*`, `scene-participants`,
+`scene-modal-scroll`, and the three above). Of 69 browser suites, 15 remain
+red at closeout; **all 15 fail identically against the pre-Stage-E baseline
+`f007fc7`** and none tests an E3 contract. They are historical debt, left
+untouched:
+
+* Cloud/real-login suites (`cloud-browser`, `cloud-project-structure`,
+  `scene-search-filter-cloud`, `scene-chronology-cloud`, `stale-warning-clear`,
+  `location-media-profile`) need a live backend/credentials.
+* Location suites: `location-manual-review-layout-stability` (page closes
+  mid-run).
+* Other stale-contract suites in unrelated feature areas:
+  `character-surfaces-visual-system`, `scene-position-*` (×2), `blocking`,
+  `scene-chronology`.
+* Several share the save-only / disabled-when-clean root cause of 50.5 (a
+  save click is expected to close a modal that no longer closes, or a disabled
+  Save is focused): `dirty-browser` («Весь текст» step), `scene-chronology*`,
+  `scene-surfaces-visual-system`, and the focus-trap step of
+  `accessibility-browser`. A single mechanical pass over them is a sensible
+  future chore; it is not E3 work.
+* `accessibility-browser` also has one Stage-E-introduced first failure:
+  `#quickSceneModal` names itself with `aria-label` where the suite (and every
+  other modal) uses `aria-labelledby`. It has an accessible name, so AGENTS.md
+  is satisfied; making it consistent (`aria-labelledby="quickSceneModalTitle"`)
+  belongs to E4's modal work. The suite would stay red regardless (it already
+  fails at the focus-trap step on `f007fc7`).
+
+Note: many browser suites expect a dev server already listening on
+`127.0.0.1:8000` (`node tools/server.mjs`); without one they fail with
+`ERR_CONNECTION_REFUSED`, which is an environment artifact, not debt.
+
+### 50.6 Remaining responsive debt — belongs to later stages
+
+* **E4 — Mobile modal foundation & remaining modals.** The fullscreen
+  primitive exists only for Quick Scene / Text Scene / Scene Editor; every
+  other modal is still an ordinary centered desktop modal on phone
+  (bottom-sheet/fullscreen policy, modal-manager support). Also: give
+  `#quickSceneModal` `aria-labelledby` like every other modal (50.5).
+* **E5 — Secondary work surfaces.** Characters, Locations, Projects/management
+  surfaces; Table and Compact views (still desktop-shaped); header
+  information density and empty-project onboarding (§11).
+* **E6 — Responsive polish & cross-device regression.**
+  * Visual order vs DOM/tab order: parts of the mobile workspace reorder with
+    CSS `order` (E1's `.main-workspace` children). At E1.1 the three moved
+    regions contained no focusable elements (no tab-order effect, only a
+    linear screen-reader sequence nicety, §11); re-check whenever a reordered
+    region gains interactive content and settle it with the final mobile IA.
+  * Landscape / short-height / keyboard-constrained viewports: classification
+    by width alone is insufficient (§28); `.modal-grid-4` is still two columns
+    at 667px, and an expanded project Find/Replace leaves very little
+    manuscript height in landscape (§20 — a compact Find/Replace state is
+    the likely direction, not yet designed).
+  * "Весь текст" with an emulated on-screen keyboard: the sticky stack
+    (toolbar + Find row + results) can exceed the shrunken modal (§48-B
+    limitation). Seen only in desktop viewport emulation, **not reproduced on
+    the real phone**; not treated as a defect — revisit only with real-device
+    evidence.
+  * At 360–390px «Сохранить и закрыть» wraps to two lines in the footers (§46).
+* **E7–E9 — personalization.** Later; nothing in E1–E3 anticipates it.
+
+### 50.7 Explicit confirmation (E3 closeout)
+
+Documentation and test-only change. No production JS/CSS/HTML changed, no
+Supabase/migration/persistence changes, `reference/` and `backup/` untouched,
+E4 not started, nothing pushed or merged.

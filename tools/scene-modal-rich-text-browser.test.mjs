@@ -84,10 +84,19 @@ try{
   const afterUndoClass=await firstPara.getAttribute("class");
   if(afterUndoClass.includes("scene-paragraph-center"))throw new Error("Undo through the Scene modal's toolbar did not revert alignment");
 
-  // --- 4. Save, then reopen: formatting survives.
+  // --- 4. Save, then reopen: formatting survives. "Сохранить" is save-only
+  // since D2.1.2 (docs/find-replace-architecture.md, Finding F/G): it persists
+  // and re-baselines the dirty tracker but keeps the modal open. Close after
+  // it must then need no discard confirmation.
   await page.click("#saveScene");
   await page.waitForTimeout(120);
-  if(await isOpen("sceneModal"))throw new Error("Scene modal did not close after Save");
+  if(!await isOpen("sceneModal"))throw new Error("Save-only closed the Scene modal (only \"Сохранить и закрыть\" should close it)");
+  if(await page.evaluate(()=>trackerFor("sceneModal").isDirty()))throw new Error("Save did not re-baseline the Scene modal's dirty tracker");
+  if(!await page.$eval("#saveScene",el=>el.disabled))throw new Error("Save button should be disabled once the Scene modal is clean");
+  await page.click("#cancelScene");
+  await page.waitForTimeout(80);
+  if(await isOpen("discardChangesModal"))throw new Error("Closing right after Save showed a discard confirmation (baseline not refreshed)");
+  if(await isOpen("sceneModal"))throw new Error("Scene modal did not close via Cancel after Save");
   let saved=await page.evaluate(()=>JSON.parse(localStorage.getItem("novelTimelineV11")));
   const savedLegacy=saved.scenes.find(s=>s.id==="scene-legacy");
   if(!savedLegacy.sceneTextDoc||savedLegacy.sceneTextDoc.type!=="doc")throw new Error("sceneTextDoc was not persisted from the Scene modal");
