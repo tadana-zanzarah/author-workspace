@@ -2645,3 +2645,140 @@ metadata/participants and Quick Scene were not changed. The E3.2.6 bounded
 region, the 50dvh / 140px / default-result-height numbers, MIN/MAX results
 constraints and the shared horizontal project-results scrolling model are
 preserved. Nothing was pushed or merged.
+
+## 44. Stage E3.2.9 — Full Scene Editor sticky footer restored
+
+Real-phone validation of E3.2.8 accepted every E3.2.8 fix and found one
+regression: in the Full Scene Editor, Закрыть / Сохранить и закрыть /
+Сохранить текст were not sticky — scrolled to Find/Replace → results →
+manuscript → «ПЕРСОНАЖИ» the footer was absent below the viewport.
+
+### Exact cause and first bad stage (runtime geometry, not CSS reading)
+
+The footer's outer-modal viewport gap (`modal bottom − footer bottom`) was
+sampled at five outer-scroll positions per state on archived copies of each
+commit (`git archive`, no repo changes):
+
+| state | c2dcc39 (E3.2.5) | fcf92df (E3.2.6) | 2e0aec4 (E3.2.7) | 2fcaee4 (E3.2.8) |
+|---|---|---|---|---|
+| Find/Replace closed | sticky, gap 0 | sticky, gap 0 | sticky, gap 0 | sticky, gap 0 |
+| current-scene | sticky, gap 0 | sticky, gap 0 | sticky, gap 0 | sticky, gap 0 |
+| project results visible | sticky, gap 0 | **static, gap −1113…−259 (off-screen)** | **static** | **static** |
+
+* **First bad stage: E3.2.6 (`fcf92df`).** Last good: E3.2.5 (`c2dcc39`).
+  E3.2.8 did **not** cause it — its `overflow-x:clip`, removed vertical clip
+  and canvas changes leave the footer sticky (gap 0) in the closed and
+  current-scene states, and the broken state is byte-identical at all three
+  later commits.
+* **Cause:** E3.2.6 added
+  `#sceneModal:has(.rte-project-results-wrapper:not([hidden])) .modal-actions
+  .sticky-modal-footer{position:static;bottom:auto}` so the splitter could
+  never sit under the footer. Whenever results were visible — exactly the state
+  where users are editing — the footer stopped being sticky and scrolled away
+  with the content. It never affected the sticky containing block or scroll
+  owner: the footer is a child of `#sceneModal .modal`, which is the scroller
+  (`overflow:auto`), before and after.
+* It also never delivered its promise: with the static footer the splitter was
+  *still* not immediately reachable on short phones (375×667, 360×640: the
+  splitter was off-screen), because the real cause of the original occlusion
+  was never the footer (below).
+
+### What actually hid the splitter (E3.2.5 diagnosis, re-measured)
+
+Opening Find/Replace focuses the find input and the browser's *native*
+focus-scroll lands just far enough to show the **input** — with no awareness
+of the results pane and splitter beneath it (nor of the sticky footer's
+strip). On a tall phone that put the splitter under the footer's strip; on a
+short one, off-screen. Measured with only the `:has()` rule removed:
+375×812 splitter covered by the footer; 375×667 / 360×640 off-screen.
+
+### Final model — footer sticky in every state, splitter clear of it, as geometry
+
+Phone media block, `css/editor.css` (no JS, no auto-scroll, `:has()` removed):
+
+```
+#sceneModal .modal                    { scroll-padding-bottom:80px }
+#sceneModal .rte-find-replace input   { scroll-margin-bottom:50dvh }
+```
+
+* **Sticky ownership / containing block (unchanged, restored to always-on):**
+  `.modal-actions.sticky-modal-footer` (`css/modals.css`,
+  `position:sticky;bottom:-18px;z-index:5`) sticks to the bottom of its scroll
+  container `#sceneModal .modal`; nothing between them creates another scroller
+  (`.scene-section`/`.rte-manuscript-region` are not its ancestors).
+* `scroll-padding-bottom:80px` on the scroller makes native scroll-into-view of
+  *any* control treat the footer's strip as obscured (footer height measured
+  75px at 320–375px wide, 59px at 412px — its buttons wrap — so 80px covers it).
+* `scroll-margin-bottom:50dvh` on the Find/Replace inputs makes revealing the
+  input also reveal the region beneath it (that region's own budget is 50dvh),
+  so the results pane and splitter land above the footer. If the box is taller
+  than the viewport (on-screen keyboard) the browser aligns the input to the top,
+  which is still visible.
+* Verified across 320×568, 360×640, 375×667, 360×780, 375×812, 393×851,
+  390×844, 414×896, 412×915: the splitter is the hit-test target immediately
+  after opening project search. Tried and rejected: removing the `:has()` rule
+  alone (footer covers the splitter at 375×812); adding only `scroll-padding`
+  (small phones still under the footer).
+* After every splitter drag (grow, shrink, MIN, MAX) at 375×812, 360×640 and
+  412×915 — with no settling scroll — the splitter remains the hit-test
+  target, the footer's `top` is unchanged, and outer `scrollTop` is unchanged.
+
+Phone-only: desktop computed `scroll-padding-bottom`/`scroll-margin-bottom`
+stay `auto`/`0px`; desktop and Text Scene numbers are identical before/after
+(Text Scene's footer is, and remains, `position:static` in its own flex column).
+
+### Preserved E3.2.8 invariants (all re-verified by the shared contract)
+
+Outer `scrollTop`/`window.scrollY` unchanged by a splitter drag with the
+manuscript focused (`overflow-anchor:none`); region total height invariant and
+opposite-direction exchange; 140px manuscript floor; bottom border/radii intact
+(`overflow-y:visible`, shrinkable results wrapper); `overflow-x:clip` region;
+`.rte-project-results` the only horizontal scrollport; shared canvas with
+full-width rows. None was reverted or reworked.
+
+### Regression (`tools/mobile-splitter-contract.mjs`, `runStickyFooterContract`,
+run by `mobile-scene-editor-browser`)
+
+Observed geometry, never just `position:sticky`: for each state the outer modal
+is genuinely scrolled to 0/25/50/75/100% (each position must be reached, the
+range must be ≥400px and the sampled positions must differ by ≥300px, so the
+test cannot pass vacuously), and at each the footer must lie inside the
+modal's viewport, be flush to its bottom (≤1px, or within its 0–26px natural
+resting range in the last 40px), and be the hit-test target of its own button.
+States: closed, current-scene, project default, after grow, after shrink, MIN,
+MAX — at 375×812 and 360×640. Splitter checks: hit-testable and clear of the
+footer before each drag and straight after it; footer `top` and outer
+`scrollTop` unchanged by the drag. Baseline proof (contract run against each
+commit's archived code): `fcf92df`, `2e0aec4`, `2fcaee4` FAIL at "project
+results, default splitter — footer left the modal's visible viewport at
+scrollTop 0/933 (gap below viewport bottom: −932.7px)"; the closed and
+current-scene states pass there, confirming E3.2.8 is not the cause.
+`c2dcc39` (footer sticky, pre-E3.2.6) instead fails on the E3.2.8 scroll-
+anchoring invariant (outer modal scrolled 493→593 on a splitter drag),
+independently confirming the footer was last good there. Fix: PASS.
+Phone landscape (667×375, sanity only): footer pinned (HEAD: static, gap
+−964px), splitter reachable after a user scroll; no redesign.
+
+### Real-device validation status
+
+Automated: complete as above. Not yet validated on a real phone — in
+particular the exact focus-scroll landing with the real on-screen keyboard
+(`visualViewport`), which desktop CDP cannot drive.
+
+### Pre-existing failures noted, not touched
+
+`scene-rich-text-editor`, `scene-modal-rich-text`, `all-scenes-rich-text`,
+`scene-surfaces-visual-system` and `dirty` browser suites fail with "modal did
+not close after Save"/click timeouts identically on `2fcaee4` and on `master`;
+unrelated to this stage.
+
+**Files changed:** `css/editor.css`, `tools/mobile-splitter-contract.mjs`,
+`tools/mobile-scene-editor-browser.test.mjs`, this doc.
+
+## 45. Explicit confirmation (E3.2.9)
+
+No Supabase changes, no migrations, `reference/` and `backup/` untouched.
+E4, E6 and tablet work were not started; landscape was sanity-checked only.
+The splitter, results, manuscript, horizontal-ownership and result-row-canvas
+architecture of E3.2.8 was not reworked. Text Scene and desktop are unchanged.
+Nothing was pushed or merged.

@@ -309,34 +309,34 @@
      sync if it ever changes. */
   #sceneModal .rte-manuscript-region .rte-editor{height:auto;min-height:140px}
 
-  /* Stage E3.2.6: structural sticky-footer fix (replaces E3.2.5's removed
-     auto-scroll workaround). `.sticky-modal-footer` (css/modals.css) is
-     always pinned over the last ~75px of `#sceneModal .modal`'s own
-     viewport at nearly any scroll depth. Opening Find/Replace focuses the
-     find input, and the browser's own native "scroll the newly-focused
-     element into view" lands wherever is JUST enough to reveal that
-     input -- with zero awareness of the resizer further down, which can
-     still end up under that reserved strip (confirmed by direct
-     measurement: the same near-miss as E3.2.5 diagnosed, unrelated to and
-     unfixed by `.rte-manuscript-region` above, since it's driven entirely
-     by content ABOVE the region, not by anything within it). Rather than
-     chasing that scroll position with more `scroll-margin`/auto-scroll
-     compensation (rejected -- the real-phone verdict on E3.2.5 was that
-     auto-repositioning the outer modal is itself the problem), this
-     applies the EXACT same precedent `#textModal` already uses
-     UNCONDITIONALLY (`#textModal .modal-actions.sticky-modal-footer{
-     position:static}` above): while the project-results pane is visible,
-     the footer simply stops being sticky, so there is nothing left for
-     the resizer to ever be occluded BY, regardless of scroll position,
-     viewport width, or how many rows the Find/Replace controls wrap to.
-     Save/Cancel are still reachable at the natural end of the outer
-     scroll, exactly as they were for every modal before `.sticky-modal-
-     footer` existed. `:has()` is an already-established technique in this
-     codebase (css/modals.css/profiles.css/timeline.css), not new here. */
-  #sceneModal:has(.rte-project-results-wrapper:not([hidden]))
-    .modal-actions.sticky-modal-footer{
-    position:static;bottom:auto;
-  }
+  /* Stage E3.2.9: sticky footer + splitter reachability, as GEOMETRY.
+     E3.2.6 made the footer `position:static` whenever the project-results
+     pane was visible (a `:has()` rule) so the resizer could never sit under
+     it. That silently un-stuck Save/Close in exactly the state users write
+     in (measured: identical at fcf92df / 2e0aec4 / 2fcaee4 -- footer top
+     scrolled away with the content, gap -1113..-259px; last good c2dcc39).
+     The footer is sticky again in every state (css/modals.css). What used to
+     hide the resizer was not the footer but where the browser's native
+     "scroll the newly-focused find input into view" landed: just far enough
+     to show the INPUT, leaving the results pane and its splitter below it --
+     under the footer's strip on tall phones, off-screen on short ones (V0
+     measured: 375x667 and 360x640 were not immediately reachable even with
+     the static footer). Two declarations make the native scroll account for
+     both facts, with no JS and no auto-scroll:
+       - `scroll-padding-bottom` on the scroller: native scroll-into-view of
+         ANY control treats the sticky footer's strip as obscured. 80px covers
+         the footer's measured 59-75px height (its buttons wrap on narrow
+         phones).
+       - `scroll-margin-bottom` on the Find/Replace inputs: revealing the
+         input also reveals the region beneath it (the manuscript region's
+         own budget is 50dvh), so the results pane + splitter land above the
+         footer. If that box is taller than the viewport (on-screen keyboard)
+         the browser falls back to aligning the input at the top, which is
+         still visible.
+     Verified across 320x568 .. 414x896 (splitter is the hit-test target
+     immediately after opening project search, footer sticky). */
+  #sceneModal .modal{scroll-padding-bottom:80px}
+  #sceneModal .rte-find-replace input{scroll-margin-bottom:50vh;scroll-margin-bottom:50dvh}
 }
 
 /* Stage E2.2: Quick Scene (#quickSceneModal) — reuses .rte-toolbar/
@@ -525,8 +525,12 @@
    lands the resizer under the footer is driven entirely by the browser's
    native "scroll the newly-focused find input into view" behavior, which
    only depends on content ABOVE the region (title/metadata/toolbar), not
-   on anything the region itself changed. The actual structural fix is the
-   `:has()` rule above, in the `.rte-manuscript-region` media block
+   on anything the region itself changed. HISTORY: E3.2.6 answered with a
+   `:has()` rule that made the footer non-sticky; E3.2.9 REMOVED it (it
+   un-stuck Save/Close whenever results were visible) and replaced it with
+   scroll-padding/scroll-margin geometry -- see the "Stage E3.2.9" comment in
+   the phone media block above. The E3.2.6 rule was, in the `.rte-manuscript-
+   region` media block
    (`#sceneModal:has(.rte-project-results-wrapper:not([hidden]))
    .modal-actions.sticky-modal-footer{position:static}`): removed here
    after confirming, via a genuine CDP touch reproduction,

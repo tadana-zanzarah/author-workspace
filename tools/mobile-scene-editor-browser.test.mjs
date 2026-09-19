@@ -1,6 +1,6 @@
 import {createRequire} from "node:module";
 import {spawn} from "node:child_process";
-import {runSplitterContract} from "./mobile-splitter-contract.mjs";
+import {runSplitterContract,runStickyFooterContract} from "./mobile-splitter-contract.mjs";
 
 const require=createRequire("C:/Users/tadan/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/");
 const {chromium}=require("playwright");
@@ -668,6 +668,9 @@ try{
   // Stage E3.2.8: the real-phone splitter/clipping/horizontal-containment
   // contract (shared with Text Scene) -- see tools/mobile-splitter-contract.mjs.
   await runSplitterContract({browser,base,surface:"scene"});
+  // Stage E3.2.9: the sticky footer must stay pinned in EVERY Find/Replace state
+  // and coexist with the splitter (observed geometry, not just position:sticky).
+  await runStickyFooterContract({browser,base});
 
   console.log("Mobile Scene Editor browser tests passed");
 }finally{await browser.close();server.kill()}

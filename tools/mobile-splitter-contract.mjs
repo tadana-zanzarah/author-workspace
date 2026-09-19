@@ -37,7 +37,10 @@ const sel=surface=>surface==="scene"
   ?{modal:"#sceneModal",scroller:"#sceneModal .modal",editor:"#sceneTextEditor",toolbar:"#sceneTextToolbar",find:"#sceneTextFindReplace",above:"#sceneTextFindReplace",below:".scene-participant-selector",open:"editScene"}
   :{modal:"#textModal",scroller:"#textModal .modal",editor:"#fullSceneTextEditor",toolbar:"#fullSceneTextToolbar",find:"#fullSceneTextFindReplace",above:"#fullSceneTextFindReplace",below:"#textModal .modal-actions",open:"openSceneText"};
 
-export async function newContractPage(browser,base,surface,viewport={width:375,height:812}){
+// `stage`: how far to drive the UI -- "editor" (Find/Replace closed), "find"
+// (current-scene Find/Replace open), or "project" (default: project scope with
+// results visible).
+export async function newContractPage(browser,base,surface,viewport={width:375,height:812},stage="project"){
   const s=sel(surface);
   const page=await browser.newPage({viewport,isMobile:true,hasTouch:true,userAgent:UA});
   page.setDefaultTimeout(5000);
@@ -48,7 +51,9 @@ export async function newContractPage(browser,base,surface,viewport={width:375,h
   await page.evaluate(([fn])=>window[fn]("scene-a"),[s.open]);
   await page.waitForFunction(m=>document.querySelector(m).style.display==="flex",s.modal);
   await page.waitForSelector(`${s.editor} .ProseMirror`);
+  if(stage==="editor")return page;
   await page.tap(`${s.toolbar} .rte-btn-find`);
+  if(stage==="find")return page;
   await page.tap(`${s.find} .rte-scope-btn:not(.active)`);
   await page.locator(`${s.find} .rte-find-input`).fill(KEY);
   await page.waitForSelector(`${s.modal} .rte-project-result-row`);
@@ -327,6 +332,118 @@ export async function runSplitterContract({browser,base,surface,checks={}}){
     sl=await scrollLefts();
     if(on("C")&&sl.others.length)throw new Error(`${tag}: an ancestor scrolled sideways during row activation: ${JSON.stringify(sl)}`);
     if(on("C")&&await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)>1)throw new Error(`${tag}: the document overflows horizontally after the interaction`);
+    if(page.__errors.length)throw new Error(`${tag}: page errors: ${page.__errors.join("; ")}`);
+    await page.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stage E3.2.9: the Full Scene Editor's sticky footer (Закрыть / Сохранить и
+// закрыть / Сохранить текст) must stay pinned to the bottom of the OUTER
+// modal's viewport while that modal scrolls -- in EVERY Find/Replace state --
+// and must coexist with the splitter (splitter immediately hit-testable, never
+// under the footer, footer never moves because of a drag).
+//
+// Real regression this pins (E3.2.6 -> E3.2.8): a `:has()` rule made the
+// footer `position:static` whenever project results were visible, so Save/Close
+// scrolled away with the content. Asserting `position:sticky` alone would miss
+// that class of bug (and any containing-block/overflow change that breaks
+// stickiness while the computed value still says `sticky`), so everything here
+// is OBSERVED GEOMETRY: the footer's viewport rect while the outer modal is
+// really scrolled. The scroll is proven real (not vacuous) by requiring the
+// outer scroller to have a large range and each sampled position to be reached.
+// ---------------------------------------------------------------------------
+async function assertFooterPinned(page,label){
+  const geo=()=>page.evaluate(()=>{
+    const m=document.querySelector("#sceneModal .modal"),f=m.querySelector(".modal-actions.sticky-modal-footer");
+    const mr=m.getBoundingClientRect(),fr=f.getBoundingClientRect();
+    return {scrollTop:m.scrollTop,maxScroll:m.scrollHeight-m.clientHeight,pos:getComputedStyle(f).position,
+      gap:mr.top+m.clientHeight-fr.bottom,fits:fr.top>=mr.top-0.5&&fr.bottom<=mr.top+m.clientHeight+0.5,
+      hitsFooter:(()=>{const b=f.querySelector("button").getBoundingClientRect();const e=document.elementFromPoint(b.x+b.width/2,b.y+b.height/2);return !!e&&f.contains(e)})()};
+  });
+  const start=await geo();
+  if(start.maxScroll<400)throw new Error(`[${label}] vacuous: the outer modal must have a real scroll range to prove stickiness, got ${start.maxScroll}px`);
+  const seen=[];
+  for(const frac of [0,0.25,0.5,0.75,1]){
+    const target=Math.round(start.maxScroll*frac);
+    await page.$eval("#sceneModal .modal",(m,t)=>{m.scrollTop=t},target);
+    await page.waitForTimeout(70);
+    const g=await geo();
+    if(Math.abs(g.scrollTop-target)>1.5)throw new Error(`[${label}] the outer modal did not actually scroll to ${target} (at ${g.scrollTop})`);
+    seen.push(g.scrollTop);
+    if(!g.fits)throw new Error(`[${label}] footer left the modal's visible viewport at scrollTop ${g.scrollTop}/${g.maxScroll} (gap below viewport bottom: ${g.gap.toFixed(1)}px)`);
+    // Pinned flush to the viewport bottom everywhere except the last ~40px of
+    // scroll, where it rests at its natural end position (measured 24.9px up).
+    const inEndZone=g.scrollTop>=g.maxScroll-40;
+    if(!inEndZone&&Math.abs(g.gap)>1)throw new Error(`[${label}] footer is not pinned to the viewport bottom at scrollTop ${g.scrollTop}/${g.maxScroll}: gap ${g.gap.toFixed(1)}px`);
+    if(inEndZone&&(g.gap<-1||g.gap>26))throw new Error(`[${label}] footer end position out of range: gap ${g.gap.toFixed(1)}px`);
+    if(!g.hitsFooter)throw new Error(`[${label}] the footer's own button is not the hit-test target at scrollTop ${g.scrollTop}`);
+    // Secondary, and deliberately LAST: observed geometry above is the proof.
+    if(g.pos!=="sticky")throw new Error(`[${label}] footer is not position:sticky (computed ${g.pos}) at scrollTop ${g.scrollTop}`);
+  }
+  if(Math.max(...seen)-Math.min(...seen)<300)throw new Error(`[${label}] vacuous: sampled scroll positions barely differ: ${JSON.stringify(seen)}`);
+  await page.$eval("#sceneModal .modal",(m,t)=>{m.scrollTop=t},start.scrollTop);
+  await page.waitForTimeout(70);
+}
+
+const resizerHit=page=>page.evaluate(()=>{
+  const rz=document.querySelector("#sceneModal .rte-project-results-resizer"),r=rz.getBoundingClientRect();
+  const f=document.querySelector("#sceneModal .modal-actions.sticky-modal-footer").getBoundingClientRect();
+  const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+  return {ok:hit===rz,hit:hit===rz?"resizer":(hit?.className||hit?.tagName||"nothing (off-screen)"),y:r.y,overlapsFooter:r.bottom>f.top&&r.top<f.bottom,footerTop:f.top};
+});
+
+export async function runStickyFooterContract({browser,base}){
+  const s=sel("scene");
+  // ---- A / B: Find/Replace closed, then current-scene
+  {
+    const page=await newContractPage(browser,base,"scene",{width:375,height:812},"editor");
+    await assertFooterPinned(page,"footer: Find/Replace closed");
+    await page.tap(`${s.toolbar} .rte-btn-find`);
+    await page.waitForSelector(`${s.find} .rte-find-input`,{state:"visible"});
+    await page.waitForTimeout(150);
+    await assertFooterPinned(page,"footer: current-scene Find/Replace");
+    await page.close();
+  }
+  // ---- C..H at a normal AND a tight phone
+  for(const [w,h] of [[375,812],[360,640]]){
+    const tag=`${w}x${h}`;
+    const page=await newContractPage(browser,base,"scene",{width:w,height:h});
+    const cdp=await page.context().newCDPSession(page);
+    // C/D: project scope, default splitter. NOTHING has scrolled the outer
+    // modal but the browser's own focus-scroll: the splitter must already be
+    // the hit-test target, clear of the footer.
+    let hit=await resizerHit(page);
+    if(!hit.ok||hit.overlapsFooter)throw new Error(`[${tag} project default] the splitter must be immediately hit-testable and clear of the sticky footer: ${JSON.stringify(hit)}`);
+    await assertFooterPinned(page,`${tag} footer: project results, default splitter`);
+
+    await page.evaluate(s=>document.querySelector(`${s.editor} .ProseMirror`).focus({preventScroll:true}),s);
+    await page.waitForTimeout(150);
+    const footTop=()=>page.evaluate(()=>document.querySelector("#sceneModal .modal-actions.sticky-modal-footer").getBoundingClientRect().top);
+    const outerTop=()=>page.$eval("#sceneModal .modal",m=>m.scrollTop);
+    const dragFromHere=async(dy,label)=>{
+      hit=await resizerHit(page);
+      if(!hit.ok||hit.overlapsFooter)throw new Error(`[${tag} ${label}] splitter must be hit-testable before the drag starts: ${JSON.stringify(hit)}`);
+      const box=await page.$eval(".rte-project-results-resizer",el=>{const r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}});
+      const ft0=await footTop(),st0=await outerTop();
+      await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:box.x,y:box.y,id:1}]});
+      for(let i=1;i<=10;i++){await cdp.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x:box.x,y:box.y+dy*i/10,id:1}]});await page.waitForTimeout(16)}
+      await cdp.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});await page.waitForTimeout(150);
+      const ft1=await footTop(),st1=await outerTop();
+      if(Math.abs(ft1-ft0)>1)throw new Error(`[${tag} ${label}] the sticky footer moved because of the splitter drag: ${ft0} -> ${ft1}`);
+      if(Math.abs(st1-st0)>0.5)throw new Error(`[${tag} ${label}] the outer modal scrolled because of the splitter drag (E3.2.8 invariant): ${st0} -> ${st1}`);
+      // straight after the finger lifts -- no settling scroll -- it must still be usable
+      hit=await resizerHit(page);
+      if(!hit.ok||hit.overlapsFooter)throw new Error(`[${tag} ${label}] splitter is not hit-testable / is under the footer right after the drag: ${JSON.stringify(hit)}`);
+    };
+    await dragFromHere(100,"E: after grow");
+    await assertFooterPinned(page,`${tag} footer: after splitter grow`);
+    await dragFromHere(-60,"F: after shrink");
+    await assertFooterPinned(page,`${tag} footer: after splitter shrink`);
+    await dragFromHere(-2000,"G: at practical MIN");
+    await assertFooterPinned(page,`${tag} footer: splitter at MIN`);
+    await dragFromHere(2000,"H: at practical MAX");
+    await assertFooterPinned(page,`${tag} footer: splitter at MAX`);
     if(page.__errors.length)throw new Error(`${tag}: page errors: ${page.__errors.join("; ")}`);
     await page.close();
   }
